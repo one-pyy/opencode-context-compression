@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 import type { CompactionRoute } from "../state/store.js";
 
+const DEFAULT_SCHEDULER_MARK_THRESHOLD = 1;
+
 export const RUNTIME_CONFIG_ENV = Object.freeze({
   configPath: "OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH",
   promptPath: "OPENCODE_CONTEXT_COMPRESSION_PROMPT_PATH",
@@ -20,6 +22,7 @@ export interface RuntimeConfig {
   readonly promptPath: string;
   readonly promptText: string;
   readonly models: readonly string[];
+  readonly schedulerMarkThreshold: number;
   readonly route: CompactionRoute;
   readonly runtimeLogPath: string;
   readonly seamLogPath: string;
@@ -30,6 +33,7 @@ interface RuntimeConfigFile {
   readonly version: number;
   readonly promptPath: string;
   readonly compactionModels: readonly string[];
+  readonly schedulerMarkThreshold: number;
   readonly route: CompactionRoute;
   readonly runtimeLogPath: string;
   readonly seamLogPath: string;
@@ -64,6 +68,7 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
   const debugSnapshotPath = readOptionalPathEnv(env, RUNTIME_CONFIG_ENV.debugSnapshotPath, repoRoot);
   const promptText = readPromptText(promptPath);
   const models = readModelsOverride(env, fileConfig.compactionModels);
+  const schedulerMarkThreshold = fileConfig.schedulerMarkThreshold;
   const route = readRouteOverride(env, fileConfig.route);
 
   return {
@@ -72,6 +77,7 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     promptPath,
     promptText,
     models,
+    schedulerMarkThreshold,
     route,
     runtimeLogPath,
     seamLogPath,
@@ -115,6 +121,11 @@ function parseRuntimeConfigFile(configPath: string, repoRoot: string): RuntimeCo
       repoRoot,
     ),
     compactionModels: readRequiredModelArray(parsed.compactionModels, configPath),
+    schedulerMarkThreshold: readOptionalPositiveInteger(
+      parsed.schedulerMarkThreshold,
+      configPath,
+      "schedulerMarkThreshold",
+    ) ?? DEFAULT_SCHEDULER_MARK_THRESHOLD,
     route: readRequiredRoute(parsed.route, configPath, "route"),
     runtimeLogPath: resolveConfiguredPath(
       readRequiredNonEmptyString(parsed.runtimeLogPath, configPath, "runtimeLogPath"),
@@ -280,6 +291,24 @@ function readRequiredRoute(value: unknown, sourcePath: string, fieldName: string
   }
 
   return value;
+}
+
+function readRequiredPositiveInteger(value: unknown, sourcePath: string, fieldName: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
+    throw new OpencodeContextCompressionRuntimeConfigError(
+      `${sourcePath} field '${fieldName}' must be a positive integer.`,
+    );
+  }
+
+  return value;
+}
+
+function readOptionalPositiveInteger(value: unknown, sourcePath: string, fieldName: string): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return readRequiredPositiveInteger(value, sourcePath, fieldName);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

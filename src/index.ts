@@ -3,6 +3,7 @@ import type { Hooks, Plugin, PluginInput } from "@opencode-ai/plugin";
 import { loadRuntimeConfig } from "./config/runtime-config.js";
 import { createCompressionMarkTool } from "./tools/compression-mark.js";
 import { createMessagesTransformHook } from "./projection/messages-transform.js";
+import { createChatParamsSchedulerHook } from "./runtime/chat-params-scheduler.js";
 import { createSendEntryGateHooks } from "./runtime/send-entry-gate.js";
 import { createFileBackedSeamObservationJournal } from "./seams/file-journal.js";
 import { createNoopObservationHooks, createSeamObservationJournal } from "./seams/noop-observation.js";
@@ -24,11 +25,21 @@ const plugin: Plugin = async (ctx) => {
     pluginDirectory: ctx.directory,
   });
 
+  const observedChatParams = hooks["chat.params"];
   const observedMessagesTransform = hooks["experimental.chat.messages.transform"];
   const observedToolExecuteBefore = hooks["tool.execute.before"];
+  const chatParamsScheduler = createChatParamsSchedulerHook({
+    pluginDirectory: ctx.directory,
+    client: ctx.client,
+    runtimeConfig,
+  });
   const messagesTransform = createMessagesTransformHook({
     pluginDirectory: ctx.directory,
   });
+  hooks["chat.params"] = async (input, output) => {
+    await chatParamsScheduler(input, output);
+    await observedChatParams?.(input, output);
+  };
   hooks["experimental.chat.messages.transform"] = async (input, output) => {
     await messagesTransform(input, output);
     await observedMessagesTransform?.(input, output);

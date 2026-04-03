@@ -1,7 +1,22 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import type { Hooks, PluginInput } from "@opencode-ai/plugin";
 
+import { createChatParamsSchedulerHook } from "../../src/runtime/chat-params-scheduler.js";
+import { readSessionFileLock, releaseSessionFileLock } from "../../src/runtime/file-lock.js";
+import { waitForOrdinaryChatGateIfNeeded } from "../../src/runtime/send-entry-gate.js";
+import { persistMark } from "../../src/marks/mark-service.js";
+import { createSqliteSessionStateStore, type SqliteSessionStateStore } from "../../src/state/store.js";
+import type { CompactionRunnerTransport } from "../../src/compaction/runner.js";
+import type { RuntimeConfig } from "../../src/config/runtime-config.js";
 import { findProductionCallSites, formatAuditHits, readRepoFile } from "./cutover-test-helpers.js";
+
+type ChatParamsInput = Parameters<NonNullable<Hooks["chat.params"]>>[0];
+type ChatParamsOutput = Parameters<NonNullable<Hooks["chat.params"]>>[1];
+type PluginClient = PluginInput["client"];
 
 test("live plugin wiring reaches repo-owned mark persistence and compaction runner paths", async () => {
   const entrypointSource = await readRepoFile("src/index.ts");
@@ -40,3 +55,434 @@ test("live plugin wiring reaches repo-owned mark persistence and compaction runn
     );
   }
 });
+
+test("scheduler reaches batch freeze and runner", async () => {
+  await withSchedulerEnvironment(async ({ pluginDirectory, store, clock, runtimeConfig, sessionMessages }) => {
+    seedMarkedSession(store, clock);
+    const seenRequests: Array<{ model: string; promptText: string; hostMessageIDs: string[] }> = [];
+    const hook = createChatParamsSchedulerHook({
+      pluginDirectory,
+      client: createClientFixture(sessionMessages),
+      runtimeConfig,
+      runInBackground: false,
+      now: () => clock.tick(),
+      transport: createSafeTransport(async (request) => {
+        seenRequests.push({
+          model: request.model,
+          promptText: request.input.promptText,
+          hostMessageIDs: request.input.sourceMessages.map((message) => message.hostMessageID),
+        });
+        return { contentText: "Compressed summary." };
+      }),
+    });
+
+    await hook(
+      createChatParamsInput(store.sessionID, "user-trigger-1"),
+      createChatParamsOutput(),
+    );
+
+    const activeMarks = store.listMarks({ status: "active" });
+    assert.deepEqual(activeMarks, []);
+    assert.equal(store.listMarks().at(0)?.status, "consumed");
+
+    const batchID = store.findFirstCommittedReplacementForMark("mark-1")?.batchID;
+    assert.equal(typeof batchID, "string");
+    if (typeof batchID !== "string") {
+      assert.fail("expected scheduler-triggered replacement to record its batch ID");
+    }
+
+    const batches = store.listCompactionBatchMarks(batchID);
+    assert.equal(batches.length, 1);
+    assert.equal(store.getCompactionBatch(batchID)?.status, "succeeded");
+    assert.equal(store.findFirstCommittedReplacementForMark("mark-1")?.contentText, "Compressed summary.");
+    assert.deepEqual(seenRequests, [
+      {
+        model: runtimeConfig.models[0],
+        promptText: runtimeConfig.promptText,
+        hostMessageIDs: ["assistant-1", "tool-1"],
+      },
+    ]);
+  });
+});
+
+test("send-entry gate remains the wait authority", async () => {
+  await withSchedulerEnvironment(async ({ pluginDirectory, store, clock, runtimeConfig, sessionMessages }) => {
+    seedMarkedSession(store, clock);
+    let releaseTransport: (() => void) | undefined;
+    const backgroundErrors: unknown[] = [];
+    const transportStarted = new Promise<void>((resolve) => {
+      releaseTransport = resolve;
+    });
+    const hook = createChatParamsSchedulerHook({
+      pluginDirectory,
+      client: createClientFixture(sessionMessages),
+      runtimeConfig,
+      runInBackground: true,
+      now: () => clock.tick(),
+      transport: createSafeTransport(async () => {
+        await transportStarted;
+        return { contentText: "Compressed summary." };
+      }),
+      onBackgroundError(error) {
+        backgroundErrors.push(error);
+      },
+    });
+
+    await hook(
+      createChatParamsInput(store.sessionID, "user-trigger-2"),
+      createChatParamsOutput(),
+    );
+
+    await waitForRunningLock(pluginDirectory, store.sessionID, backgroundErrors);
+
+    const waitPromise = waitForOrdinaryChatGateIfNeeded({
+      pluginDirectory,
+      sessionID: store.sessionID,
+      pollIntervalMs: 1,
+    });
+    const raceOutcome = await Promise.race([
+      waitPromise.then(() => "settled"),
+      delay(10).then(() => "pending"),
+    ]);
+
+    assert.equal(raceOutcome, "pending");
+    releaseTransport?.();
+    const waitOutcome = await waitPromise;
+    assert.deepEqual(waitOutcome, {
+      outcome: "succeeded",
+      source: "compaction-batch",
+    });
+  });
+});
+
+test("default chat.params scheduler path returns before transport completion", async () => {
+  await withSchedulerEnvironment(async ({ pluginDirectory, store, clock, runtimeConfig, sessionMessages }) => {
+    seedMarkedSession(store, clock);
+    let releaseTransport: (() => void) | undefined;
+    let transportStarted = false;
+    const backgroundErrors: unknown[] = [];
+    const transportBlocked = new Promise<void>((resolve) => {
+      releaseTransport = resolve;
+    });
+    const hook = createChatParamsSchedulerHook({
+      pluginDirectory,
+      client: createClientFixture(sessionMessages),
+      runtimeConfig,
+      now: () => clock.tick(),
+      transport: createSafeTransport(async () => {
+        transportStarted = true;
+        await transportBlocked;
+        return { contentText: "Compressed summary." };
+      }),
+      onBackgroundError(error) {
+        backgroundErrors.push(error);
+      },
+    });
+
+    const hookResult = await Promise.race([
+      hook(createChatParamsInput(store.sessionID, "user-trigger-2"), createChatParamsOutput()).then(() => "returned"),
+      delay(10).then(() => "blocked"),
+    ]);
+
+    assert.equal(hookResult, "returned");
+    await waitForRunningLock(pluginDirectory, store.sessionID, backgroundErrors);
+    assert.equal(transportStarted, true);
+
+    releaseTransport?.();
+    await waitForSchedulerResult(store, backgroundErrors);
+    assert.equal(store.findFirstCommittedReplacementForMark("mark-1")?.contentText, "Compressed summary.");
+  });
+});
+
+async function withSchedulerEnvironment(
+  run: (context: {
+    pluginDirectory: string;
+    store: SqliteSessionStateStore;
+    clock: ReturnType<typeof createClock>;
+    runtimeConfig: RuntimeConfig;
+    sessionMessages: ReturnType<typeof createSessionMessagesFixture>;
+  }) => Promise<void>,
+): Promise<void> {
+  const pluginDirectory = await mkdtemp(join(tmpdir(), "opencode-context-compression-scheduler-cutover-"));
+  const clock = createClock();
+  const store = createSqliteSessionStateStore({
+    pluginDirectory,
+    sessionID: "test-session",
+    now: () => clock.current,
+  });
+  const sessionMessages = createSessionMessagesFixture();
+
+  try {
+    await run({
+      pluginDirectory,
+      store,
+      clock,
+      runtimeConfig: createRuntimeConfigFixture(),
+      sessionMessages,
+    });
+  } finally {
+    await releaseSessionFileLock({
+      lockDirectory: join(pluginDirectory, "locks"),
+      sessionID: store.sessionID,
+    });
+    store.close();
+    await rm(pluginDirectory, { recursive: true, force: true });
+  }
+}
+
+function seedMarkedSession(store: SqliteSessionStateStore, clock: ReturnType<typeof createClock>): void {
+  const sessionMessages = createSessionMessagesFixture();
+  store.syncCanonicalHostMessages({
+    revision: `rev-${clock.tick()}`,
+    syncedAtMs: clock.current,
+    messages: sessionMessages.map((message) => ({
+      hostMessageID: message.info.id,
+      canonicalMessageID: message.info.id,
+      role: message.info.role,
+      hostCreatedAtMs: message.info.time.created,
+    })),
+  });
+  persistMark({
+    store,
+    markID: "mark-1",
+    toolCallMessageID: "mark-tool-1",
+    route: "keep",
+    createdAtMs: clock.tick(),
+    sourceMessages: [{ hostMessageID: "assistant-1" }, { hostMessageID: "tool-1" }],
+  });
+}
+
+function createRuntimeConfigFixture(): RuntimeConfig {
+  return {
+    repoRoot: "/tmp/opencode-context-compression-test",
+    configPath: "/tmp/opencode-context-compression-test/runtime-config.json",
+    promptPath: "/tmp/opencode-context-compression-test/prompts/compaction.md",
+    promptText: "Repo-owned compaction prompt.",
+    models: ["model-primary"],
+    schedulerMarkThreshold: 1,
+    route: "keep",
+    runtimeLogPath: "/tmp/opencode-context-compression-test/runtime-events.jsonl",
+    seamLogPath: "/tmp/opencode-context-compression-test/seam-observation.jsonl",
+  };
+}
+
+function createClientFixture(sessionMessages: ReturnType<typeof createSessionMessagesFixture>): PluginClient {
+  return {
+    session: {
+      async messages() {
+        return sessionMessages.map((message) => structuredClone(message));
+      },
+    },
+  } as unknown as PluginClient;
+}
+
+function createSessionMessagesFixture() {
+  return [
+    createEnvelope(createMessage({ id: "assistant-1", role: "assistant", created: 1 }), [
+      createTextPart("assistant-1", "draft"),
+    ]),
+    createEnvelope(createMessage({ id: "tool-1", role: "tool", created: 2 }), [
+      createTextPart("tool-1", "tool output"),
+    ]),
+    createEnvelope(createMessage({ id: "mark-tool-1", role: "tool", created: 3 }), [
+      createTextPart("mark-tool-1", "mark: assistant-1~tool-1"),
+    ]),
+    createEnvelope(createMessage({ id: "user-trigger-1", role: "user", created: 4 }), [
+      createTextPart("user-trigger-1", "please continue"),
+    ]),
+    createEnvelope(createMessage({ id: "user-trigger-2", role: "user", created: 5 }), [
+      createTextPart("user-trigger-2", "please continue again"),
+    ]),
+  ] as const;
+}
+
+function createChatParamsInput(sessionID: string, messageID: string): ChatParamsInput {
+  return {
+    sessionID,
+    agent: "main",
+    model: {
+      id: "model-primary",
+      providerID: "provider-1",
+      api: {
+        id: "provider-api",
+        url: "https://example.test/provider",
+        npm: "@ai-sdk/test",
+      },
+      name: "Model Primary",
+      capabilities: {
+        temperature: true,
+        reasoning: false,
+        attachment: false,
+        toolcall: true,
+        input: {
+          text: true,
+          audio: false,
+          image: false,
+          video: false,
+          pdf: false,
+        },
+        output: {
+          text: true,
+          audio: false,
+          image: false,
+          video: false,
+          pdf: false,
+        },
+      },
+      cost: {
+        input: 0,
+        output: 0,
+        cache: { read: 0, write: 0 },
+      },
+      limit: {
+        context: 100000,
+        output: 4096,
+      },
+      status: "active" as const,
+      options: {},
+      headers: {},
+    },
+    provider: {
+      source: "config",
+      info: {
+        id: "provider-1",
+        name: "Provider 1",
+        source: "config",
+        env: [],
+        options: {},
+        models: {},
+      },
+      options: {},
+    },
+    message: createUserMessage(messageID),
+  };
+}
+
+function createChatParamsOutput(): ChatParamsOutput {
+  return {
+    temperature: 0,
+    topP: 1,
+    topK: 0,
+    options: {},
+  };
+}
+
+function createSafeTransport(
+  invoke: NonNullable<CompactionRunnerTransport["invoke"]>,
+): CompactionRunnerTransport {
+  return {
+    candidate: {
+      id: "plugin.compaction.invoke",
+      owner: "plugin",
+      entrypoint: "independent-model-call",
+      promptContext: "dedicated-compaction-prompt",
+      sessionEffects: {
+        createsUserMessage: false,
+        reusesSharedLoop: false,
+        dependsOnBusyState: false,
+        mutatesPermissions: false,
+      },
+      failureClassification: "deterministic",
+    },
+    invoke,
+  };
+}
+
+function createEnvelope(info: ReturnType<typeof createMessage>, parts: ReturnType<typeof createTextPart>[]) {
+  return { info, parts };
+}
+
+function createMessage(input: { readonly id: string; readonly role: string; readonly created: number }) {
+  return {
+    id: input.id,
+    sessionID: "test-session",
+    role: input.role,
+    agent: "main",
+    model: {
+      providerID: "provider-1",
+      modelID: "model-primary",
+    },
+    time: { created: input.created },
+  };
+}
+
+function createUserMessage(messageID: string): ChatParamsInput["message"] {
+  return createMessage({ id: messageID, role: "user", created: 6 }) as ChatParamsInput["message"];
+}
+
+function createTextPart(messageID: string, text: string) {
+  return {
+    id: `${messageID}:part`,
+    sessionID: "test-session",
+    messageID,
+    type: "text",
+    text,
+  };
+}
+
+function createClock() {
+  let current = Date.now();
+
+  return {
+    get current() {
+      return current;
+    },
+    tick() {
+      current += 1;
+      return current;
+    },
+  };
+}
+
+async function delay(ms: number): Promise<void> {
+  await new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function waitForRunningLock(
+  pluginDirectory: string,
+  sessionID: string,
+  backgroundErrors: readonly unknown[] = [],
+): Promise<void> {
+  const lockDirectory = join(pluginDirectory, "locks");
+
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (backgroundErrors.length > 0) {
+      const [firstError] = backgroundErrors;
+      throw firstError instanceof Error ? firstError : new Error(String(firstError));
+    }
+
+    const state = await readSessionFileLock({
+      lockDirectory,
+      sessionID,
+    });
+    if (state.kind === "running") {
+      return;
+    }
+
+    await delay(2);
+  }
+
+  throw new Error(`Expected scheduler to create a running lock for session '${sessionID}'.`);
+}
+
+async function waitForSchedulerResult(
+  store: SqliteSessionStateStore,
+  backgroundErrors: readonly unknown[] = [],
+): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (backgroundErrors.length > 0) {
+      const [firstError] = backgroundErrors;
+      throw firstError instanceof Error ? firstError : new Error(String(firstError));
+    }
+
+    if (store.findFirstCommittedReplacementForMark("mark-1") !== undefined) {
+      return;
+    }
+
+    await delay(2);
+  }
+
+  throw new Error("Expected scheduler activity to commit a replacement for mark-1.");
+}
