@@ -1,6 +1,7 @@
 import type { Hooks, Plugin, PluginInput } from "@opencode-ai/plugin";
 
 import { loadRuntimeConfig } from "./config/runtime-config.js";
+import { createCompressionMarkTool } from "./tools/compression-mark.js";
 import { createMessagesTransformHook } from "./projection/messages-transform.js";
 import { createSendEntryGateHooks } from "./runtime/send-entry-gate.js";
 import { createFileBackedSeamObservationJournal } from "./seams/file-journal.js";
@@ -14,6 +15,11 @@ const plugin: Plugin = async (ctx) => {
   );
   const { hooks: observedHooks } = createNoopObservationHooks(journal);
   const hooks: Hooks = { ...observedHooks };
+  hooks.tool = {
+    compression_mark: createCompressionMarkTool({
+      pluginDirectory: ctx.directory,
+    }),
+  };
   const sendEntryHooks = createSendEntryGateHooks({
     pluginDirectory: ctx.directory,
   });
