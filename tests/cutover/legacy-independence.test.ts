@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 import type { Hooks, PluginInput } from "@opencode-ai/plugin";
 
 import type { CompactionRunnerTransport } from "../../src/compaction/runner.js";
 import { loadRuntimeConfig, RUNTIME_CONFIG_ENV } from "../../src/config/runtime-config.js";
-import { createCompressionMarkTool } from "../../src/tools/compression-mark.js";
-import { createMessagesTransformHook } from "../../src/projection/messages-transform.js";
 import { createChatParamsSchedulerHook } from "../../src/runtime/chat-params-scheduler.js";
 import { createSqliteSessionStateStore } from "../../src/state/store.js";
 import type {
@@ -22,6 +22,7 @@ import {
   collectAuditHits,
   formatAuditHits,
   listRepoFiles,
+  PLUGIN_ENTRY_PATH,
 } from "./cutover-test-helpers.js";
 
 type ChatParamsInput = Parameters<NonNullable<Hooks["chat.params"]>>[0];
@@ -108,17 +109,28 @@ test("canonical execution does not require old provider DCP fields", async () =>
       createTextPart("user-trigger-1", "please continue"),
     ]),
   ] as const;
+  const legacyRuntimeConfigPath = join(pluginDirectory, "config", "dcp-runtime.json");
+  const legacyPromptPath = join(pluginDirectory, "prompts", "dcp-compaction.md");
+  const legacyRuntimeLogPath = join(pluginDirectory, "logs", "dcp-runtime-events.jsonl");
+  const pluginModule = (await import(pathToFileURL(PLUGIN_ENTRY_PATH).href)) as {
+    default: (ctx: {
+      directory: string;
+      worktree: string;
+      client: PluginInput["client"];
+    }) => Promise<Record<string, unknown>>;
+  };
   const runtimeConfig = loadRuntimeConfig({
     ...process.env,
     [RUNTIME_CONFIG_ENV.runtimeLogPath]: join(pluginDirectory, "runtime-events.jsonl"),
     [RUNTIME_CONFIG_ENV.seamLogPath]: join(pluginDirectory, "seam-observation.jsonl"),
   });
-  const transform = createMessagesTransformHook({
-    pluginDirectory,
+  const hooks = await pluginModule.default({
+    directory: pluginDirectory,
+    worktree: pluginDirectory,
+    client: createClientFixture(sessionHistory),
   });
-  const compressionMark = createCompressionMarkTool({
-    pluginDirectory,
-  });
+  const transform = readMessagesTransformHook(hooks);
+  const compressionMark = readCompressionMarkTool(hooks);
   const scheduler = createChatParamsSchedulerHook({
     pluginDirectory,
     client: createClientFixture(sessionHistory),
@@ -130,6 +142,14 @@ test("canonical execution does not require old provider DCP fields", async () =>
   });
 
   try {
+    assert.equal(existsSync(legacyRuntimeConfigPath), false);
+    assert.equal(existsSync(legacyPromptPath), false);
+    assert.equal(existsSync(legacyRuntimeLogPath), false);
+    assert.deepEqual(Object.keys(readToolRegistry(hooks)).sort(), ["compression_mark"]);
+    assert.doesNotMatch(runtimeConfig.configPath, /config\/dcp-runtime\.json/u);
+    assert.doesNotMatch(runtimeConfig.promptPath, /dcp-compaction\.md/u);
+    assert.doesNotMatch(runtimeConfig.runtimeLogPath, /dcp-runtime-events\.jsonl/u);
+
     const initialProjection = {
       messages: canonicalMessages.map((message) => structuredClone(message)),
     } satisfies MessagesTransformOutput;
@@ -200,6 +220,37 @@ function assertNoLegacyProviderFields(options: Record<string, unknown>): void {
     );
   }
   assert.deepEqual(options, {});
+}
+
+function readMessagesTransformHook(hooks: Record<string, unknown>) {
+  const transform = hooks["experimental.chat.messages.transform"] as
+    | ((input: unknown, output: MessagesTransformOutput) => Promise<void>)
+    | undefined;
+  if (transform === undefined) {
+    throw new Error("experimental.chat.messages.transform hook missing from plugin entrypoint");
+  }
+
+  return transform;
+}
+
+function readToolRegistry(hooks: Record<string, unknown>) {
+  const toolRegistry = (hooks as {
+    tool?: Record<string, { execute(args: unknown, context: unknown): Promise<string> }>;
+  }).tool;
+  if (!toolRegistry || typeof toolRegistry !== "object") {
+    throw new Error("tool registry missing from plugin entrypoint");
+  }
+
+  return toolRegistry;
+}
+
+function readCompressionMarkTool(hooks: Record<string, unknown>) {
+  const compressionMark = readToolRegistry(hooks).compression_mark;
+  if (compressionMark === undefined) {
+    throw new Error("compression_mark tool missing from plugin entrypoint");
+  }
+
+  return compressionMark;
 }
 
 function createSafeTransport(
