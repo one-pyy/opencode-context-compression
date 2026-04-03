@@ -1,0 +1,15 @@
+# opencode-context-compression — Notepad Index
+
+Project: /root/_/opencode/opencode-context-compression
+Purpose: standalone OpenCode context compression plugin research and implementation.
+
+---
+
+[learnings/2026-04-02_initial-hook-shapes-and-session-transport-boundary] — Initial seam-debug run captured real `chat.params`, `messages.transform`, and `tool.execute.before` payload shapes; ordinary `session.prompt` / `prompt_async` remain unsafe default compaction transports because they traverse normal session prompt flow
+[learnings/2026-04-03_mark-batch-freeze-lock-cleanup] — When batch dispatch acquires the file lock before SQLite batch persistence, any persistence failure must release the lock immediately or ordinary chat can wait on a batch that never existed
+[learnings/2026-04-03_messages-transform-role-type-surface-vs-projected-artifacts] — The installed plugin type surface narrows transform message roles to user/assistant, so derived protected reminder artifacts must encode protection in projection state instead of assuming literal `system` role output
+[learnings/2026-04-03_send-entry-wait-must-join-live-lock-with-batch-status] — Send-entry wait cannot treat an unlocked file as success because the runner deletes the lock after writing terminal batch state; success/failure must be resolved from the frozen batch row keyed by lock start time
+[learnings/2026-04-03_nested-opencode-run-loading-proof-vs-direct-hook-fixtures] — Nested `opencode run` launches inside the Node test harness were unreliable for plugin-loading proof, so stable e2e coverage should initialize the plugin entry directly and exercise returned hooks against a temp project directory
+[learnings/2026-04-03_mark-tool-exposure-boundary] — This repo contains internal mark persistence and batch-freeze code, but does not expose a repo-local public mark tool; legacy `dcp_mark` names only appear in runtime gate policy
+[learnings/2026-04-03_old-dcp-fork-still-active-through-tools-runtime-client] — Even without the old fork in the plugin list, current DCP tools still import opencode-dcp-fork runtime modules and use enabled config/dcp-runtime.json, so legacy DCP behavior remains live through tool execution
+[learnings/2026-04-03_chat-params-cutover-gap-is-observer-replacement-not-missing-hook] — `src/index.ts` already returns a `chat.params` hook via noop observation spread, so scheduler cutover must replace an existing observer seam rather than add a missing hook
