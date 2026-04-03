@@ -1,47 +1,158 @@
 import assert from "node:assert/strict";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
+import {
+  OpencodeContextCompressionRuntimeConfigError,
+  RUNTIME_CONFIG_ENV,
+  loadRuntimeConfig,
+  resolveRuntimeConfigRepoRoot,
+} from "../../src/config/runtime-config.js";
 import { listRepoFiles, listVisibleRepoFiles, readRepoFile } from "./cutover-test-helpers.js";
 
-test("repo-owned runtime config, prompt assets, and env precedence contract are defined inside this repo", async () => {
+test("repo-owned runtime config, prompt assets, and docs resolve from this repo without legacy config ownership", async () => {
   const configFiles = listVisibleRepoFiles(await listRepoFiles("src/config"));
   const promptFiles = listVisibleRepoFiles(await listRepoFiles("prompts"));
   const readme = await readRepoFile("README.md");
   const readmeZh = await readRepoFile("readme.zh.md");
-  const gaps: string[] = [];
+  const runtimeConfig = loadRuntimeConfig({});
 
-  if (configFiles.length === 0) {
-    gaps.push(
-      "Expected repo-owned runtime config sources under `src/config/`, but that directory is still absent, so config ownership and precedence are not defined inside this repo.",
+  assert.ok(configFiles.includes("src/config/runtime-config.json"));
+  assert.ok(configFiles.includes("src/config/runtime-config.ts"));
+  assert.ok(promptFiles.includes("prompts/compaction.md"));
+  assert.equal(runtimeConfig.repoRoot, resolveRuntimeConfigRepoRoot());
+  assert.match(runtimeConfig.configPath, /src\/config\/runtime-config\.json$/u);
+  assert.match(runtimeConfig.promptPath, /prompts\/compaction\.md$/u);
+  assert.deepEqual(runtimeConfig.models, ["openai.doro/gpt-5.4-mini"]);
+  assert.equal(runtimeConfig.route, "keep");
+  assert.match(runtimeConfig.runtimeLogPath, /logs\/runtime-events\.jsonl$/u);
+  assert.match(runtimeConfig.seamLogPath, /logs\/seam-observation\.jsonl$/u);
+  assert.equal(runtimeConfig.debugSnapshotPath, undefined);
+  assert.match(runtimeConfig.promptText, /route=keep/u);
+  assert.doesNotMatch(readme, /config\/dcp-runtime\.json/u);
+  assert.doesNotMatch(readmeZh, /config\/dcp-runtime\.json/u);
+});
+
+test("explicit env overrides take precedence over the repo-owned runtime config file", async () => {
+  const tempDirectory = await mkdtemp(join(tmpdir(), "opencode-context-compression-runtime-config-"));
+
+  try {
+    const promptFromConfig = join(tempDirectory, "prompts", "from-config.md");
+    const promptFromEnv = join(tempDirectory, "prompts", "from-env.md");
+    const runtimeConfigPath = join(tempDirectory, "runtime-config.json");
+
+    await mkdir(join(tempDirectory, "prompts"), { recursive: true });
+    await writeFile(promptFromConfig, "Config prompt text.\n", "utf8");
+    await writeFile(promptFromEnv, "Env prompt text.\n", "utf8");
+    await writeFile(
+      runtimeConfigPath,
+      JSON.stringify(
+        {
+          version: 1,
+          promptPath: promptFromConfig,
+          compactionModels: ["config-primary", "config-fallback"],
+          route: "keep",
+          runtimeLogPath: "logs/from-config-runtime.jsonl",
+          seamLogPath: "logs/from-config-seam.jsonl",
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf8",
     );
-  } else {
-    const configSources = await Promise.all(configFiles.map((filePath) => readRepoFile(filePath)));
-    const hasEnvOverrideSurface = configSources.some((source) => source.includes("process.env"));
-    if (!hasEnvOverrideSurface) {
-      gaps.push(
-        `Expected explicit env override handling inside ${configFiles.join(", ")}, but no config source references process.env yet.`,
-      );
-    }
-  }
 
-  if (promptFiles.length === 0) {
-    gaps.push("Expected repo-owned prompt assets under `prompts/`, but no prompt files exist yet.");
-  }
+    const runtimeConfig = loadRuntimeConfig({
+      [RUNTIME_CONFIG_ENV.configPath]: runtimeConfigPath,
+      [RUNTIME_CONFIG_ENV.promptPath]: promptFromEnv,
+      [RUNTIME_CONFIG_ENV.models]: "env-primary, env-fallback",
+      [RUNTIME_CONFIG_ENV.route]: "delete",
+      [RUNTIME_CONFIG_ENV.runtimeLogPath]: "logs/from-env-runtime.jsonl",
+      [RUNTIME_CONFIG_ENV.seamLogPath]: "logs/from-env-seam.jsonl",
+      [RUNTIME_CONFIG_ENV.debugSnapshotPath]: "logs/from-env-debug.json",
+    });
 
-  const legacyConfigReferences = ["README.md", "readme.zh.md"].filter((filePath) => {
-    const source = filePath === "README.md" ? readme : readmeZh;
-    return source.includes("config/dcp-runtime.json");
-  });
-  if (legacyConfigReferences.length > 0) {
-    gaps.push(
-      `Legacy runtime-config ownership is still documented via \`config/dcp-runtime.json\` in: ${legacyConfigReferences.join(", ")}.`,
+    assert.equal(runtimeConfig.configPath, runtimeConfigPath);
+    assert.equal(runtimeConfig.promptPath, promptFromEnv);
+    assert.equal(runtimeConfig.promptText, "Env prompt text.\n");
+    assert.deepEqual(runtimeConfig.models, ["env-primary", "env-fallback"]);
+    assert.equal(runtimeConfig.route, "delete");
+    assert.equal(
+      runtimeConfig.runtimeLogPath,
+      join(resolveRuntimeConfigRepoRoot(), "logs", "from-env-runtime.jsonl"),
     );
+    assert.equal(
+      runtimeConfig.seamLogPath,
+      join(resolveRuntimeConfigRepoRoot(), "logs", "from-env-seam.jsonl"),
+    );
+    assert.equal(
+      runtimeConfig.debugSnapshotPath,
+      join(resolveRuntimeConfigRepoRoot(), "logs", "from-env-debug.json"),
+    );
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
   }
+});
 
-  if (gaps.length > 0) {
-    assert.fail([
-      "Cutover gap: repo-owned runtime config/prompt/env ownership is not finished.",
-      ...gaps.map((gap) => `- ${gap}`),
-    ].join("\n"));
+test("empty env overrides and missing repo-owned assets fail fast with plugin-owned errors", async () => {
+  assert.throws(
+    () =>
+      loadRuntimeConfig({
+        [RUNTIME_CONFIG_ENV.promptPath]: "   ",
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof OpencodeContextCompressionRuntimeConfigError);
+      assert.match(String(error), /OPENCODE_CONTEXT_COMPRESSION_PROMPT_PATH is set but empty/u);
+      return true;
+    },
+  );
+
+  assert.throws(
+    () =>
+      loadRuntimeConfig({
+        [RUNTIME_CONFIG_ENV.configPath]: join(resolveRuntimeConfigRepoRoot(), "src", "config", "missing.json"),
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof OpencodeContextCompressionRuntimeConfigError);
+      assert.match(String(error), /Missing runtime config file/u);
+      return true;
+    },
+  );
+
+  const tempDirectory = await mkdtemp(join(tmpdir(), "opencode-context-compression-runtime-config-missing-prompt-"));
+
+  try {
+    const runtimeConfigPath = join(tempDirectory, "runtime-config.json");
+    await writeFile(
+      runtimeConfigPath,
+      JSON.stringify(
+        {
+          version: 1,
+          promptPath: "prompts/missing.md",
+          compactionModels: ["config-primary"],
+          route: "keep",
+          runtimeLogPath: "logs/runtime.jsonl",
+          seamLogPath: "logs/seam.jsonl",
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf8",
+    );
+
+    assert.throws(
+      () =>
+        loadRuntimeConfig({
+          [RUNTIME_CONFIG_ENV.configPath]: runtimeConfigPath,
+        }),
+      (error: unknown) => {
+        assert.ok(error instanceof OpencodeContextCompressionRuntimeConfigError);
+        assert.match(String(error), /Missing prompt asset/u);
+        return true;
+      },
+    );
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
   }
 });

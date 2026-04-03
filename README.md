@@ -22,6 +22,32 @@ Important operator notes:
 - Restart OpenCode after changing the plugin list.
 - Do not rely on directory auto-loading for this repo.
 
+## Repo-owned runtime config, prompt, and log contract
+
+The plugin's canonical runtime contract now ships inside this repo:
+
+- `src/config/runtime-config.json` — canonical runtime settings file
+- `prompts/compaction.md` — explicit compaction prompt asset
+- `logs/runtime-events.jsonl` — repo-owned runtime log path contract
+- `logs/seam-observation.jsonl` — repo-owned seam/debug journal path
+
+Prompt loading is explicit. The plugin loads the configured prompt file and fails fast if the config file or prompt asset is missing, empty, or malformed. There is no builtin prompt fallback and no legacy runtime-config fallback.
+
+### Env override names and precedence
+
+Precedence is deterministic:
+
+1. `OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH` selects an alternate config file.
+2. Field-specific env overrides replace values from that config file:
+   - `OPENCODE_CONTEXT_COMPRESSION_PROMPT_PATH`
+   - `OPENCODE_CONTEXT_COMPRESSION_MODELS` (comma-separated ordered model array)
+   - `OPENCODE_CONTEXT_COMPRESSION_ROUTE` (`keep` or `delete`)
+   - `OPENCODE_CONTEXT_COMPRESSION_RUNTIME_LOG_PATH`
+   - `OPENCODE_CONTEXT_COMPRESSION_SEAM_LOG`
+   - `OPENCODE_CONTEXT_COMPRESSION_DEBUG_SNAPSHOT_PATH`
+
+Unset env variables mean "no override". Empty or whitespace-only env values are rejected at plugin startup so they cannot silently behave like unset values.
+
 ## Disable competing compression paths first
 
 This plugin is designed to be the only prompt-compaction system active for a session. Do not run it alongside other transcript-rewriting or auto-compaction paths.
@@ -30,7 +56,7 @@ Disable or remove all of the following before enabling this plugin:
 
 - `opencode-dcp-fork`
   - remove its plugin entry from your OpenCode config
-  - if you still keep the old runtime files around, leave `config/dcp-runtime.json -> enabled` set to `false`
+  - do not route this plugin through fork-owned runtime config or prompt assets
 - `@tarquinen/opencode-dcp`
   - remove it from the OpenCode `plugin` list for the same session/profile
 - any other transform/compaction plugins
@@ -124,7 +150,10 @@ By default this repo writes state relative to the plugin directory:
 
 - `state/<session-id>.db` — SQLite sidecar database
 - `locks/<session-id>.lock` — live compaction lock file
+- `logs/runtime-events.jsonl` — repo-owned runtime log path contract
 - `logs/seam-observation.jsonl` — seam-debug journal when seam logging is enabled
+
+Debug snapshots are disabled by default. Set `OPENCODE_CONTEXT_COMPRESSION_DEBUG_SNAPSHOT_PATH` to enable them; relative paths resolve from this repo root.
 
 The sidecar database is the main operator inspection surface for accepted marks, committed replacements, batch/job status, and runtime gate audit records.
 

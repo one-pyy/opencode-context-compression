@@ -1,12 +1,17 @@
 import type { Hooks, Plugin, PluginInput } from "@opencode-ai/plugin";
 
+import { loadRuntimeConfig } from "./config/runtime-config.js";
 import { createMessagesTransformHook } from "./projection/messages-transform.js";
 import { createSendEntryGateHooks } from "./runtime/send-entry-gate.js";
 import { createFileBackedSeamObservationJournal } from "./seams/file-journal.js";
 import { createNoopObservationHooks, createSeamObservationJournal } from "./seams/noop-observation.js";
 
 const plugin: Plugin = async (ctx) => {
-  const journal = createFileBackedSeamObservationJournal(createSeamObservationJournal());
+  const runtimeConfig = loadRuntimeConfig();
+  const journal = createFileBackedSeamObservationJournal(
+    createSeamObservationJournal(),
+    runtimeConfig.seamLogPath,
+  );
   const { hooks: observedHooks } = createNoopObservationHooks(journal);
   const hooks: Hooks = { ...observedHooks };
   const sendEntryHooks = createSendEntryGateHooks({

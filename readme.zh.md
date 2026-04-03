@@ -22,6 +22,32 @@
 > - 修改插件列表后，必须重启 OpenCode。
 > - 请勿依赖此仓库的目录自动加载功能。
 
+## 仓库自有的运行时配置、提示词与日志契约
+
+插件的规范运行时契约现在随本仓库一起维护：
+
+- `src/config/runtime-config.json` —— 规范的运行时配置文件
+- `prompts/compaction.md` —— 显式的压缩提示词资源
+- `logs/runtime-events.jsonl` —— 仓库自有的运行时日志路径契约
+- `logs/seam-observation.jsonl` —— 仓库自有的 seam / 调试日志路径
+
+提示词加载是显式的。插件会加载配置里声明的提示词文件；如果配置文件或提示词资源缺失、为空或格式错误，插件会立即失败。不存在内建提示词回退，也不存在旧运行时配置的回退路径。
+
+### 环境变量覆盖名与优先级
+
+优先级是确定性的：
+
+1. `OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH` 用于选择替代的配置文件。
+2. 之后，字段级环境变量会覆盖该配置文件中的对应值：
+   - `OPENCODE_CONTEXT_COMPRESSION_PROMPT_PATH`
+   - `OPENCODE_CONTEXT_COMPRESSION_MODELS`（按顺序的逗号分隔模型数组）
+   - `OPENCODE_CONTEXT_COMPRESSION_ROUTE`（只能是 `keep` 或 `delete`）
+   - `OPENCODE_CONTEXT_COMPRESSION_RUNTIME_LOG_PATH`
+   - `OPENCODE_CONTEXT_COMPRESSION_SEAM_LOG`
+   - `OPENCODE_CONTEXT_COMPRESSION_DEBUG_SNAPSHOT_PATH`
+
+未设置的环境变量表示“不覆盖”。仅包含空白的环境变量值会在插件启动时被拒绝，避免它们被静默地当成未设置处理。
+
 ## 首先禁用竞争的压缩路径
 
 此插件设计为会话中唯一活跃的提示词压缩系统。请勿将其与其他转录重写或自动压缩路径同时运行。
@@ -30,7 +56,7 @@
 
 - **opencode-dcp-fork**
   - 从你的 OpenCode 配置中移除其插件条目。
-  - 如果你仍保留旧的运行时文件，请将 `config/dcp-runtime.json -> enabled` 设置为 `false`。
+  - 不要让本插件继续依赖 fork 拥有的运行时配置或提示词资源。
 - **@tarquinen/opencode-dcp**
   - 在相同的会话/配置文件中，将其从 OpenCode 的 `plugin` 列表中移除。
 - **任何其他转换/压缩插件**
@@ -130,7 +156,10 @@ rm "/root/_/opencode/opencode-context-compression/locks/<session-id>.lock"
 
 - `state/<session-id>.db` —— SQLite 侧车数据库。
 - `locks/<session-id>.lock` —— 实时压缩锁定文件。
+- `logs/runtime-events.jsonl` —— 仓库自有的运行时日志路径契约。
 - `logs/seam-observation.jsonl` —— 启用接缝日志时的接缝调试日志。
+
+调试快照默认关闭。设置 `OPENCODE_CONTEXT_COMPRESSION_DEBUG_SNAPSHOT_PATH` 后即可启用；相对路径会从本仓库根目录解析。
 
 侧车数据库是操作员检查已接受标记、已提交替换、批次/作业状态以及运行时门控审计记录的主要界面。
 

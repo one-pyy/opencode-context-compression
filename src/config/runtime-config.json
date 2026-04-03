@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "promptPath": "prompts/compaction.md",
+  "compactionModels": ["openai.doro/gpt-5.4-mini"],
+  "route": "keep",
+  "runtimeLogPath": "logs/runtime-events.jsonl",
+  "seamLogPath": "logs/seam-observation.jsonl"
+}

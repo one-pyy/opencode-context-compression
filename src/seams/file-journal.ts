@@ -1,15 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
 
 import type { SeamObservation, SeamObservationJournal } from "./noop-observation.js";
-
-const DEFAULT_LOG_ENV = "OPENCODE_CONTEXT_COMPRESSION_SEAM_LOG";
-
-function resolveDefaultLogPath(): string {
-  const filePath = fileURLToPath(import.meta.url);
-  return join(dirname(dirname(filePath)), "..", "logs", "seam-observation.jsonl");
-}
 
 function ensureParentDirectory(filePath: string): void {
   const parent = dirname(filePath);
@@ -20,7 +12,7 @@ function ensureParentDirectory(filePath: string): void {
 
 export function createFileBackedSeamObservationJournal(
   base: SeamObservationJournal,
-  filePath = process.env[DEFAULT_LOG_ENV]?.trim() || resolveDefaultLogPath(),
+  filePath: string,
 ): SeamObservationJournal {
   ensureParentDirectory(filePath);
 
