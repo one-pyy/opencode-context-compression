@@ -105,6 +105,96 @@ test("scheduler reaches batch freeze and runner", async () => {
   });
 });
 
+test("default scheduler transport executes through the plugin-owned runtime executor", async () => {
+  await withSchedulerEnvironment(async ({ pluginDirectory, store, clock, runtimeConfig, sessionMessages }) => {
+    seedMarkedSession(store, clock);
+    const requests: Array<{ url: string; authorization?: string; body: unknown }> = [];
+    const hook = createChatParamsSchedulerHook({
+      pluginDirectory,
+      client: createClientFixture(sessionMessages),
+      runtimeConfig,
+      runInBackground: false,
+      now: () => clock.tick(),
+    });
+
+    const restoreFetch = installFetchMock(async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const headers = new Headers(init?.headers);
+      const bodyText = typeof init?.body === "string" ? init.body : "";
+      requests.push({
+        url,
+        authorization: headers.get("authorization") ?? undefined,
+        body: bodyText.length > 0 ? JSON.parse(bodyText) : undefined,
+      });
+
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: "Compressed summary.",
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+        },
+      );
+    });
+
+    try {
+      await hook(
+        createChatParamsInput(store.sessionID, "user-trigger-1", {
+          providerInfo: {
+            id: "openai.doro",
+            key: "test-provider-key",
+            options: {
+              baseURL: "https://provider.example/v1",
+            },
+          },
+        }),
+        createChatParamsOutput(),
+      );
+    } finally {
+      restoreFetch();
+    }
+
+    assert.equal(store.findFirstCommittedReplacementForMark("mark-1")?.contentText, "Compressed summary.");
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0]?.url, "https://provider.example/v1/chat/completions");
+    assert.equal(requests[0]?.authorization, "Bearer test-provider-key");
+    const requestBody = requests[0]?.body as
+      | {
+          model?: string;
+          temperature?: number;
+          stream?: boolean;
+          messages?: Array<{ role?: string; content?: string }>;
+        }
+      | undefined;
+    assert.equal(requestBody?.model, runtimeConfig.models[0]);
+    assert.equal(requestBody?.temperature, 0);
+    assert.equal(requestBody?.stream, false);
+    assert.equal(requestBody?.messages?.[0]?.role, "system");
+    assert.equal(requestBody?.messages?.[0]?.content, runtimeConfig.promptText);
+    assert.equal(requestBody?.messages?.[1]?.role, "user");
+    assert.match(requestBody?.messages?.[1]?.content ?? "", /Route: keep/u);
+    assert.match(requestBody?.messages?.[1]?.content ?? "", /Source snapshot id: mark-1:snapshot/u);
+    assert.match(requestBody?.messages?.[1]?.content ?? "", /Source fingerprint: [0-9a-f]{64}/u);
+    assert.match(requestBody?.messages?.[1]?.content ?? "", /Canonical revision: rev-\d+/u);
+    assert.match(requestBody?.messages?.[1]?.content ?? "", /### 1\. assistant assistant-1 \(assistant-1\)/u);
+    assert.match(requestBody?.messages?.[1]?.content ?? "", /### 2\. tool tool-1 \(tool-1\)/u);
+    assert.match(requestBody?.messages?.[1]?.content ?? "", /Canonical transcript:/u);
+    assert.match(
+      requestBody?.messages?.[1]?.content ?? "",
+      /Return only the final committed replacement text\. Do not return JSON, markdown fences, labels, or commentary\./u,
+    );
+  });
+});
+
 test("send-entry gate remains the wait authority", async () => {
   await withSchedulerEnvironment(async ({ pluginDirectory, store, clock, runtimeConfig, sessionMessages }) => {
     seedMarkedSession(store, clock);
@@ -296,17 +386,40 @@ function createSessionMessagesFixture() {
   ] as const;
 }
 
-function createChatParamsInput(sessionID: string, messageID: string): ChatParamsInput {
+function createChatParamsInput(sessionID: string, messageID: string): ChatParamsInput;
+function createChatParamsInput(
+  sessionID: string,
+  messageID: string,
+  options: {
+    readonly providerInfo?: {
+      readonly id?: string;
+      readonly key?: string;
+      readonly options?: Record<string, unknown>;
+    };
+  },
+): ChatParamsInput;
+function createChatParamsInput(
+  sessionID: string,
+  messageID: string,
+  options?: {
+    readonly providerInfo?: {
+      readonly id?: string;
+      readonly key?: string;
+      readonly options?: Record<string, unknown>;
+    };
+  },
+): ChatParamsInput {
+  const resolvedOptions = options ?? {};
   return {
     sessionID,
     agent: "main",
     model: {
-      id: "model-primary",
-      providerID: "provider-1",
+      id: "gpt-5.4-mini",
+      providerID: resolvedOptions.providerInfo?.id ?? "provider-1",
       api: {
-        id: "provider-api",
-        url: "https://example.test/provider",
-        npm: "@ai-sdk/test",
+        id: "gpt-5.4-mini",
+        url: "https://example.test/provider/v1",
+        npm: "@ai-sdk/openai-compatible",
       },
       name: "Model Primary",
       capabilities: {
@@ -345,14 +458,15 @@ function createChatParamsInput(sessionID: string, messageID: string): ChatParams
     provider: {
       source: "config",
       info: {
-        id: "provider-1",
+        id: resolvedOptions.providerInfo?.id ?? "provider-1",
         name: "Provider 1",
         source: "config",
         env: [],
-        options: {},
+        options: resolvedOptions.providerInfo?.options ?? {},
         models: {},
+        ...(resolvedOptions.providerInfo?.key ? { key: resolvedOptions.providerInfo.key } : {}),
       },
-      options: {},
+      options: resolvedOptions.providerInfo?.options ?? {},
     },
     message: createUserMessage(messageID),
   };
@@ -385,6 +499,16 @@ function createSafeTransport(
       failureClassification: "deterministic",
     },
     invoke,
+  };
+}
+
+function installFetchMock(
+  mock: (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+): () => void {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = mock;
+  return () => {
+    globalThis.fetch = originalFetch;
   };
 }
 

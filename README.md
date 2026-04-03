@@ -1,8 +1,8 @@
 # opencode-context-compression
 
-Standalone OpenCode plugin workspace for the canonical-history + SQLite-sidecar context compression design.
+Standalone OpenCode plugin workspace for the canonical-history plus SQLite-sidecar context compression design.
 
-This plugin keeps OpenCode host history as the canonical source of truth, stores plugin-owned state in a per-session SQLite sidecar, projects prompt-visible replacements through `experimental.chat.messages.transform`, and uses a file lock as the operator-visible live compaction gate.
+The plugin keeps OpenCode host history as the canonical source of truth, stores plugin-owned state in a per-session SQLite sidecar, projects prompt-visible replacements through `experimental.chat.messages.transform`, and uses a file lock as the operator-visible live compaction gate. Its only public compaction tool is `compression_mark`.
 
 ## Load the plugin explicitly
 
@@ -16,7 +16,7 @@ Use an explicit plugin entry in `opencode.json` or `opencode.jsonc`. In this wor
 }
 ```
 
-Important operator notes:
+Operator notes:
 
 - Use the absolute path above as the source of truth for this local checkout.
 - Restart OpenCode after changing the plugin list.
@@ -24,12 +24,12 @@ Important operator notes:
 
 ## Repo-owned runtime config, prompt, and log contract
 
-The plugin's canonical runtime contract now ships inside this repo:
+The canonical runtime contract ships inside this repo:
 
-- `src/config/runtime-config.json` — canonical runtime settings file
-- `prompts/compaction.md` — explicit compaction prompt asset
-- `logs/runtime-events.jsonl` — repo-owned runtime log path contract
-- `logs/seam-observation.jsonl` — repo-owned seam/debug journal path
+- `src/config/runtime-config.json`, canonical runtime settings file
+- `prompts/compaction.md`, explicit compaction prompt asset
+- `logs/runtime-events.jsonl`, repo-owned runtime log path contract
+- `logs/seam-observation.jsonl`, repo-owned seam and debug journal path
 
 Prompt loading is explicit. The plugin loads the configured prompt file and fails fast if the config file or prompt asset is missing, empty, or malformed. There is no builtin prompt fallback and no legacy runtime-config fallback.
 
@@ -40,32 +40,30 @@ Precedence is deterministic:
 1. `OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH` selects an alternate config file.
 2. Field-specific env overrides replace values from that config file:
    - `OPENCODE_CONTEXT_COMPRESSION_PROMPT_PATH`
-   - `OPENCODE_CONTEXT_COMPRESSION_MODELS` (comma-separated ordered model array)
-   - `OPENCODE_CONTEXT_COMPRESSION_ROUTE` (`keep` or `delete`)
+   - `OPENCODE_CONTEXT_COMPRESSION_MODELS`, comma-separated ordered model array
+   - `OPENCODE_CONTEXT_COMPRESSION_ROUTE`, `keep` or `delete`
    - `OPENCODE_CONTEXT_COMPRESSION_RUNTIME_LOG_PATH`
    - `OPENCODE_CONTEXT_COMPRESSION_SEAM_LOG`
    - `OPENCODE_CONTEXT_COMPRESSION_DEBUG_SNAPSHOT_PATH`
 
 Unset env variables mean "no override". Empty or whitespace-only env values are rejected at plugin startup so they cannot silently behave like unset values.
 
-## Disable competing compression paths first
+## Public tool contract
 
-This plugin is designed to be the only prompt-compaction system active for a session. Do not run it alongside other transcript-rewriting or auto-compaction paths.
+The only public compaction tool is `compression_mark`.
 
-Disable or remove all of the following before enabling this plugin:
+- `contractVersion` is `v1`
+- `route` is `keep` or `delete`
+- `target.startVisibleMessageID` and `target.endVisibleMessageID` come from the current projected visible view
+- the tool resolves the target span against the repo-owned projection, then persists the mark in the sidecar
 
-- `opencode-dcp-fork`
-  - remove its plugin entry from your OpenCode config
-  - do not route this plugin through fork-owned runtime config or prompt assets
-- `@tarquinen/opencode-dcp`
-  - remove it from the OpenCode `plugin` list for the same session/profile
-- any other transform/compaction plugins
-  - if a plugin rewrites transcript messages, injects replacement blocks, summarizes automatically, or performs its own context-pruning policy, disable it for the same profile
-- native OpenCode auto summarize / compaction
-  - set `compaction.auto` to `false`
-  - set `compaction.prune` to `false`
+`compression_mark` does not expose a public execute step. Batch freezing, scheduling, runner invocation, and lock handling remain plugin-owned runtime behavior behind the tool and scheduler seams.
 
-Minimal example:
+## Run it as the only active compaction system
+
+This plugin should be the only prompt-compaction system active for a session. Disable any other transform or compaction plugin that rewrites transcript messages, injects replacement blocks, summarizes automatically, or applies its own context-pruning policy.
+
+Also disable native OpenCode auto summarize and prune for the same profile:
 
 ```jsonc
 {
@@ -79,7 +77,7 @@ Minimal example:
 }
 ```
 
-Why this matters: the plugin assumes it is the only component deciding when source spans are replaced, hidden, or deleted from the prompt-visible projection. Running multiple compression systems at once makes replacement matching, lock recovery, and sidecar state interpretation unreliable.
+Why this matters: the plugin assumes it is the only component deciding when source spans are replaced, hidden, or removed from the prompt-visible projection. Running multiple compaction systems at once makes replacement matching, lock recovery, and sidecar state interpretation unreliable.
 
 ## Runtime model in one page
 
@@ -101,7 +99,7 @@ The plugin is organized around four operator-visible rules:
 
 ## `route=keep` and `route=delete`
 
-Both routes use the same mark -> source snapshot -> replacement -> projection pipeline. `route=delete` is not a separate deletion subsystem.
+Both routes use the same mark to source snapshot to replacement to projection pipeline. `route=delete` is not a separate deletion subsystem.
 
 ### `route=keep`
 
@@ -117,7 +115,7 @@ Both routes use the same mark -> source snapshot -> replacement -> projection pi
 - the delete result is still tracked through the same replacement tables, source snapshots, and consumed-mark links as `route=keep`
 - delete outputs are treated as terminal cleanup results, not as candidates for another compaction pass
 
-In short: `keep` leaves a compacted survivor, while `delete` leaves only a minimal referable notice.
+In short, `keep` leaves a compacted survivor, while `delete` leaves only a minimal referable notice.
 
 ## Lock behavior and manual recovery
 
@@ -148,41 +146,37 @@ Use manual lock removal only for a session you have confirmed is no longer activ
 
 By default this repo writes state relative to the plugin directory:
 
-- `state/<session-id>.db` — SQLite sidecar database
-- `locks/<session-id>.lock` — live compaction lock file
-- `logs/runtime-events.jsonl` — repo-owned runtime log path contract
-- `logs/seam-observation.jsonl` — seam-debug journal when seam logging is enabled
+- `state/<session-id>.db`, SQLite sidecar database
+- `locks/<session-id>.lock`, live compaction lock file
+- `logs/runtime-events.jsonl`, repo-owned runtime log path contract
+- `logs/seam-observation.jsonl`, seam journal when seam logging is enabled
 
-Debug snapshots are disabled by default. Set `OPENCODE_CONTEXT_COMPRESSION_DEBUG_SNAPSHOT_PATH` to enable them; relative paths resolve from this repo root.
+Debug snapshots are disabled by default. Set `OPENCODE_CONTEXT_COMPRESSION_DEBUG_SNAPSHOT_PATH` to enable them. Relative paths resolve from this repo root.
 
-The sidecar database is the main operator inspection surface for accepted marks, committed replacements, batch/job status, and runtime gate audit records.
+The sidecar database is the main operator inspection surface for accepted marks, committed replacements, batch and job status, and runtime gate audit records.
 
-## End-to-end acceptance coverage in this repo
+## Verification truth boundary
 
-The repo ships end-to-end tests that cover the operator-facing behaviors this README describes:
+This repo has automated proof for the repo-owned contract, but the proof boundary matters.
 
-- explicit absolute-path plugin loading into a temp project and sidecar creation
-- deterministic projection reruns for committed `route=keep` replacements
-- successful `route=delete` commit and minimal projected delete notice
-- SQLite verification with `sqlite3` for committed keep/delete records
-- live-lock waiting behavior that resolves from persisted batch state after unlock
+Automated proof that is in scope today:
 
-Run them with:
+- `tests/cutover/runtime-config-precedence.test.ts`, repo-owned config, prompt, log, and env precedence
+- `tests/cutover/legacy-independence.test.ts`, canonical execution without old runtime, tool, or provider ownership
+- `tests/cutover/docs-and-notepad-contract.test.ts`, operator docs and durable-memory contract audit
+- `tests/e2e/plugin-loading-and-compaction.test.ts`, repo-owned plugin loading, mark flow, scheduler seam, and committed replacement path with an injected safe transport fixture
+- `tests/e2e/delete-route.test.ts`, committed `route=delete` behavior under the same repo-owned fixture style
 
-```bash
-node --import tsx --test tests/e2e/**/*.test.ts
-```
+What this README does not claim:
 
-Run the full repo verification with:
+- that host-exposed legacy tools already provide valid end-to-end keep and delete proof for this plugin in a real session
+- that the repo already ships a default production compaction executor transport
 
-```bash
-npm run typecheck
-node --import tsx --test tests/**/*.test.ts
-```
+For current manual guidance, read `docs/live-verification-with-mitmproxy-and-debug-log.zh.md`. That guide keeps the same truth boundary: real-session checks may confirm plugin load, seam logging, sidecar creation, and other observable runtime effects, but full keep and delete proof still comes from the repo-owned automated suite above.
 
 ## Seam probe
 
-For seam-debug work, the repo still includes the temporary-config probe runner:
+For seam-debug work, the repo includes a probe runner:
 
 ```bash
 npm run probe:seams
@@ -195,4 +189,17 @@ What it does:
 - runs a minimal `opencode run`
 - records hook observations to `logs/seam-observation.jsonl`
 
-Use the seam probe when you need raw hook-shape evidence. Use the e2e suite when you need repeatable operator-facing acceptance proof.
+Use the seam probe when you need raw hook-shape evidence. Use the cutover tests and e2e suite when you need repeatable proof of the repo-owned contract.
+
+## Verification commands
+
+From `/root/_/opencode/opencode-context-compression`:
+
+```bash
+npm run typecheck
+node --import tsx --test tests/cutover/runtime-config-precedence.test.ts
+node --import tsx --test tests/cutover/legacy-independence.test.ts
+node --import tsx --test tests/cutover/docs-and-notepad-contract.test.ts
+node --import tsx --test tests/e2e/plugin-loading-and-compaction.test.ts
+node --import tsx --test tests/e2e/delete-route.test.ts
+```

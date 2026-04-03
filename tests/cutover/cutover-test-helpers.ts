@@ -30,6 +30,7 @@ type PluginModule = {
 };
 
 export const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
+export const WORKSPACE_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 export const PLUGIN_ENTRY_PATH = fileURLToPath(new URL("../../src/index.ts", import.meta.url));
 export const PLUGIN_TYPES_PATH = fileURLToPath(
   new URL("../../node_modules/@opencode-ai/plugin/dist/index.d.ts", import.meta.url),
@@ -44,6 +45,10 @@ export const CANONICAL_CONTRACT_FILES = Object.freeze([
 
 export async function readRepoFile(relativePath: string): Promise<string> {
   return readFile(join(REPO_ROOT, relativePath), "utf8");
+}
+
+export async function readWorkspaceFile(relativePath: string): Promise<string> {
+  return readFile(join(WORKSPACE_ROOT, relativePath), "utf8");
 }
 
 export async function readInstalledPluginTypes(): Promise<string> {
@@ -82,7 +87,11 @@ export async function withLoadedPluginHooks<T>(
 }
 
 export async function listRepoFiles(relativeDirectory: string): Promise<string[]> {
-  return walkRelativeDirectory(relativeDirectory);
+  return walkRelativeDirectory(REPO_ROOT, relativeDirectory);
+}
+
+export async function listWorkspaceFiles(relativeDirectory: string): Promise<string[]> {
+  return walkRelativeDirectory(WORKSPACE_ROOT, relativeDirectory);
 }
 
 export async function findProductionCallSites(
@@ -153,8 +162,8 @@ export function listVisibleRepoFiles(relativePaths: readonly string[]): string[]
   });
 }
 
-async function walkRelativeDirectory(relativeDirectory: string): Promise<string[]> {
-  const absoluteDirectory = join(REPO_ROOT, relativeDirectory);
+async function walkRelativeDirectory(rootDirectory: string, relativeDirectory: string): Promise<string[]> {
+  const absoluteDirectory = join(rootDirectory, relativeDirectory);
 
   try {
     const entries = await readdir(absoluteDirectory, { withFileTypes: true });
@@ -162,7 +171,7 @@ async function walkRelativeDirectory(relativeDirectory: string): Promise<string[
       entries.map(async (entry) => {
         const childRelativePath = join(relativeDirectory, entry.name);
         if (entry.isDirectory()) {
-          return walkRelativeDirectory(childRelativePath);
+          return walkRelativeDirectory(rootDirectory, childRelativePath);
         }
 
         if (entry.isFile()) {

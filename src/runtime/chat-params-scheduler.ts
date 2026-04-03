@@ -2,16 +2,14 @@ import type { Hooks, PluginInput } from "@opencode-ai/plugin";
 
 import type { CanonicalCompactionMessage } from "../compaction/input-builder.js";
 import {
-  CompactionTransportInvocationError,
   runCompactionBatch,
   type CompactionRunnerTransport,
-  type CompactionRunnerTransportRequest,
 } from "../compaction/runner.js";
-import type { RawCompactionOutput } from "../compaction/output-validation.js";
 import type { RuntimeConfig } from "../config/runtime-config.js";
 import { resolveHostMessageCanonicalIdentity } from "../identity/canonical-identity.js";
 import type { TransformEnvelope, TransformPart } from "../seams/noop-observation.js";
 import { createSqliteSessionStateStore } from "../state/store.js";
+import { createDefaultRuntimeCompactionTransport } from "./default-compaction-transport.js";
 import { readSessionFileLock, resolvePluginLockDirectory } from "./file-lock.js";
 
 type ChatParamsHook = NonNullable<Hooks["chat.params"]>;
@@ -44,7 +42,7 @@ export function createChatParamsSchedulerHook(
   options: CreateChatParamsSchedulerHookOptions,
 ): ChatParamsHook {
   return async (input) => {
-    const scheduledRun = dispatchSchedulerRun(options, input.sessionID, input.message.id);
+    const scheduledRun = dispatchSchedulerRun(options, input);
     if (options.runInBackground === false) {
       await scheduledRun;
     }
@@ -53,15 +51,15 @@ export function createChatParamsSchedulerHook(
 
 function dispatchSchedulerRun(
   options: CreateChatParamsSchedulerHookOptions,
-  sessionID: string,
-  triggerMessageID: string,
+  input: Parameters<ChatParamsHook>[0],
 ): Promise<void> {
+  const sessionID = input.sessionID;
   const current = ACTIVE_SCHEDULER_RUNS.get(sessionID);
   if (current) {
     return current;
   }
 
-  const run = runSchedulerOnce(options, sessionID, triggerMessageID).finally(() => {
+  const run = runSchedulerOnce(options, input).finally(() => {
     if (ACTIVE_SCHEDULER_RUNS.get(sessionID) === run) {
       ACTIVE_SCHEDULER_RUNS.delete(sessionID);
     }
@@ -80,9 +78,10 @@ function dispatchSchedulerRun(
 
 async function runSchedulerOnce(
   options: CreateChatParamsSchedulerHookOptions,
-  sessionID: string,
-  triggerMessageID: string,
+  input: Parameters<ChatParamsHook>[0],
 ): Promise<void> {
+  const sessionID = input.sessionID;
+  const triggerMessageID = input.message.id;
   const lockDirectory = resolvePluginLockDirectory(options.pluginDirectory);
   const store = createSqliteSessionStateStore({
     pluginDirectory: options.pluginDirectory,
@@ -113,7 +112,13 @@ async function runSchedulerOnce(
       return;
     }
 
-    const transport = options.transport ?? createUnavailableCompactionTransport();
+    const transport =
+      options.transport ??
+      createDefaultRuntimeCompactionTransport({
+        modelContext: input.model,
+        providerContext: input.provider,
+        timeoutMs: options.timeoutMs,
+      });
     await runCompactionBatch({
       store,
       lockDirectory,
@@ -234,30 +239,6 @@ function renderCanonicalMessageText(parts: readonly TransformPart[]): string {
   });
 
   return chunks.join("\n").trim();
-}
-
-function createUnavailableCompactionTransport(): CompactionRunnerTransport {
-  return {
-    candidate: {
-      id: "plugin.compaction.invoke",
-      owner: "plugin",
-      entrypoint: "independent-model-call",
-      promptContext: "dedicated-compaction-prompt",
-      sessionEffects: {
-        createsUserMessage: false,
-        reusesSharedLoop: false,
-        dependsOnBusyState: false,
-        mutatesPermissions: false,
-      },
-      failureClassification: "deterministic",
-    },
-    async invoke(request: CompactionRunnerTransportRequest): Promise<RawCompactionOutput> {
-      throw new CompactionTransportInvocationError(
-        "unavailable",
-        `No plugin-owned compaction transport executor is configured for model '${request.model}'.`,
-      );
-    },
-  };
 }
 
 function toTransformEnvelope(message: SchedulerSessionMessage): TransformEnvelope {
