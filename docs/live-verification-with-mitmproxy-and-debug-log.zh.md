@@ -9,7 +9,7 @@
 1. `/root/_/opencode/config/opencode.jsonc` 中明确加载了插件入口，并且重启后的 OpenCode 确实使用了这份配置。
 2. `npm run probe:seams` 能写出新的 `logs/seam-observation.jsonl`，并且至少能看到 `chat.params`、`experimental.chat.messages.transform`、`tool.execute.before` 三个 seam。
 3. 在真实会话里能看到新的 `state/<session-id>.db`，而且 `host_messages`、`marks`、`compaction_batches`、`replacements` 等表里有本次验证对应的数据。
-4. 触发压缩时会出现 `locks/<session-id>.lock`，普通聊天会等待，非 DCP 工具不会被一刀切阻塞。
+4. 触发压缩时会出现 `locks/<session-id>.lock`，普通聊天会等待，非压缩工具不会被一刀切阻塞。
 5. `route=keep` 和 `route=delete` 都能留下已提交的 replacement 记录，并且投射结果与各自语义一致。
 6. 在相同规范历史没有变化时，投射结果重复执行仍然稳定，不会每次都变样。
 7. mitmproxy 观察到的传输行为，与 SQLite 和 seam 日志看到的副作用一致，没有把压缩偷偷走成普通 `session.prompt` 污染路径。
@@ -476,17 +476,16 @@ sqlite3 "/root/_/opencode/opencode-context-compression/state/<session-id>.db" "S
 
 - 在一个活跃压缩仍持有锁的窗口里，同时做三件事：
   1. 发送一条普通聊天消息
-  2. 运行一个普通非 DCP 工具，例如 `read`
-  3. 如果当前 profile 暴露了 DCP 工具，再分别尝试 mark 工具和 executor
+  2. 运行一个普通非压缩工具，例如 `read`
+  3. 尝试 `compression_mark`，并确认仓库自有的内部压缩执行不会作为公共工具暴露
 
-当前实现里，mark 工具名允许走 bypass 的默认集合是：
+当前实现里，允许走 bypass 的公共标记工具默认名是：
 
-- `dcp_mark`
-- `dcp_mark_for_compaction`
+- `compression_mark`
 
-当前实现里，活跃锁期间应阻塞的 executor 默认名是：
+当前实现里，活跃锁期间只应阻塞仓库内部压缩执行：
 
-- `dcp_execute_compaction`
+- `compression_run_internal`
 
 必要时可以直接查批次成员是否冻结：
 
@@ -498,23 +497,23 @@ sqlite3 "/root/_/opencode/opencode-context-compression/state/<session-id>.db" "S
 **重点观察**
 
 - 普通聊天应等待
-- 非 DCP 工具应继续可用
-- `dcp_mark` / `dcp_mark_for_compaction` 可以登记新 mark，但不应把晚到 mark 塞进已经冻结的 batch
-- `dcp_execute_compaction` 在活跃锁期间应被挡住
+- 非压缩工具应继续可用
+- `compression_mark` 可以登记新 mark，但不应把晚到 mark 塞进已经冻结的 batch
+- 仓库内部压缩执行在活跃锁期间应被挡住，且不应作为公共工具暴露
 
 **PASS**
 
 - 普通聊天直到批次终态后才恢复
-- `read` 这类非 DCP 工具仍可执行
+- `read` 这类非压缩工具仍可执行
 - 新增 mark 出现在 `marks` 表里，但不会回写进已冻结的 `compaction_batch_marks`
-- executor 在锁期间被拒绝
+- 内部压缩执行在锁期间被拒绝
 
 **FAIL**
 
 - 普通聊天直接穿过活跃锁
-- 非 DCP 工具也被全部锁死
+- 非压缩工具也被全部锁死
 - 晚到 mark 混入了旧批次
-- executor 在活跃锁期间还能继续跑
+- 内部压缩执行在活跃锁期间还能继续跑
 
 ### 9. 传输观察与非污染检查
 
@@ -570,7 +569,7 @@ sqlite3 "/root/_/opencode/opencode-context-compression/state/<session-id>.db" "S
 - 锁文件消失后，对应批次仍停在 `running` 或 `frozen`
 - `route=keep` / `route=delete` 都没有留下 committed replacement
 - 同一规范历史在重复投射时持续漂移
-- 普通聊天不等待活跃锁，或者非 DCP 工具被一起锁死
+- 普通聊天不等待活跃锁，或者非压缩工具被一起锁死
 - mitmproxy 看到的是普通会话污染，而不是与 SQLite 相匹配的独立压缩调用
 
 ## 11. 什么时候可以收工

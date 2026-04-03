@@ -11,8 +11,8 @@ import { createSqliteSessionStateStore } from "../state/store.js";
 type ChatMessageHook = NonNullable<Hooks["chat.message"]>;
 type ToolExecuteBeforeHook = NonNullable<Hooks["tool.execute.before"]>;
 
-const DEFAULT_DCP_MARK_TOOL_NAMES = Object.freeze(["dcp_mark", "dcp_mark_for_compaction"]);
-const DEFAULT_BLOCKED_DCP_TOOL_NAMES = Object.freeze(["dcp_execute_compaction"]);
+const DEFAULT_MARK_TOOL_NAMES = Object.freeze(["compression_mark"]);
+const DEFAULT_BLOCKED_INTERNAL_TOOL_NAMES = Object.freeze(["compression_run_internal"]);
 
 export interface SendEntryGateSharedOptions {
   readonly pluginDirectory: string;
@@ -30,13 +30,13 @@ export interface WaitForOrdinaryChatGateOptions extends SendEntryGateSharedOptio
 export interface GuardToolExecutionDuringLockOptions extends SendEntryGateSharedOptions {
   readonly sessionID: string;
   readonly toolName: string;
-  readonly dcpMarkToolNames?: readonly string[];
-  readonly blockedDcpToolNames?: readonly string[];
+  readonly markToolNames?: readonly string[];
+  readonly blockedInternalToolNames?: readonly string[];
 }
 
 export interface CreateSendEntryGateHooksOptions extends SendEntryGateSharedOptions {
-  readonly dcpMarkToolNames?: readonly string[];
-  readonly blockedDcpToolNames?: readonly string[];
+  readonly markToolNames?: readonly string[];
+  readonly blockedInternalToolNames?: readonly string[];
 }
 
 export type OrdinaryChatGateWaitOutcome =
@@ -64,7 +64,7 @@ export class ActiveCompactionLockError extends Error {
   readonly toolName: string;
 
   constructor(sessionID: string, toolName: string) {
-    super(`Cannot run DCP tool '${toolName}' while compaction is active for session '${sessionID}'.`);
+    super(`Cannot run internal compaction tool '${toolName}' while compaction is active for session '${sessionID}'.`);
     this.name = "ActiveCompactionLockError";
     this.sessionID = sessionID;
     this.toolName = toolName;
@@ -92,8 +92,8 @@ export function createSendEntryGateHooks(
       lockDirectory: options.lockDirectory,
       sessionID: input.sessionID,
       toolName: input.tool,
-      dcpMarkToolNames: options.dcpMarkToolNames,
-      blockedDcpToolNames: options.blockedDcpToolNames,
+      markToolNames: options.markToolNames,
+      blockedInternalToolNames: options.blockedInternalToolNames,
       now: options.now,
       timeoutMs: options.timeoutMs,
     });
@@ -146,8 +146,8 @@ export async function waitForOrdinaryChatGateIfNeeded(
 export async function guardToolExecutionDuringLock(
   options: GuardToolExecutionDuringLockOptions,
 ): Promise<void> {
-  const dcpMarkToolNames = normalizeToolNames(options.dcpMarkToolNames, DEFAULT_DCP_MARK_TOOL_NAMES);
-  if (dcpMarkToolNames.has(options.toolName)) {
+  const markToolNames = normalizeToolNames(options.markToolNames, DEFAULT_MARK_TOOL_NAMES);
+  if (markToolNames.has(options.toolName)) {
     return;
   }
 
@@ -163,11 +163,11 @@ export async function guardToolExecutionDuringLock(
     return;
   }
 
-  const blockedDcpToolNames = normalizeToolNames(
-    options.blockedDcpToolNames,
-    DEFAULT_BLOCKED_DCP_TOOL_NAMES,
+  const blockedInternalToolNames = normalizeToolNames(
+    options.blockedInternalToolNames,
+    DEFAULT_BLOCKED_INTERNAL_TOOL_NAMES,
   );
-  if (blockedDcpToolNames.has(options.toolName)) {
+  if (blockedInternalToolNames.has(options.toolName)) {
     throw new ActiveCompactionLockError(options.sessionID, options.toolName);
   }
 }

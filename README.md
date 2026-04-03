@@ -94,7 +94,7 @@ The plugin is organized around four operator-visible rules:
 3. **The file lock is the live compaction gate**
    - an active batch writes `locks/<session-id>.lock`
    - ordinary chat waits on that lock
-   - unrelated tools continue, and DCP mark tools stay outside the already-frozen batch
+   - unrelated tools continue, and `compression_mark` stays outside the already-frozen batch
 4. **Projection is deterministic**
    - committed replacements are rendered from sidecar state through `experimental.chat.messages.transform`
    - rerunning projection over the same canonical history yields the same visible output
@@ -131,8 +131,8 @@ The live compaction gate is the session lock file:
 What happens during a live lock:
 
 - ordinary chat waits until the batch succeeds, fails, times out, or is manually cleared
-- non-DCP tools continue to run
-- DCP mark tools may still register future marks, but those marks do not join the already-frozen batch
+- non-compaction tools continue to run
+- `compression_mark` may still register future marks, but those marks do not join the already-frozen batch
 
 ### Manual lock recovery
 

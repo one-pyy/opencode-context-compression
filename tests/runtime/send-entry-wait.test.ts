@@ -49,8 +49,8 @@ test("ordinary chat waits at send-entry while unrelated tools still run and resu
       pluginDirectory,
       sessionID: store.sessionID,
       toolName: "read",
-      dcpMarkToolNames: ["dcp_mark"],
-      blockedDcpToolNames: ["dcp_execute_compaction"],
+      markToolNames: ["compression_mark"],
+      blockedInternalToolNames: ["compression_run_internal"],
     });
 
     const release = delay(10).then(async () => {
@@ -184,7 +184,7 @@ test("ordinary chat stops waiting when the live lock ages past the configured ti
   });
 });
 
-test("DCP mark tools remain allowed during lock while blocked DCP executors stay out and late marks do not mutate the frozen batch", async () => {
+test("compression_mark remains allowed during lock while blocked internal execution stays out and late marks do not mutate the frozen batch", async () => {
   await withTempEnvironment(async ({ pluginDirectory, lockDirectory, store }) => {
     seedMarkSet(store, ["mark-1", "mark-2"]);
     const frozen = await freezeCurrentCompactionBatch({
@@ -206,9 +206,9 @@ test("DCP mark tools remain allowed during lock while blocked DCP executors stay
     await guardToolExecutionDuringLock({
       pluginDirectory,
       sessionID: store.sessionID,
-      toolName: "dcp_mark",
-      dcpMarkToolNames: ["dcp_mark"],
-      blockedDcpToolNames: ["dcp_execute_compaction"],
+      toolName: "compression_mark",
+      markToolNames: ["compression_mark"],
+      blockedInternalToolNames: ["compression_run_internal"],
     });
 
     await assert.rejects(
@@ -216,12 +216,12 @@ test("DCP mark tools remain allowed during lock while blocked DCP executors stay
         guardToolExecutionDuringLock({
           pluginDirectory,
           sessionID: store.sessionID,
-          toolName: "dcp_execute_compaction",
-          dcpMarkToolNames: ["dcp_mark"],
-          blockedDcpToolNames: ["dcp_execute_compaction"],
+          toolName: "compression_run_internal",
+          markToolNames: ["compression_mark"],
+          blockedInternalToolNames: ["compression_run_internal"],
         }),
       (error: unknown) =>
-        error instanceof ActiveCompactionLockError && error.toolName === "dcp_execute_compaction",
+        error instanceof ActiveCompactionLockError && error.toolName === "compression_run_internal",
     );
 
     persistMark({
