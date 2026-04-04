@@ -212,8 +212,11 @@ function buildRequestPayload(
     payload.temperature = 0;
   }
 
+  const routeHint = `The compaction route is: **${input.route}**`;
+  const effectivePrompt = `${input.promptText}\n\n## Route\n\n${routeHint}`;
+
   if (endpoint === "responses") {
-    payload.instructions = input.promptText;
+    payload.instructions = effectivePrompt;
     payload.input = [
       {
         role: "user",
@@ -232,7 +235,7 @@ function buildRequestPayload(
   payload.messages = [
     {
       role: "system",
-      content: input.promptText,
+      content: effectivePrompt,
     },
     {
       role: "user",

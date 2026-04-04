@@ -308,12 +308,15 @@ test("default scheduler transport executes through the plugin-owned runtime exec
       assert.equal(requestBody?.temperature, 0);
       assert.equal(requestBody?.stream, false);
       assert.equal(requestBody?.messages?.[0]?.role, "system");
-      assert.equal(
-        requestBody?.messages?.[0]?.content,
-        runtimeConfig.promptText,
+      assert.match(
+        requestBody?.messages?.[0]?.content ?? "",
+        /Repo-owned compaction prompt/u,
+      );
+      assert.match(
+        requestBody?.messages?.[0]?.content ?? "",
+        /The compaction route is: \*\*keep\*\*/u,
       );
       assert.equal(requestBody?.messages?.[1]?.role, "user");
-      assert.match(requestBody?.messages?.[1]?.content ?? "", /Route: keep/u);
       assert.match(
         requestBody?.messages?.[1]?.content ?? "",
         /Source snapshot id: mark-1:snapshot/u,

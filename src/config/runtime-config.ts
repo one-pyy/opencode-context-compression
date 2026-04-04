@@ -710,12 +710,18 @@ function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function describeJsoncParseError(sourceText: string, error: ParseError): string {
+function describeJsoncParseError(
+  sourceText: string,
+  error: ParseError,
+): string {
   const location = describeTextLocation(sourceText, error.offset);
   return `${printParseErrorCode(error.error)} at line ${location.line}, column ${location.column}`;
 }
 
-function describeTextLocation(sourceText: string, offset: number): {
+function describeTextLocation(
+  sourceText: string,
+  offset: number,
+): {
   line: number;
   column: number;
 } {

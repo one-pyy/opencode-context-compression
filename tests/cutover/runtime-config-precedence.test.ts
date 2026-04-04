@@ -30,7 +30,10 @@ test("repo-owned runtime config, prompt assets, and docs resolve from this repo 
   assert.ok(promptFiles.includes("prompts/reminder-soft.md"));
   assert.ok(promptFiles.includes("prompts/reminder-hard.md"));
   assert.equal(runtimeConfig.repoRoot, resolveRuntimeConfigRepoRoot());
-  assert.match(runtimeConfig.configPath, /src\/config\/runtime-config\.jsonc$/u);
+  assert.match(
+    runtimeConfig.configPath,
+    /src\/config\/runtime-config\.jsonc$/u,
+  );
   assert.match(runtimeConfig.promptPath, /prompts\/compaction\.md$/u);
   assert.deepEqual(runtimeConfig.models, [
     "openai.right/gpt-5.4-mini",
@@ -64,8 +67,14 @@ test("repo-owned runtime config, prompt assets, and docs resolve from this repo 
   assert.match(runtimeConfig.runtimeLogPath, /logs\/runtime-events\.jsonl$/u);
   assert.match(runtimeConfig.seamLogPath, /logs\/seam-observation\.jsonl$/u);
   assert.equal(runtimeConfig.debugSnapshotPath, undefined);
-  assert.match(runtimeConfig.promptText, /route=keep/u);
-  assert.match(await readRepoFile("src/config/runtime-config.jsonc"), /"\$schema"\s*:\s*"\.\/runtime-config\.schema\.json"/u);
+  assert.match(
+    runtimeConfig.promptText,
+    /Context compression output contract/u,
+  );
+  assert.match(
+    await readRepoFile("src/config/runtime-config.jsonc"),
+    /"\$schema"\s*:\s*"\.\/runtime-config\.schema\.json"/u,
+  );
   assert.doesNotMatch(readme, /config\/dcp-runtime\.json/u);
   assert.doesNotMatch(readmeZh, /config\/dcp-runtime\.json/u);
 });
