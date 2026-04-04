@@ -4,17 +4,20 @@ import type {
   SourceSnapshotMessageRecord,
   SqliteSessionStateStore,
 } from "../state/store.js";
+import type { ReminderRuntimeConfig } from "../config/runtime-config.js";
 import { ensureReferableVisibleMessageIdentity } from "../identity/visible-sequence.js";
 import type { TransformEnvelope, TransformMessage, TransformPart } from "../seams/noop-observation.js";
 import { buildProjectionPolicy, type ProjectionPolicy, type ProjectionVisibleState } from "./policy-engine.js";
-import { deriveReminder, type DerivedReminder, type ReminderCadence } from "./reminder-service.js";
+import { deriveReminder, type DerivedReminder } from "./reminder-service.js";
 
 const LEGACY_ROLE_PREFIX_PATTERN = /^(?:assistant|user|tool)_/;
 
 export interface ProjectionBuilderOptions {
   readonly messages: readonly TransformEnvelope[];
   readonly store: SqliteSessionStateStore;
-  readonly reminderCadence?: ReminderCadence;
+  readonly reminder?: ReminderRuntimeConfig;
+  readonly smallUserMessageThreshold?: number;
+  readonly reminderModelName?: string;
 }
 
 export interface ProjectionBuildResult {
@@ -39,10 +42,18 @@ export function buildProjectedMessages(options: ProjectionBuilderOptions): Proje
   const policy = buildProjectionPolicy({
     messages: options.messages,
     store: options.store,
+    smallUserMessageThreshold: options.smallUserMessageThreshold,
   });
   const reminder = deriveReminder({
     policy,
-    cadence: options.reminderCadence,
+    cadence: options.reminder,
+    templates: options.reminder
+      ? {
+          soft: options.reminder.prompts.softText,
+          hard: options.reminder.prompts.hardText,
+        }
+      : undefined,
+    modelName: options.reminderModelName,
   });
   const appliedSpans = collectAppliedReplacementSpans(policy, options.store);
   const spanByStartIndex = new Map(appliedSpans.map((span) => [span.startIndex, span]));

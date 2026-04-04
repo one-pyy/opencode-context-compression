@@ -1,5 +1,6 @@
 import { freezeCurrentCompactionBatch } from "../marks/batch-freeze.js";
 import { releaseSessionFileLock } from "../runtime/file-lock.js";
+import type { RuntimeEventWriter } from "../runtime/runtime-events.js";
 import type {
   CompactionBatchMarkRecord,
   CompactionBatchRecord,
@@ -96,6 +97,7 @@ export interface RunCompactionBatchOptions {
   readonly note?: string;
   readonly metadata?: JsonValue;
   readonly ids?: Partial<CompactionRunnerIDFactory>;
+  readonly runtimeEvents?: RuntimeEventWriter;
 }
 
 export type CompactionJobFailureCode =
@@ -209,7 +211,7 @@ export async function runCompactionBatch(
     metadata: options.metadata,
   });
 
-  options.store.recordRuntimeGateObservation({
+  const runningObservation = options.store.recordRuntimeGateObservation({
     observationID: gateObservationCounter.next("running"),
     observedState: "running",
     lockPath: frozen.lockPath,
@@ -219,6 +221,19 @@ export async function runCompactionBatch(
     note: options.note,
     metadata: options.metadata,
   });
+  options.runtimeEvents?.recordRuntimeGateObservation(
+    {
+      observationID: runningObservation.observationID,
+      observedState: "running",
+      lockPath: frozen.lockPath,
+      startedAtMs: frozen.lock.startedAtMs,
+      observedAtMs: runningObservation.observedAtMs,
+      activeJobCount: frozen.persistedMembers.length,
+      note: options.note,
+      metadata: options.metadata,
+    },
+    runningObservation,
+  );
 
   const jobResults: CompactionJobExecutionResult[] = [];
   let finalStatus: "succeeded" | "failed" = "succeeded";
@@ -258,7 +273,7 @@ export async function runCompactionBatch(
 
     batch = finalizeBatchStatus(options.store, batchID, finalStatus, options.metadata);
 
-    options.store.recordRuntimeGateObservation({
+    const finalObservation = options.store.recordRuntimeGateObservation({
       observationID: gateObservationCounter.next(finalStatus),
       observedState: finalStatus,
       lockPath: frozen.lockPath,
@@ -269,6 +284,20 @@ export async function runCompactionBatch(
       note: finalGateNote,
       metadata: options.metadata,
     });
+    options.runtimeEvents?.recordRuntimeGateObservation(
+      {
+        observationID: finalObservation.observationID,
+        observedState: finalStatus,
+        lockPath: frozen.lockPath,
+        startedAtMs: frozen.lock.startedAtMs,
+        settledAtMs: finalObservation.settledAtMs,
+        observedAtMs: finalObservation.observedAtMs,
+        activeJobCount: 0,
+        note: finalGateNote,
+        metadata: options.metadata,
+      },
+      finalObservation,
+    );
 
     return {
       started: true,
@@ -285,7 +314,7 @@ export async function runCompactionBatch(
       sessionID: options.sessionID,
     });
 
-    options.store.recordRuntimeGateObservation({
+    const unlockedObservation = options.store.recordRuntimeGateObservation({
       observationID: gateObservationCounter.next("unlocked"),
       observedState: "unlocked",
       lockPath: frozen.lockPath,
@@ -296,6 +325,20 @@ export async function runCompactionBatch(
       note: finalGateNote,
       metadata: options.metadata,
     });
+    options.runtimeEvents?.recordRuntimeGateObservation(
+      {
+        observationID: unlockedObservation.observationID,
+        observedState: "unlocked",
+        lockPath: frozen.lockPath,
+        startedAtMs: frozen.lock.startedAtMs,
+        settledAtMs: releasedAtMs,
+        observedAtMs: releasedAtMs,
+        activeJobCount: 0,
+        note: finalGateNote,
+        metadata: options.metadata,
+      },
+      unlockedObservation,
+    );
   }
 }
 

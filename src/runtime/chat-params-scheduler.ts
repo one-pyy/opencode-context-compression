@@ -9,8 +9,10 @@ import type { RuntimeConfig } from "../config/runtime-config.js";
 import { resolveHostMessageCanonicalIdentity } from "../identity/canonical-identity.js";
 import type { TransformEnvelope, TransformPart } from "../seams/noop-observation.js";
 import { createSqliteSessionStateStore } from "../state/store.js";
+import { estimateEnvelopeTokens } from "../token-estimation.js";
 import { createDefaultRuntimeCompactionTransport } from "./default-compaction-transport.js";
 import { readSessionFileLock, resolvePluginLockDirectory } from "./file-lock.js";
+import { createRuntimeEventWriter } from "./runtime-events.js";
 
 type ChatParamsHook = NonNullable<Hooks["chat.params"]>;
 
@@ -108,7 +110,16 @@ async function runSchedulerOnce(
     });
 
     const activeMarks = store.listMarks({ status: "active" });
-    if (activeMarks.length < options.runtimeConfig.schedulerMarkThreshold) {
+    const activeMarkedTokenTotal = computeActiveMarkedTokenTotal({
+      activeMarks,
+      store,
+      canonicalMessages,
+      modelName: options.runtimeConfig.models[0],
+    });
+    if (
+      activeMarks.length < options.runtimeConfig.schedulerMarkThreshold ||
+      activeMarkedTokenTotal < options.runtimeConfig.markedTokenAutoCompactionThreshold
+    ) {
       return;
     }
 
@@ -130,12 +141,19 @@ async function runSchedulerOnce(
       now: options.now,
       timeoutMs: options.timeoutMs,
       note: `chat.params scheduler triggered by ${triggerMessageID}`,
+      runtimeEvents: createRuntimeEventWriter({
+        filePath: options.runtimeConfig.runtimeLogPath,
+        level: options.runtimeConfig.logging.level,
+      }),
       metadata: {
         scheduler: {
           seam: "chat.params",
           triggerMessageID,
           activeMarkCount: activeMarks.length,
-          markThreshold: options.runtimeConfig.schedulerMarkThreshold,
+          activeMarkedTokenTotal,
+          schedulerMarkThreshold: options.runtimeConfig.schedulerMarkThreshold,
+          markedTokenAutoCompactionThreshold: options.runtimeConfig.markedTokenAutoCompactionThreshold,
+          markedTokenThresholdEnforced: true,
           configuredModels: [...options.runtimeConfig.models],
         },
       },
@@ -239,6 +257,32 @@ function renderCanonicalMessageText(parts: readonly TransformPart[]): string {
   });
 
   return chunks.join("\n").trim();
+}
+
+function computeActiveMarkedTokenTotal(input: {
+  readonly activeMarks: readonly ReturnType<ReturnType<typeof createSqliteSessionStateStore>["listMarks"]>[number][];
+  readonly store: ReturnType<typeof createSqliteSessionStateStore>;
+  readonly canonicalMessages: readonly TransformEnvelope[];
+  readonly modelName?: string;
+}): number {
+  const messagesByHostID = new Map(
+    input.canonicalMessages.map((message) => [resolveHostMessageCanonicalIdentity(message).hostMessageID, message]),
+  );
+
+  let total = 0;
+  for (const mark of input.activeMarks) {
+    const sourceMessages = input.store.listMarkSourceMessages(mark.markID);
+    for (const sourceMessage of sourceMessages) {
+      const envelope = messagesByHostID.get(sourceMessage.hostMessageID);
+      if (envelope === undefined) {
+        continue;
+      }
+
+      total += estimateEnvelopeTokens({ envelope, modelName: input.modelName }).tokenCount;
+    }
+  }
+
+  return total;
 }
 
 function toTransformEnvelope(message: SchedulerSessionMessage): TransformEnvelope {

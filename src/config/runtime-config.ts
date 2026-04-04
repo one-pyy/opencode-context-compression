@@ -2,9 +2,24 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { DEFAULT_LOCK_TIMEOUT_MS } from "../runtime/file-lock.js";
 import type { CompactionRoute } from "../state/store.js";
 
 const DEFAULT_SCHEDULER_MARK_THRESHOLD = 1;
+const DEFAULT_MARKED_TOKEN_AUTO_COMPACTION_THRESHOLD = 20_000;
+const DEFAULT_SMALL_USER_MESSAGE_THRESHOLD = 1_024;
+const DEFAULT_REMINDER_HSOFT = 30_000;
+const DEFAULT_REMINDER_HHARD = 70_000;
+const DEFAULT_REMINDER_COUNTER_SOURCE = "eligible_messages";
+const DEFAULT_SOFT_REMINDER_REPEAT_EVERY = 3;
+const DEFAULT_HARD_REMINDER_REPEAT_EVERY = 1;
+const DEFAULT_RUNTIME_LOG_LEVEL = "off";
+const DEFAULT_COMPRESSING_TIMEOUT_SECONDS = Math.floor(DEFAULT_LOCK_TIMEOUT_MS / 1_000);
+const REQUIRED_REMINDER_TEMPLATE_PLACEHOLDERS = Object.freeze([
+  "{{compressible_content}}",
+  "{{compaction_target}}",
+  "{{preserved_fields}}",
+]);
 
 export const RUNTIME_CONFIG_ENV = Object.freeze({
   configPath: "OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH",
@@ -13,8 +28,46 @@ export const RUNTIME_CONFIG_ENV = Object.freeze({
   route: "OPENCODE_CONTEXT_COMPRESSION_ROUTE",
   runtimeLogPath: "OPENCODE_CONTEXT_COMPRESSION_RUNTIME_LOG_PATH",
   seamLogPath: "OPENCODE_CONTEXT_COMPRESSION_SEAM_LOG",
+  logLevel: "OPENCODE_CONTEXT_COMPRESSION_LOG_LEVEL",
+  compressingTimeoutSeconds: "OPENCODE_CONTEXT_COMPRESSION_COMPRESSING_TIMEOUT_SECONDS",
   debugSnapshotPath: "OPENCODE_CONTEXT_COMPRESSION_DEBUG_SNAPSHOT_PATH",
 });
+
+export type RuntimeLogLevel = "off" | "error" | "info" | "debug";
+export type ReminderCounterSource = "eligible_messages" | "assistant_turns";
+
+export interface ReminderCounterRule {
+  readonly repeatEvery: number;
+}
+
+export interface ReminderCounterConfig {
+  readonly source: ReminderCounterSource;
+  readonly soft: ReminderCounterRule;
+  readonly hard: ReminderCounterRule;
+}
+
+export interface ReminderPromptConfig {
+  readonly softPath: string;
+  readonly softText: string;
+  readonly hardPath: string;
+  readonly hardText: string;
+}
+
+export interface ReminderRuntimeConfig {
+  readonly hsoft: number;
+  readonly hhard: number;
+  readonly counter: ReminderCounterConfig;
+  readonly prompts: ReminderPromptConfig;
+}
+
+export interface LoggingRuntimeConfig {
+  readonly level: RuntimeLogLevel;
+}
+
+export interface CompressingRuntimeConfig {
+  readonly timeoutSeconds: number;
+  readonly timeoutMs: number;
+}
 
 export interface RuntimeConfig {
   readonly repoRoot: string;
@@ -22,6 +75,11 @@ export interface RuntimeConfig {
   readonly promptPath: string;
   readonly promptText: string;
   readonly models: readonly string[];
+  readonly markedTokenAutoCompactionThreshold: number;
+  readonly smallUserMessageThreshold: number;
+  readonly reminder: ReminderRuntimeConfig;
+  readonly logging: LoggingRuntimeConfig;
+  readonly compressing: CompressingRuntimeConfig;
   readonly schedulerMarkThreshold: number;
   readonly route: CompactionRoute;
   readonly runtimeLogPath: string;
@@ -33,6 +91,11 @@ interface RuntimeConfigFile {
   readonly version: number;
   readonly promptPath: string;
   readonly compactionModels: readonly string[];
+  readonly markedTokenAutoCompactionThreshold: number;
+  readonly smallUserMessageThreshold: number;
+  readonly reminder: ReminderRuntimeConfig;
+  readonly logging: LoggingRuntimeConfig;
+  readonly compressing: CompressingRuntimeConfig;
   readonly schedulerMarkThreshold: number;
   readonly route: CompactionRoute;
   readonly runtimeLogPath: string;
@@ -65,10 +128,13 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     readOptionalPathEnv(env, RUNTIME_CONFIG_ENV.runtimeLogPath, repoRoot) ?? fileConfig.runtimeLogPath;
   const seamLogPath =
     readOptionalPathEnv(env, RUNTIME_CONFIG_ENV.seamLogPath, repoRoot) ?? fileConfig.seamLogPath;
+  const loggingLevel = readLogLevelOverride(env, fileConfig.logging.level);
+  const timeoutSeconds =
+    readOptionalPositiveIntegerEnv(env, RUNTIME_CONFIG_ENV.compressingTimeoutSeconds) ??
+    fileConfig.compressing.timeoutSeconds;
   const debugSnapshotPath = readOptionalPathEnv(env, RUNTIME_CONFIG_ENV.debugSnapshotPath, repoRoot);
   const promptText = readPromptText(promptPath);
   const models = readModelsOverride(env, fileConfig.compactionModels);
-  const schedulerMarkThreshold = fileConfig.schedulerMarkThreshold;
   const route = readRouteOverride(env, fileConfig.route);
 
   return {
@@ -77,7 +143,17 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     promptPath,
     promptText,
     models,
-    schedulerMarkThreshold,
+    markedTokenAutoCompactionThreshold: fileConfig.markedTokenAutoCompactionThreshold,
+    smallUserMessageThreshold: fileConfig.smallUserMessageThreshold,
+    reminder: fileConfig.reminder,
+    logging: {
+      level: loggingLevel,
+    },
+    compressing: {
+      timeoutSeconds,
+      timeoutMs: timeoutSeconds * 1_000,
+    },
+    schedulerMarkThreshold: fileConfig.schedulerMarkThreshold,
     route,
     runtimeLogPath,
     seamLogPath,
@@ -114,6 +190,51 @@ function parseRuntimeConfigFile(configPath: string, repoRoot: string): RuntimeCo
     );
   }
 
+  const reminderConfig = readOptionalRecord(parsed.reminder, configPath, "reminder");
+  const reminderPromptPaths = readOptionalRecord(reminderConfig?.promptPaths, configPath, "reminder.promptPaths");
+  const reminderCounter = readOptionalRecord(reminderConfig?.counter, configPath, "reminder.counter");
+  const reminderCounterSoft = readOptionalRecord(reminderCounter?.soft, configPath, "reminder.counter.soft");
+  const reminderCounterHard = readOptionalRecord(reminderCounter?.hard, configPath, "reminder.counter.hard");
+  const loggingConfig = readOptionalRecord(parsed.logging, configPath, "logging");
+  const compressingConfig = readOptionalRecord(parsed.compressing, configPath, "compressing");
+
+  const reminderHsoft = readOptionalPositiveInteger(
+    reminderConfig?.hsoft,
+    configPath,
+    "reminder.hsoft",
+  ) ?? DEFAULT_REMINDER_HSOFT;
+  const reminderHhard = readOptionalPositiveInteger(
+    reminderConfig?.hhard,
+    configPath,
+    "reminder.hhard",
+  ) ?? DEFAULT_REMINDER_HHARD;
+
+  if (reminderHhard < reminderHsoft) {
+    throw new OpencodeContextCompressionRuntimeConfigError(
+      `Runtime config '${configPath}' must satisfy reminder.hhard >= reminder.hsoft.`,
+    );
+  }
+
+  const softPromptPath = resolveConfiguredPath(
+    readOptionalNonEmptyString(reminderPromptPaths?.soft, configPath, "reminder.promptPaths.soft") ??
+      "prompts/reminder-soft.md",
+    repoRoot,
+  );
+  const hardPromptPath = resolveConfiguredPath(
+    readOptionalNonEmptyString(reminderPromptPaths?.hard, configPath, "reminder.promptPaths.hard") ??
+      "prompts/reminder-hard.md",
+    repoRoot,
+  );
+
+  const softPromptText = readReminderPromptText(softPromptPath, configPath, "reminder.promptPaths.soft");
+  const hardPromptText = readReminderPromptText(hardPromptPath, configPath, "reminder.promptPaths.hard");
+  const timeoutSeconds =
+    readOptionalPositiveInteger(
+      compressingConfig?.timeoutSeconds,
+      configPath,
+      "compressing.timeoutSeconds",
+    ) ?? DEFAULT_COMPRESSING_TIMEOUT_SECONDS;
+
   return {
     version,
     promptPath: resolveConfiguredPath(
@@ -121,6 +242,58 @@ function parseRuntimeConfigFile(configPath: string, repoRoot: string): RuntimeCo
       repoRoot,
     ),
     compactionModels: readRequiredModelArray(parsed.compactionModels, configPath),
+    markedTokenAutoCompactionThreshold: readOptionalPositiveInteger(
+      parsed.markedTokenAutoCompactionThreshold,
+      configPath,
+      "markedTokenAutoCompactionThreshold",
+    ) ?? DEFAULT_MARKED_TOKEN_AUTO_COMPACTION_THRESHOLD,
+    smallUserMessageThreshold: readOptionalPositiveInteger(
+      parsed.smallUserMessageThreshold,
+      configPath,
+      "smallUserMessageThreshold",
+    ) ?? DEFAULT_SMALL_USER_MESSAGE_THRESHOLD,
+    reminder: {
+      hsoft: reminderHsoft,
+      hhard: reminderHhard,
+      counter: {
+        source:
+          readOptionalReminderCounterSource(
+            reminderCounter?.source,
+            configPath,
+            "reminder.counter.source",
+          ) ?? DEFAULT_REMINDER_COUNTER_SOURCE,
+        soft: {
+          repeatEvery:
+            readOptionalPositiveInteger(
+              reminderCounterSoft?.repeatEvery,
+              configPath,
+              "reminder.counter.soft.repeatEvery",
+            ) ?? DEFAULT_SOFT_REMINDER_REPEAT_EVERY,
+        },
+        hard: {
+          repeatEvery:
+            readOptionalPositiveInteger(
+              reminderCounterHard?.repeatEvery,
+              configPath,
+              "reminder.counter.hard.repeatEvery",
+            ) ?? DEFAULT_HARD_REMINDER_REPEAT_EVERY,
+        },
+      },
+      prompts: {
+        softPath: softPromptPath,
+        softText: softPromptText,
+        hardPath: hardPromptPath,
+        hardText: hardPromptText,
+      },
+    },
+    logging: {
+      level:
+        readOptionalLogLevel(loggingConfig?.level, configPath, "logging.level") ?? DEFAULT_RUNTIME_LOG_LEVEL,
+    },
+    compressing: {
+      timeoutSeconds,
+      timeoutMs: timeoutSeconds * 1_000,
+    },
     schedulerMarkThreshold: readOptionalPositiveInteger(
       parsed.schedulerMarkThreshold,
       configPath,
@@ -157,6 +330,23 @@ function readPromptText(promptPath: string): string {
   if (promptText.trim().length === 0) {
     throw new OpencodeContextCompressionRuntimeConfigError(
       `Prompt asset '${promptPath}' must contain non-empty prompt text.`,
+    );
+  }
+
+  return promptText;
+}
+
+function readReminderPromptText(promptPath: string, configPath: string, fieldName: string): string {
+  const promptText = readPromptText(promptPath);
+  const missingPlaceholders = REQUIRED_REMINDER_TEMPLATE_PLACEHOLDERS.filter(
+    (placeholder) => !promptText.includes(placeholder),
+  );
+
+  if (missingPlaceholders.length > 0) {
+    throw new OpencodeContextCompressionRuntimeConfigError(
+      `Runtime config '${configPath}' field '${fieldName}' must reference a template-capable reminder prompt containing ${missingPlaceholders.join(
+        ", ",
+      )}.`,
     );
   }
 
@@ -200,6 +390,29 @@ function readRouteOverride(
   return readRequiredRoute(value, RUNTIME_CONFIG_ENV.route, RUNTIME_CONFIG_ENV.route);
 }
 
+function readLogLevelOverride(env: NodeJS.ProcessEnv, fallback: RuntimeLogLevel): RuntimeLogLevel {
+  const value = readOptionalStringEnv(env, RUNTIME_CONFIG_ENV.logLevel);
+  if (value === undefined) {
+    return fallback;
+  }
+
+  return readRequiredLogLevel(value, RUNTIME_CONFIG_ENV.logLevel, RUNTIME_CONFIG_ENV.logLevel);
+}
+
+function readOptionalPositiveIntegerEnv(env: NodeJS.ProcessEnv, name: string): number | undefined {
+  const value = readOptionalStringEnv(env, name);
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new OpencodeContextCompressionRuntimeConfigError(`${name} must be a positive integer.`);
+  }
+
+  return parsed;
+}
+
 function readOptionalPathEnv(
   env: NodeJS.ProcessEnv,
   name: string,
@@ -233,6 +446,24 @@ function resolveConfiguredPath(value: string, repoRoot: string): string {
   return resolve(repoRoot, value);
 }
 
+function readOptionalRecord(
+  value: unknown,
+  sourcePath: string,
+  fieldName: string,
+): Record<string, unknown> | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!isRecord(value)) {
+    throw new OpencodeContextCompressionRuntimeConfigError(
+      `Runtime config '${sourcePath}' field '${fieldName}' must be an object.`,
+    );
+  }
+
+  return value;
+}
+
 function readRequiredNonEmptyString(value: unknown, configPath: string, fieldName: string): string {
   if (typeof value !== "string") {
     throw new OpencodeContextCompressionRuntimeConfigError(
@@ -248,6 +479,14 @@ function readRequiredNonEmptyString(value: unknown, configPath: string, fieldNam
   }
 
   return trimmed;
+}
+
+function readOptionalNonEmptyString(value: unknown, configPath: string, fieldName: string): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return readRequiredNonEmptyString(value, configPath, fieldName);
 }
 
 function readRequiredModelArray(value: unknown, configPath: string): readonly string[] {
@@ -293,6 +532,24 @@ function readRequiredRoute(value: unknown, sourcePath: string, fieldName: string
   return value;
 }
 
+function readRequiredLogLevel(value: unknown, sourcePath: string, fieldName: string): RuntimeLogLevel {
+  if (value !== "off" && value !== "error" && value !== "info" && value !== "debug") {
+    throw new OpencodeContextCompressionRuntimeConfigError(
+      `${sourcePath} field '${fieldName}' must be one of 'off', 'error', 'info', or 'debug'.`,
+    );
+  }
+
+  return value;
+}
+
+function readOptionalLogLevel(value: unknown, sourcePath: string, fieldName: string): RuntimeLogLevel | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return readRequiredLogLevel(value, sourcePath, fieldName);
+}
+
 function readRequiredPositiveInteger(value: unknown, sourcePath: string, fieldName: string): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
     throw new OpencodeContextCompressionRuntimeConfigError(
@@ -309,6 +566,24 @@ function readOptionalPositiveInteger(value: unknown, sourcePath: string, fieldNa
   }
 
   return readRequiredPositiveInteger(value, sourcePath, fieldName);
+}
+
+function readOptionalReminderCounterSource(
+  value: unknown,
+  sourcePath: string,
+  fieldName: string,
+): ReminderCounterSource | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value !== "eligible_messages" && value !== "assistant_turns") {
+    throw new OpencodeContextCompressionRuntimeConfigError(
+      `${sourcePath} field '${fieldName}' must be either 'eligible_messages' or 'assistant_turns'.`,
+    );
+  }
+
+  return value;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

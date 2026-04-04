@@ -28,10 +28,57 @@
 
 - `src/config/runtime-config.json`，规范运行时配置文件
 - `prompts/compaction.md`，显式压缩提示词资源
+- `prompts/reminder-soft.md`，软提醒模板资源
+- `prompts/reminder-hard.md`，硬提醒模板资源
 - `logs/runtime-events.jsonl`，仓库自有运行时日志路径契约
 - `logs/seam-observation.jsonl`，仓库自有 seam 与调试日志路径
 
 提示词加载是显式的。插件会加载配置里声明的提示词文件。如果配置文件或提示词资源缺失、为空或格式错误，插件会立即失败。不存在内建提示词回退，也不存在旧运行时配置回退。
+
+### 已恢复的运行时配置面
+
+仓库自有的 `runtime-config.json` 现在重新承载此前明确保留的用户侧契约，而不再只是 cutover 阶段的最小运行字段。
+
+- `markedTokenAutoCompactionThreshold`：保留的外部压缩就绪阈值契约
+- `smallUserMessageThreshold`：用于在 projection 中保护短用户消息的保留阈值契约
+- `reminder.hsoft` 与 `reminder.hhard`：显式软/硬提醒 token 阈值（仓库默认值：`30000` / `70000`）
+- `reminder.counter.*`：现在会实际影响 deterministic reminder 调度的 cadence 概念
+- `reminder.promptPaths.soft` 与 `reminder.promptPaths.hard`：仓库自有的提醒模板路径
+- `logging.level`：显式日志控制字段
+- `compressing.timeoutSeconds`：显式压缩与锁超时字段
+- `schedulerMarkThreshold`：仅用于当前 mark 数量调度的内部/测试兼容字段
+
+重要区分：`schedulerMarkThreshold` 不等价于 `markedTokenAutoCompactionThreshold`。`schedulerMarkThreshold` 仍是内部兼容门槛，而运行时调度现在还会基于 `markedTokenAutoCompactionThreshold` 执行真实的 marked-token 就绪判断。
+
+当前仓库内的执行边界：
+
+- `counter.*` —— 已由 deterministic reminder derivation 实际执行
+- `smallUserMessageThreshold` —— 已由 projection visibility policy 对短用户消息实际执行
+- `markedTokenAutoCompactionThreshold` —— 已由 scheduler 的 marked-token readiness 实际执行
+- `logging.level` —— 已由写入 `runtimeLogPath` 的运行时事件 JSONL sink 实际执行
+
+本仓库的 token 估算策略：
+
+1. 阈值判断统一使用仓库自有的本地 `tiktoken` 路径估算
+2. 如果 tokenizer 解析或编码失败，阈值判断现在会以插件自有错误直接失败
+
+本仓库的阈值判断不会优先采用上游消息自带的 `tokenCount` 或 `metadata.*tokenCount`；reminder 与 marked-token readiness 都使用同一把本地 tokenizer 标尺，而且 tokenizer 失败不会再被静默降级成启发式猜测。
+
+本仓库的运行时日志行为：
+
+- `off` —— 不向 `runtimeLogPath` 持久化普通运行时事件
+- `error` —— 只持久化失败 / stale 的 runtime gate 事件
+- `info` 与 `debug` —— 将普通 runtime gate 事件以 JSONL 写入 `runtimeLogPath`
+
+### Reminder 模板占位符
+
+软/硬提醒文本现在来自仓库自有 prompt 文件，而不是 `reminder-service.ts` 里的硬编码字符串。这两份模板都必须包含以下占位符：
+
+- `{{compressible_content}}` —— 当前可压缩投影视图内容快照
+- `{{compaction_target}}` —— 当前推导出的压缩目标跨度摘要
+- `{{preserved_fields}}` —— 受保护或需要保留的上下文摘要
+
+任一 reminder 模板缺少这些占位符时，运行时配置加载会立即失败。
 
 ### 环境变量覆盖名与优先级
 
@@ -44,6 +91,8 @@
    - `OPENCODE_CONTEXT_COMPRESSION_ROUTE`，只能是 `keep` 或 `delete`
    - `OPENCODE_CONTEXT_COMPRESSION_RUNTIME_LOG_PATH`
    - `OPENCODE_CONTEXT_COMPRESSION_SEAM_LOG`
+   - `OPENCODE_CONTEXT_COMPRESSION_LOG_LEVEL`，只能是 `off`、`error`、`info` 或 `debug`
+   - `OPENCODE_CONTEXT_COMPRESSION_COMPRESSING_TIMEOUT_SECONDS`，正整数秒数
    - `OPENCODE_CONTEXT_COMPRESSION_DEBUG_SNAPSHOT_PATH`
 
 未设置的环境变量表示“不覆盖”。空字符串或只含空白的环境变量值会在插件启动时被拒绝，避免被静默当成未设置处理。

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import type { ReminderRuntimeConfig } from "../../src/config/runtime-config.js";
 import { computeVisibleChecksum } from "../../src/identity/visible-sequence.js";
 import { persistMark } from "../../src/marks/mark-service.js";
 import { buildProjectedMessages } from "../../src/projection/projection-builder.js";
@@ -44,8 +45,8 @@ test("projection builder deterministically applies committed replacements and hi
       },
     });
 
-    const firstProjection = buildProjectedMessages({ messages, store, reminderCadence: undefined });
-    const secondProjection = buildProjectedMessages({ messages, store, reminderCadence: undefined });
+    const firstProjection = buildProjectedMessages({ messages, store, reminder: undefined });
+    const secondProjection = buildProjectedMessages({ messages, store, reminder: undefined });
 
     assert.equal(firstProjection.projectedMessages.length, 4);
     assert.deepEqual(
@@ -98,13 +99,91 @@ test("projection builder renders committed delete replacements as minimal refera
       },
     });
 
-    const projection = buildProjectedMessages({ messages, store, reminderCadence: undefined });
+    const projection = buildProjectedMessages({ messages, store, reminder: undefined });
 
     assert.deepEqual(
       projection.projectedMessages.map((message) => readText(message)),
       [
         `[referable_000001_${computeVisibleChecksum("user-1")}] Deleted 2 earlier message(s).`,
         `[compressible_000004_${computeVisibleChecksum("assistant-2")}] omega`,
+      ],
+    );
+  });
+});
+
+test("projection builder renders reminder artifacts from template config", async () => {
+  await withTempStore(async (store, clock) => {
+    const messages = [
+      createEnvelope(createMessage({ id: "system-1", role: "system", created: 1 }), [createTextPart("system-1", "policy")]),
+      createEnvelope(createMessage({ id: "user-1", role: "user", created: 2 }), [createTextPart("user-1", "alpha")]),
+      createEnvelope(createMessage({ id: "assistant-1", role: "assistant", created: 3 }), [createTextPart("assistant-1", "beta")]),
+    ];
+
+    syncMessages(store, clock, messages);
+
+    const projection = buildProjectedMessages({
+      messages,
+      store,
+      reminder: createReminderConfigFixture(),
+      reminderModelName: "gpt-5",
+    });
+
+    assert.equal(projection.reminder?.severity, "soft");
+    assert.deepEqual(
+      projection.projectedMessages.map((message) => readText(message)),
+      [
+        `[protected_000001_${computeVisibleChecksum("system-1")}] policy`,
+        `[compressible_000002_${computeVisibleChecksum("user-1")}] alpha`,
+        `[compressible_000003_${computeVisibleChecksum("assistant-1")}] beta`,
+        [
+          `[protected_000003_${computeVisibleChecksum("assistant-1")}.soft] Soft reminder`,
+          `- 000002_${computeVisibleChecksum("user-1")}: alpha`,
+          `- 000003_${computeVisibleChecksum("assistant-1")}: beta`,
+          `Target=000002_${computeVisibleChecksum("user-1")} -> 000003_${computeVisibleChecksum("assistant-1")}`,
+          `Preserve=system:000001_${computeVisibleChecksum("system-1")}`,
+        ].join("\n"),
+      ],
+    );
+  });
+});
+
+test("projection builder protects short user messages via smallUserMessageThreshold", async () => {
+  await withTempStore(async (store, clock) => {
+    const messages = [
+      createEnvelope(createMessage({ id: "user-short", role: "user", created: 1 }), [createTextPart("user-short", "tiny")]),
+      createEnvelope(createMessage({ id: "user-long", role: "user", created: 2 }), [createTextPart("user-long", "this is a much longer user message")]),
+      createEnvelope(createMessage({ id: "assistant-1", role: "assistant", created: 3 }), [createTextPart("assistant-1", "reply")]),
+    ];
+
+    syncMessages(store, clock, messages);
+
+    const protectedProjection = buildProjectedMessages({
+      messages,
+      store,
+      reminder: undefined,
+      smallUserMessageThreshold: 10,
+    });
+    const unprotectedProjection = buildProjectedMessages({
+      messages,
+      store,
+      reminder: undefined,
+      smallUserMessageThreshold: 3,
+    });
+
+    assert.deepEqual(
+      protectedProjection.projectedMessages.map((message) => readText(message)),
+      [
+        `[protected_000001_${computeVisibleChecksum("user-short")}] tiny`,
+        `[compressible_000002_${computeVisibleChecksum("user-long")}] this is a much longer user message`,
+        `[compressible_000003_${computeVisibleChecksum("assistant-1")}] reply`,
+      ],
+    );
+    assert.deepEqual(
+      unprotectedProjection.projectedMessages.map((message) => readText(message)),
+      [
+        `[compressible_000001_${computeVisibleChecksum("user-short")}] tiny`,
+        `[compressible_000002_${computeVisibleChecksum("user-long")}] this is a much longer user message`,
+        `[compressible_000003_${computeVisibleChecksum("assistant-1")}] reply`,
       ],
     );
   });
@@ -193,6 +272,24 @@ function createClock() {
     tick() {
       current += 1;
       return current;
+    },
+  };
+}
+
+function createReminderConfigFixture(): ReminderRuntimeConfig {
+  return {
+    hsoft: 2,
+    hhard: 4,
+    counter: {
+      source: "eligible_messages",
+      soft: { repeatEvery: 2 },
+      hard: { repeatEvery: 1 },
+    },
+    prompts: {
+      softPath: "/tmp/reminder-soft.md",
+      softText: "Soft reminder\n{{compressible_content}}\nTarget={{compaction_target}}\nPreserve={{preserved_fields}}",
+      hardPath: "/tmp/reminder-hard.md",
+      hardText: "Hard reminder\n{{compressible_content}}\nTarget={{compaction_target}}\nPreserve={{preserved_fields}}",
     },
   };
 }

@@ -1,10 +1,10 @@
 import type { Hooks } from "@opencode-ai/plugin";
 
+import type { ReminderRuntimeConfig } from "../config/runtime-config.js";
 import type { MessagesTransformOutput, TransformEnvelope } from "../seams/noop-observation.js";
 import { createSqliteSessionStateStore } from "../state/store.js";
 import { resolveHostMessageCanonicalIdentity } from "../identity/canonical-identity.js";
 import { buildProjectedMessages } from "./projection-builder.js";
-import type { ReminderCadence } from "./reminder-service.js";
 
 const PROJECTED_ENVELOPE_MARKER = Symbol("opencode-context-compression.projected-envelope");
 const CANONICAL_SNAPSHOT_MARKER = Symbol("opencode-context-compression.canonical-snapshot");
@@ -16,7 +16,9 @@ type ProjectionManagedMessages = MessagesTransformOutput["messages"] & {
 
 export interface CreateMessagesTransformHookOptions {
   readonly pluginDirectory: string;
-  readonly reminderCadence?: ReminderCadence;
+  readonly reminder?: ReminderRuntimeConfig;
+  readonly smallUserMessageThreshold?: number;
+  readonly reminderModelName?: string;
 }
 
 export function createMessagesTransformHook(
@@ -41,7 +43,9 @@ export function createMessagesTransformHook(
       const projection = buildProjectedMessages({
         messages: canonicalMessages,
         store,
-        reminderCadence: options.reminderCadence,
+        reminder: options.reminder,
+        smallUserMessageThreshold: options.smallUserMessageThreshold,
+        reminderModelName: options.reminderModelName,
       });
       const projectedMessages = projection.projectedMessages.map(markProjectedEnvelope);
 

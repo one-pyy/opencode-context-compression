@@ -22,10 +22,27 @@ test("repo-owned runtime config, prompt assets, and docs resolve from this repo 
   assert.ok(configFiles.includes("src/config/runtime-config.json"));
   assert.ok(configFiles.includes("src/config/runtime-config.ts"));
   assert.ok(promptFiles.includes("prompts/compaction.md"));
+  assert.ok(promptFiles.includes("prompts/reminder-soft.md"));
+  assert.ok(promptFiles.includes("prompts/reminder-hard.md"));
   assert.equal(runtimeConfig.repoRoot, resolveRuntimeConfigRepoRoot());
   assert.match(runtimeConfig.configPath, /src\/config\/runtime-config\.json$/u);
   assert.match(runtimeConfig.promptPath, /prompts\/compaction\.md$/u);
   assert.deepEqual(runtimeConfig.models, ["openai.doro/gpt-5.4-mini"]);
+  assert.equal(runtimeConfig.markedTokenAutoCompactionThreshold, 20_000);
+  assert.equal(runtimeConfig.smallUserMessageThreshold, 1_024);
+  assert.equal(runtimeConfig.reminder.hsoft, 30_000);
+  assert.equal(runtimeConfig.reminder.hhard, 70_000);
+  assert.equal(runtimeConfig.reminder.counter.source, "eligible_messages");
+  assert.equal(runtimeConfig.reminder.counter.soft.repeatEvery, 3);
+  assert.equal(runtimeConfig.reminder.counter.hard.repeatEvery, 1);
+  assert.match(runtimeConfig.reminder.prompts.softPath, /prompts\/reminder-soft\.md$/u);
+  assert.match(runtimeConfig.reminder.prompts.hardPath, /prompts\/reminder-hard\.md$/u);
+  assert.match(runtimeConfig.reminder.prompts.softText, /\{\{compressible_content\}\}/u);
+  assert.match(runtimeConfig.reminder.prompts.hardText, /\{\{preserved_fields\}\}/u);
+  assert.equal(runtimeConfig.logging.level, "off");
+  assert.equal(runtimeConfig.compressing.timeoutSeconds, 600);
+  assert.equal(runtimeConfig.compressing.timeoutMs, 600_000);
+  assert.equal(runtimeConfig.schedulerMarkThreshold, 1);
   assert.equal(runtimeConfig.route, "keep");
   assert.match(runtimeConfig.runtimeLogPath, /logs\/runtime-events\.jsonl$/u);
   assert.match(runtimeConfig.seamLogPath, /logs\/seam-observation\.jsonl$/u);
@@ -41,11 +58,35 @@ test("explicit env overrides take precedence over the repo-owned runtime config 
   try {
     const promptFromConfig = join(tempDirectory, "prompts", "from-config.md");
     const promptFromEnv = join(tempDirectory, "prompts", "from-env.md");
+    const softReminderFromConfig = join(tempDirectory, "prompts", "soft-reminder.md");
+    const hardReminderFromConfig = join(tempDirectory, "prompts", "hard-reminder.md");
     const runtimeConfigPath = join(tempDirectory, "runtime-config.json");
 
     await mkdir(join(tempDirectory, "prompts"), { recursive: true });
     await writeFile(promptFromConfig, "Config prompt text.\n", "utf8");
     await writeFile(promptFromEnv, "Env prompt text.\n", "utf8");
+    await writeFile(
+      softReminderFromConfig,
+      [
+        "Soft reminder.",
+        "{{compressible_content}}",
+        "{{compaction_target}}",
+        "{{preserved_fields}}",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeFile(
+      hardReminderFromConfig,
+      [
+        "Hard reminder.",
+        "{{compressible_content}}",
+        "{{compaction_target}}",
+        "{{preserved_fields}}",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
     await writeFile(
       runtimeConfigPath,
       JSON.stringify(
@@ -53,6 +94,27 @@ test("explicit env overrides take precedence over the repo-owned runtime config 
           version: 1,
           promptPath: promptFromConfig,
           compactionModels: ["config-primary", "config-fallback"],
+          markedTokenAutoCompactionThreshold: 12_345,
+          smallUserMessageThreshold: 222,
+          reminder: {
+            hsoft: 5,
+            hhard: 8,
+            promptPaths: {
+              soft: softReminderFromConfig,
+              hard: hardReminderFromConfig,
+            },
+            counter: {
+              source: "assistant_turns",
+              soft: { repeatEvery: 4 },
+              hard: { repeatEvery: 2 },
+            },
+          },
+          logging: {
+            level: "error",
+          },
+          compressing: {
+            timeoutSeconds: 45,
+          },
           route: "keep",
           runtimeLogPath: "logs/from-config-runtime.jsonl",
           seamLogPath: "logs/from-config-seam.jsonl",
@@ -70,6 +132,8 @@ test("explicit env overrides take precedence over the repo-owned runtime config 
       [RUNTIME_CONFIG_ENV.route]: "delete",
       [RUNTIME_CONFIG_ENV.runtimeLogPath]: "logs/from-env-runtime.jsonl",
       [RUNTIME_CONFIG_ENV.seamLogPath]: "logs/from-env-seam.jsonl",
+      [RUNTIME_CONFIG_ENV.logLevel]: "debug",
+      [RUNTIME_CONFIG_ENV.compressingTimeoutSeconds]: "90",
       [RUNTIME_CONFIG_ENV.debugSnapshotPath]: "logs/from-env-debug.json",
     });
 
@@ -77,6 +141,18 @@ test("explicit env overrides take precedence over the repo-owned runtime config 
     assert.equal(runtimeConfig.promptPath, promptFromEnv);
     assert.equal(runtimeConfig.promptText, "Env prompt text.\n");
     assert.deepEqual(runtimeConfig.models, ["env-primary", "env-fallback"]);
+  assert.equal(runtimeConfig.markedTokenAutoCompactionThreshold, 12_345);
+  assert.equal(runtimeConfig.smallUserMessageThreshold, 222);
+  assert.equal(runtimeConfig.reminder.hsoft, 5);
+  assert.equal(runtimeConfig.reminder.hhard, 8);
+    assert.equal(runtimeConfig.reminder.counter.source, "assistant_turns");
+    assert.equal(runtimeConfig.reminder.counter.soft.repeatEvery, 4);
+    assert.equal(runtimeConfig.reminder.counter.hard.repeatEvery, 2);
+    assert.equal(runtimeConfig.reminder.prompts.softPath, softReminderFromConfig);
+    assert.equal(runtimeConfig.reminder.prompts.hardPath, hardReminderFromConfig);
+  assert.equal(runtimeConfig.logging.level, "debug");
+    assert.equal(runtimeConfig.compressing.timeoutSeconds, 90);
+    assert.equal(runtimeConfig.compressing.timeoutMs, 90_000);
     assert.equal(runtimeConfig.route, "delete");
     assert.equal(
       runtimeConfig.runtimeLogPath,
@@ -120,6 +196,30 @@ test("empty env overrides and missing repo-owned assets fail fast with plugin-ow
     },
   );
 
+  assert.throws(
+    () =>
+      loadRuntimeConfig({
+        [RUNTIME_CONFIG_ENV.logLevel]: "warn",
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof OpencodeContextCompressionRuntimeConfigError);
+      assert.match(String(error), /OPENCODE_CONTEXT_COMPRESSION_LOG_LEVEL field 'OPENCODE_CONTEXT_COMPRESSION_LOG_LEVEL' must be one of/u);
+      return true;
+    },
+  );
+
+  assert.throws(
+    () =>
+      loadRuntimeConfig({
+        [RUNTIME_CONFIG_ENV.compressingTimeoutSeconds]: "0",
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof OpencodeContextCompressionRuntimeConfigError);
+      assert.match(String(error), /OPENCODE_CONTEXT_COMPRESSION_COMPRESSING_TIMEOUT_SECONDS must be a positive integer/u);
+      return true;
+    },
+  );
+
   const tempDirectory = await mkdtemp(join(tmpdir(), "opencode-context-compression-runtime-config-missing-prompt-"));
 
   try {
@@ -131,6 +231,12 @@ test("empty env overrides and missing repo-owned assets fail fast with plugin-ow
           version: 1,
           promptPath: "prompts/missing.md",
           compactionModels: ["config-primary"],
+          reminder: {
+            promptPaths: {
+              soft: "prompts/missing-soft.md",
+              hard: "prompts/missing-hard.md",
+            },
+          },
           route: "keep",
           runtimeLogPath: "logs/runtime.jsonl",
           seamLogPath: "logs/seam.jsonl",
@@ -149,6 +255,50 @@ test("empty env overrides and missing repo-owned assets fail fast with plugin-ow
       (error: unknown) => {
         assert.ok(error instanceof OpencodeContextCompressionRuntimeConfigError);
         assert.match(String(error), /Missing prompt asset/u);
+        return true;
+      },
+    );
+
+    const invalidReminderConfigPath = join(tempDirectory, "runtime-config-invalid-reminder.json");
+    await mkdir(join(tempDirectory, "prompts"), { recursive: true });
+    await writeFile(join(tempDirectory, "prompts", "compaction.md"), "Compaction prompt.\n", "utf8");
+    await writeFile(join(tempDirectory, "prompts", "soft.md"), "Soft only {{compressible_content}}\n", "utf8");
+    await writeFile(
+      join(tempDirectory, "prompts", "hard.md"),
+      "Hard {{compressible_content}} {{compaction_target}} {{preserved_fields}}\n",
+      "utf8",
+    );
+    await writeFile(
+      invalidReminderConfigPath,
+      JSON.stringify(
+        {
+          version: 1,
+          promptPath: join(tempDirectory, "prompts", "compaction.md"),
+          compactionModels: ["config-primary"],
+          reminder: {
+            promptPaths: {
+              soft: join(tempDirectory, "prompts", "soft.md"),
+              hard: join(tempDirectory, "prompts", "hard.md"),
+            },
+          },
+          route: "keep",
+          runtimeLogPath: "logs/runtime.jsonl",
+          seamLogPath: "logs/seam.jsonl",
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf8",
+    );
+
+    assert.throws(
+      () =>
+        loadRuntimeConfig({
+          [RUNTIME_CONFIG_ENV.configPath]: invalidReminderConfigPath,
+        }),
+      (error: unknown) => {
+        assert.ok(error instanceof OpencodeContextCompressionRuntimeConfigError);
+        assert.match(String(error), /template-capable reminder prompt/u);
         return true;
       },
     );

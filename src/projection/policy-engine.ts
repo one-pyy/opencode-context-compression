@@ -25,6 +25,7 @@ export interface ProjectionPolicy {
 export interface BuildProjectionPolicyOptions {
   readonly messages: readonly TransformEnvelope[];
   readonly store: VisibleSequenceStore;
+  readonly smallUserMessageThreshold?: number;
 }
 
 export function buildProjectionPolicy(options: BuildProjectionPolicyOptions): ProjectionPolicy {
@@ -36,7 +37,7 @@ export function buildProjectionPolicy(options: BuildProjectionPolicyOptions): Pr
       index,
       identity,
       visible: ensureVisibleMessageIdentity(options.store, identity),
-      visibleState: classifyCanonicalMessage(envelope),
+      visibleState: classifyCanonicalMessage(envelope, options.smallUserMessageThreshold),
     } satisfies CanonicalProjectionMessage;
   });
 
@@ -46,6 +47,28 @@ export function buildProjectionPolicy(options: BuildProjectionPolicyOptions): Pr
   };
 }
 
-function classifyCanonicalMessage(envelope: TransformEnvelope): CanonicalProjectionVisibleState {
-  return (envelope.info as Record<string, unknown>).role === "system" ? "protected" : "compressible";
+function classifyCanonicalMessage(
+  envelope: TransformEnvelope,
+  smallUserMessageThreshold = 0,
+): CanonicalProjectionVisibleState {
+  const role = (envelope.info as Record<string, unknown>).role;
+  if (role === "system") {
+    return "protected";
+  }
+
+  if (role === "user" && readMessageTextLength(envelope) <= smallUserMessageThreshold) {
+    return "protected";
+  }
+
+  return "compressible";
+}
+
+function readMessageTextLength(envelope: TransformEnvelope): number {
+  return envelope.parts.reduce((total, part) => {
+    if (part.type === "text" && typeof (part as { text?: unknown }).text === "string") {
+      return total + (part as { text: string }).text.length;
+    }
+
+    return total;
+  }, 0);
 }

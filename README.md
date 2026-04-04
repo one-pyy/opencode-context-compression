@@ -28,10 +28,57 @@ The canonical runtime contract ships inside this repo:
 
 - `src/config/runtime-config.json`, canonical runtime settings file
 - `prompts/compaction.md`, explicit compaction prompt asset
+- `prompts/reminder-soft.md`, soft reminder template asset
+- `prompts/reminder-hard.md`, hard reminder template asset
 - `logs/runtime-events.jsonl`, repo-owned runtime log path contract
 - `logs/seam-observation.jsonl`, repo-owned seam and debug journal path
 
 Prompt loading is explicit. The plugin loads the configured prompt file and fails fast if the config file or prompt asset is missing, empty, or malformed. There is no builtin prompt fallback and no legacy runtime-config fallback.
+
+### Restored runtime config surface
+
+The repo-owned `runtime-config.json` now restores the preserved user-facing contract instead of only exposing the cutover-minimal fields.
+
+- `markedTokenAutoCompactionThreshold`, explicit external readiness contract carried forward from older DCP work
+- `smallUserMessageThreshold`, explicit preserved user-message threshold contract for protecting short user messages in projection
+- `reminder.hsoft` and `reminder.hhard`, explicit soft and hard reminder token thresholds (repo default: `30000` / `70000`)
+- `reminder.counter.*`, preserved cadence concept that now affects deterministic reminder scheduling
+- `reminder.promptPaths.soft` and `reminder.promptPaths.hard`, repo-owned reminder template paths
+- `logging.level`, explicit logging control surface
+- `compressing.timeoutSeconds`, explicit compaction and lock timeout control
+- `schedulerMarkThreshold`, internal/test compatibility knob for current mark-count scheduling only
+
+Important distinction: `schedulerMarkThreshold` is not the same contract as `markedTokenAutoCompactionThreshold`. `schedulerMarkThreshold` remains an internal compatibility guard, while runtime scheduling now also enforces marked-token readiness against `markedTokenAutoCompactionThreshold`.
+
+Current enforcement boundary in this repo:
+
+- `counter.*` — enforced by deterministic reminder derivation
+- `smallUserMessageThreshold` — enforced by projection visibility policy for short user messages
+- `markedTokenAutoCompactionThreshold` — enforced by scheduler marked-token readiness
+- `logging.level` — enforced by the runtime event JSONL sink at `runtimeLogPath`
+
+Token-estimation policy in this repo:
+
+1. estimate threshold decisions with the repo-owned local `tiktoken` path
+2. if tokenizer resolution or encoding fails, threshold evaluation now fails fast with a plugin-owned error
+
+Threshold decisions in this repo do not prefer upstream-provided `tokenCount` or `metadata.*tokenCount` fields; reminder and marked-token readiness both use the same local tokenizer-based ruler, and tokenizer failure is not silently downgraded to a heuristic guess.
+
+Runtime logging behavior in this repo:
+
+- `off` — do not persist normal runtime events to `runtimeLogPath`
+- `error` — persist only failure/stale runtime gate events
+- `info` and `debug` — persist normal runtime gate events as JSONL to `runtimeLogPath`
+
+### Reminder template placeholders
+
+Soft and hard reminder text now comes from repo-owned prompt assets instead of hardcoded strings. Those reminder templates must contain these placeholders:
+
+- `{{compressible_content}}` — current compressible projected-message snapshot
+- `{{compaction_target}}` — the currently derived compaction target span summary
+- `{{preserved_fields}}` — protected or otherwise preserved context summary
+
+If either reminder prompt asset is missing one of those placeholders, the runtime config loader fails fast.
 
 ### Env override names and precedence
 
@@ -44,6 +91,8 @@ Precedence is deterministic:
    - `OPENCODE_CONTEXT_COMPRESSION_ROUTE`, `keep` or `delete`
    - `OPENCODE_CONTEXT_COMPRESSION_RUNTIME_LOG_PATH`
    - `OPENCODE_CONTEXT_COMPRESSION_SEAM_LOG`
+   - `OPENCODE_CONTEXT_COMPRESSION_LOG_LEVEL`, `off`, `error`, `info`, or `debug`
+   - `OPENCODE_CONTEXT_COMPRESSION_COMPRESSING_TIMEOUT_SECONDS`, positive integer seconds
    - `OPENCODE_CONTEXT_COMPRESSION_DEBUG_SNAPSHOT_PATH`
 
 Unset env variables mean "no override". Empty or whitespace-only env values are rejected at plugin startup so they cannot silently behave like unset values.

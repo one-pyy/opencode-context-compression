@@ -1,9 +1,36 @@
 {
   "version": 1,
   "promptPath": "prompts/compaction.md",
-  "compactionModels": ["openai.doro/gpt-5.4-mini"],
+  "compactionModels": [
+    "openai.right/gpt-5.4-mini",
+    "openai.doro/gpt-5.4-mini"],
   "schedulerMarkThreshold": 1,
   "route": "keep",
   "runtimeLogPath": "logs/runtime-events.jsonl",
-  "seamLogPath": "logs/seam-observation.jsonl"
+  "seamLogPath": "logs/seam-observation.jsonl",
+  "markedTokenAutoCompactionThreshold": 20000,
+  "smallUserMessageThreshold": 1024,
+  "reminder": {
+    "hsoft": 30000,
+    "hhard": 70000,
+    "promptPaths": {
+      "soft": "prompts/reminder-soft.md",
+      "hard": "prompts/reminder-hard.md"
+    },
+    "counter": {
+      "source": "eligible_messages",
+      "soft": {
+        "repeatEvery": 3
+      },
+      "hard": {
+        "repeatEvery": 1
+      }
+    }
+  },
+  "logging": {
+    "level": "off"
+  },
+  "compressing": {
+    "timeoutSeconds": 600
+  }
 }

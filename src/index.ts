@@ -23,18 +23,24 @@ const plugin: Plugin = async (ctx) => {
   };
   const sendEntryHooks = createSendEntryGateHooks({
     pluginDirectory: ctx.directory,
+    timeoutMs: runtimeConfig.compressing.timeoutMs,
   });
 
   const observedChatParams = hooks["chat.params"];
   const observedMessagesTransform = hooks["experimental.chat.messages.transform"];
   const observedToolExecuteBefore = hooks["tool.execute.before"];
-  const chatParamsScheduler = createChatParamsSchedulerHook({
-    pluginDirectory: ctx.directory,
-    client: ctx.client,
-    runtimeConfig,
-  });
+const chatParamsScheduler = createChatParamsSchedulerHook({
+pluginDirectory: ctx.directory,
+client: ctx.client,
+runtimeConfig,
+    timeoutMs: runtimeConfig.compressing.timeoutMs,
+    onBackgroundError: createSchedulerErrorHandler(runtimeConfig.runtimeLogPath, runtimeConfig.logging.level),
+});
   const messagesTransform = createMessagesTransformHook({
     pluginDirectory: ctx.directory,
+    reminder: runtimeConfig.reminder,
+    smallUserMessageThreshold: runtimeConfig.smallUserMessageThreshold,
+    reminderModelName: runtimeConfig.models[0],
   });
   hooks["chat.params"] = async (input, output) => {
     await chatParamsScheduler(input, output);
@@ -207,4 +213,29 @@ function readSessionPrototypeMethods(sessionObject: Record<string, unknown>): st
     .filter((name) => name !== "constructor")
     .filter((name) => typeof (sessionObject as Record<string, unknown>)[name] === "function")
     .sort();
+}
+
+function createSchedulerErrorHandler(runtimeLogPath: string, level: string): (error: unknown) => void {
+  return (error: unknown) => {
+    const detail = error instanceof Error ? error.message : String(error);
+    const entry = JSON.stringify({
+      event: "scheduler_background_error",
+      level: "error",
+      detail,
+      loggedAtMs: Date.now(),
+    });
+    try {
+      const { appendFileSync, existsSync, mkdirSync } = require("node:fs");
+      const { dirname } = require("node:path");
+      const parent = dirname(runtimeLogPath);
+      if (!existsSync(parent)) {
+        mkdirSync(parent, { recursive: true });
+      }
+      appendFileSync(runtimeLogPath, `${entry}\n`, "utf8");
+    } catch {
+      // Best-effort logging; if the log file cannot be written, the error
+      // is already captured in the callback and will surface through the
+      // scheduler's own failure path.
+    }
+  };
 }

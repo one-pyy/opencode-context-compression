@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,10 +29,15 @@ type ChatParamsOutput = Parameters<NonNullable<Hooks["chat.params"]>>[1];
 test("explicit plugin loading plus compression_mark drives the repo-owned keep route through scheduler and runner", async () => {
   await withLoadedPluginFixture(async ({ tempDirectory, seamLogPath, hooks }) => {
     const sessionID = "test-session";
+    const e2eRuntimeConfigPath = writeE2ERuntimeConfig(tempDirectory, {
+      reminderHsoft: 999_999,
+      reminderHhard: 1_999_999,
+      markedTokenAutoCompactionThreshold: 5_000,
+    });
     const canonicalMessages = [
       createEnvelope(createMessage({ id: "user-1", role: "user", created: 1 }), [createTextPart("user-1", "hello")]),
-      createEnvelope(createMessage({ id: "assistant-1", role: "assistant", created: 2 }), [createTextPart("assistant-1", "draft")]),
-      createEnvelope(createMessage({ id: "tool-1", role: "tool", created: 3 }), [createTextPart("tool-1", "tool output")]),
+      createEnvelope(createMessage({ id: "assistant-1", role: "assistant", created: 2 }), [createTextPart("assistant-1", "assistant token rich content ".repeat(3000).trim())]),
+      createEnvelope(createMessage({ id: "tool-1", role: "tool", created: 3 }), [createTextPart("tool-1", "tool token rich output ".repeat(3000).trim())]),
       createEnvelope(createMessage({ id: "user-2", role: "user", created: 4 }), [createTextPart("user-2", "next")]),
     ] as const;
     const sessionHistory = createMutableSessionHistory(canonicalMessages);
@@ -74,10 +80,11 @@ test("explicit plugin loading plus compression_mark drives the repo-owned keep r
 
     const runtimeConfig = loadRuntimeConfig({
       ...process.env,
+      [RUNTIME_CONFIG_ENV.configPath]: e2eRuntimeConfigPath,
       [RUNTIME_CONFIG_ENV.runtimeLogPath]: join(tempDirectory, "runtime-events.jsonl"),
       [RUNTIME_CONFIG_ENV.seamLogPath]: seamLogPath,
     });
-    assert.match(runtimeConfig.configPath, /src\/config\/runtime-config\.json$/u);
+    assert.equal(runtimeConfig.configPath, e2eRuntimeConfigPath);
     assert.match(runtimeConfig.promptPath, /prompts\/compaction\.md$/u);
 
     const scheduler = createChatParamsSchedulerHook({
@@ -188,9 +195,9 @@ test("explicit plugin loading plus compression_mark drives the repo-owned keep r
     await transform({}, finalProjection);
     const projectedTexts = finalProjection.messages.map(readText);
     assert.equal(projectedTexts.length, 3);
-    assert.match(projectedTexts[0] ?? "", /^\[compressible_[^\]]+\] hello$/u);
+    assert.match(projectedTexts[0] ?? "", /^\[protected_[^\]]+\] hello$/u);
     assert.match(projectedTexts[1] ?? "", /^\[referable_[^\]]+\] Compressed summary\.$/u);
-    assert.match(projectedTexts[2] ?? "", /^\[compressible_[^\]]+\] next$/u);
+    assert.match(projectedTexts[2] ?? "", /^\[protected_[^\]]+\] next$/u);
 
     const observations = parseObservationLog(await readFile(seamLogPath, "utf8"));
     assert.ok(
@@ -207,10 +214,15 @@ test("explicit plugin loading plus compression_mark drives the repo-owned keep r
 test("explicit plugin loading plus compression_mark commits the delete route through the same repo-owned scheduler path", async () => {
   await withLoadedPluginFixture(async ({ tempDirectory, seamLogPath, hooks }) => {
     const sessionID = "test-session";
+    const e2eRuntimeConfigPath = writeE2ERuntimeConfig(tempDirectory, {
+      reminderHsoft: 999_999,
+      reminderHhard: 1_999_999,
+      markedTokenAutoCompactionThreshold: 5_000,
+    });
     const canonicalMessages = [
-      createEnvelope(createMessage({ id: "user-1", role: "user", created: 1 }), [createTextPart("user-1", "alpha")]),
-      createEnvelope(createMessage({ id: "assistant-1", role: "assistant", created: 2 }), [createTextPart("assistant-1", "beta")]),
-      createEnvelope(createMessage({ id: "assistant-2", role: "assistant", created: 3 }), [createTextPart("assistant-2", "omega")]),
+      createEnvelope(createMessage({ id: "user-1", role: "user", created: 1 }), [createTextPart("user-1", "tiny")]),
+      createEnvelope(createMessage({ id: "assistant-1", role: "assistant", created: 2 }), [createTextPart("assistant-1", "assistant token rich content ".repeat(3000).trim())]),
+      createEnvelope(createMessage({ id: "assistant-2", role: "assistant", created: 3 }), [createTextPart("assistant-2", "assistant tail token rich content ".repeat(3000).trim())]),
     ] as const;
     const sessionHistory = createMutableSessionHistory(canonicalMessages);
     const transform = readMessagesTransformHook(hooks);
@@ -225,8 +237,8 @@ test("explicit plugin loading plus compression_mark commits the delete route thr
         contractVersion: "v1",
         route: "delete",
         target: {
-          startVisibleMessageID: readVisibleMessageID(initialProjection.messages[0]),
-          endVisibleMessageID: readVisibleMessageID(initialProjection.messages[1]),
+          startVisibleMessageID: readVisibleMessageID(initialProjection.messages[1]),
+          endVisibleMessageID: readVisibleMessageID(initialProjection.messages[2]),
         },
       },
       createToolContext({
@@ -251,6 +263,7 @@ test("explicit plugin loading plus compression_mark commits the delete route thr
       client: createClientFixture(sessionHistory),
       runtimeConfig: loadRuntimeConfig({
         ...process.env,
+        [RUNTIME_CONFIG_ENV.configPath]: e2eRuntimeConfigPath,
         [RUNTIME_CONFIG_ENV.runtimeLogPath]: join(tempDirectory, "runtime-events.jsonl"),
         [RUNTIME_CONFIG_ENV.seamLogPath]: seamLogPath,
       }),
@@ -346,28 +359,33 @@ test("explicit plugin loading plus compression_mark commits the delete route thr
       /Source snapshot id: test-session:compression-mark:assistant-mark-call-1:snapshot/u,
     );
     assert.match(deleteRequestBody?.messages?.[1]?.content ?? "", /Source fingerprint: [0-9a-f]{64}/u);
-    assert.match(deleteRequestBody?.messages?.[1]?.content ?? "", /### 1\. user user-1 \(user-1\)/u);
-    assert.match(deleteRequestBody?.messages?.[1]?.content ?? "", /### 2\. assistant assistant-1 \(assistant-1\)/u);
+    assert.match(deleteRequestBody?.messages?.[1]?.content ?? "", /### 1\. assistant assistant-1 \(assistant-1\)/u);
+    assert.match(deleteRequestBody?.messages?.[1]?.content ?? "", /### 2\. assistant assistant-2 \(assistant-2\)/u);
 
     const finalProjection = {
       messages: canonicalMessages.map((message) => structuredClone(message)),
     } satisfies MessagesTransformOutput;
     await transform({}, finalProjection);
     assert.equal(finalProjection.messages.length, 2);
-    assert.match(readText(finalProjection.messages[0]), /^\[referable_[^\]]+\] Deleted source span notice\.$/u);
-    assert.match(readText(finalProjection.messages[1]), /^\[compressible_[^\]]+\] omega$/u);
+    assert.match(readText(finalProjection.messages[0]), /^\[protected_[^\]]+\] tiny$/u);
+    assert.match(readText(finalProjection.messages[1]), /^\[referable_[^\]]+\] Deleted source span notice\.$/u);
   });
 });
 
 test("ordinary chat waits during the running lock, unrelated tools continue, and lock-time marks join only the next batch", async () => {
   await withLoadedPluginFixture(async ({ tempDirectory, seamLogPath, hooks }) => {
     const sessionID = "test-session";
+    const e2eRuntimeConfigPath = writeE2ERuntimeConfig(tempDirectory, {
+      reminderHsoft: 999_999,
+      reminderHhard: 1_999_999,
+      markedTokenAutoCompactionThreshold: 5_000,
+    });
     const canonicalMessages = [
       createEnvelope(createMessage({ id: "user-1", role: "user", created: 1 }), [createTextPart("user-1", "hello")]),
-      createEnvelope(createMessage({ id: "assistant-1", role: "assistant", created: 2 }), [createTextPart("assistant-1", "draft")]),
-      createEnvelope(createMessage({ id: "tool-1", role: "tool", created: 3 }), [createTextPart("tool-1", "tool output")]),
-      createEnvelope(createMessage({ id: "assistant-2", role: "assistant", created: 4 }), [createTextPart("assistant-2", "later context")]),
-      createEnvelope(createMessage({ id: "user-2", role: "user", created: 5 }), [createTextPart("user-2", "later user")]),
+      createEnvelope(createMessage({ id: "assistant-1", role: "assistant", created: 2 }), [createTextPart("assistant-1", "assistant token rich content ".repeat(3000).trim())]),
+      createEnvelope(createMessage({ id: "tool-1", role: "tool", created: 3 }), [createTextPart("tool-1", "tool token rich output ".repeat(3000).trim())]),
+      createEnvelope(createMessage({ id: "assistant-2", role: "assistant", created: 4 }), [createTextPart("assistant-2", "assistant tail token rich content ".repeat(3000).trim())]),
+      createEnvelope(createMessage({ id: "user-2", role: "user", created: 5 }), [createTextPart("user-2", "later user ".repeat(300).trim())]),
     ] as const;
     const sessionHistory = createMutableSessionHistory(canonicalMessages);
     const transform = readMessagesTransformHook(hooks);
@@ -412,6 +430,7 @@ test("ordinary chat waits during the running lock, unrelated tools continue, and
     const backgroundErrors: unknown[] = [];
     const runtimeConfig = loadRuntimeConfig({
       ...process.env,
+      [RUNTIME_CONFIG_ENV.configPath]: e2eRuntimeConfigPath,
       [RUNTIME_CONFIG_ENV.runtimeLogPath]: join(tempDirectory, "runtime-events.jsonl"),
       [RUNTIME_CONFIG_ENV.seamLogPath]: seamLogPath,
     });
@@ -568,11 +587,18 @@ async function withLoadedPluginFixture(
   const tempDirectory = await mkdtemp(join(tmpdir(), "opencode-context-compression-task7-e2e-"));
   const seamLogPath = join(tempDirectory, "seam-observation.jsonl");
   const runtimeLogPath = join(tempDirectory, "runtime-events.jsonl");
+  const runtimeConfigPath = writeE2ERuntimeConfig(tempDirectory, {
+    reminderHsoft: 999_999,
+    reminderHhard: 1_999_999,
+    markedTokenAutoCompactionThreshold: 5_000,
+  });
   const originalSeamLogPath = process.env.OPENCODE_CONTEXT_COMPRESSION_SEAM_LOG;
   const originalRuntimeLogPath = process.env.OPENCODE_CONTEXT_COMPRESSION_RUNTIME_LOG_PATH;
+  const originalRuntimeConfigPath = process.env.OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH;
 
   process.env.OPENCODE_CONTEXT_COMPRESSION_SEAM_LOG = seamLogPath;
   process.env.OPENCODE_CONTEXT_COMPRESSION_RUNTIME_LOG_PATH = runtimeLogPath;
+  process.env.OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH = runtimeConfigPath;
 
   try {
     const pluginModule = (await import(pathToFileURL(PLUGIN_ENTRY).href)) as {
@@ -602,6 +628,12 @@ async function withLoadedPluginFixture(
       delete process.env.OPENCODE_CONTEXT_COMPRESSION_RUNTIME_LOG_PATH;
     } else {
       process.env.OPENCODE_CONTEXT_COMPRESSION_RUNTIME_LOG_PATH = originalRuntimeLogPath;
+    }
+
+    if (originalRuntimeConfigPath === undefined) {
+      delete process.env.OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH;
+    } else {
+      process.env.OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH = originalRuntimeConfigPath;
     }
 
     await releaseSessionFileLock({
@@ -778,9 +810,60 @@ function installFetchMock(
 function schedulerRuntimePrompt(seamLogPath: string, tempDirectory: string): string {
   return loadRuntimeConfig({
     ...process.env,
+    [RUNTIME_CONFIG_ENV.configPath]: writeE2ERuntimeConfig(tempDirectory, {
+      reminderHsoft: 999_999,
+      reminderHhard: 1_999_999,
+      markedTokenAutoCompactionThreshold: 5_000,
+    }),
     [RUNTIME_CONFIG_ENV.runtimeLogPath]: join(tempDirectory, "runtime-events.jsonl"),
     [RUNTIME_CONFIG_ENV.seamLogPath]: seamLogPath,
   }).promptText;
+}
+
+function writeE2ERuntimeConfig(
+  tempDirectory: string,
+  input: {
+    readonly reminderHsoft: number;
+    readonly reminderHhard: number;
+    readonly markedTokenAutoCompactionThreshold: number;
+  },
+): string {
+  const configPath = join(tempDirectory, "runtime-config.e2e.json");
+  writeFileSync(
+    configPath,
+    `${JSON.stringify(
+      {
+        version: 1,
+        promptPath: "prompts/compaction.md",
+        compactionModels: ["openai.doro/gpt-5.4-mini"],
+        markedTokenAutoCompactionThreshold: input.markedTokenAutoCompactionThreshold,
+        smallUserMessageThreshold: 1_024,
+        reminder: {
+          hsoft: input.reminderHsoft,
+          hhard: input.reminderHhard,
+          promptPaths: {
+            soft: "prompts/reminder-soft.md",
+            hard: "prompts/reminder-hard.md",
+          },
+          counter: {
+            source: "eligible_messages",
+            soft: { repeatEvery: 3 },
+            hard: { repeatEvery: 1 },
+          },
+        },
+        logging: { level: "off" },
+        compressing: { timeoutSeconds: 600 },
+        schedulerMarkThreshold: 1,
+        route: "keep",
+        runtimeLogPath: "logs/runtime-events.jsonl",
+        seamLogPath: "logs/seam-observation.jsonl",
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  return configPath;
 }
 
 function createToolContext(input: {

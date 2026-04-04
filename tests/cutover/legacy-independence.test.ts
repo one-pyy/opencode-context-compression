@@ -89,15 +89,17 @@ test("production plugin source does not depend on legacy provider DCP field name
 test("canonical execution does not require old provider DCP fields", async () => {
   const pluginDirectory = await mkdtemp(join(tmpdir(), "opencode-context-compression-provider-independence-"));
   const sessionID = "test-session";
+  const richAssistantText = "assistant token rich content ".repeat(3000).trim();
+  const richToolText = "tool token rich output ".repeat(3000).trim();
   const canonicalMessages = [
     createEnvelope(createMessage({ id: "user-1", role: "user", created: 1 }), [
       createTextPart("user-1", "hello"),
     ]),
     createEnvelope(createMessage({ id: "assistant-1", role: "assistant", created: 2 }), [
-      createTextPart("assistant-1", "draft"),
+      createTextPart("assistant-1", richAssistantText),
     ]),
     createEnvelope(createMessage({ id: "tool-1", role: "tool", created: 3 }), [
-      createTextPart("tool-1", "tool output"),
+      createTextPart("tool-1", richToolText),
     ]),
   ] as const;
   const sessionHistory = [

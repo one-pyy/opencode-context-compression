@@ -61,10 +61,22 @@ test("messages.transform mutates output.messages in place and preserves metadata
 
     const transform = createMessagesTransformHook({
       pluginDirectory,
-      reminderCadence: {
-        softMessageCount: 10,
-        hardMessageCount: 20,
+      reminder: {
+        hsoft: 10,
+        hhard: 20,
+        counter: {
+          source: "eligible_messages",
+          soft: { repeatEvery: 3 },
+          hard: { repeatEvery: 1 },
+        },
+        prompts: {
+          softPath: "/tmp/reminder-soft.md",
+          softText: "Soft reminder\n{{compressible_content}}\n{{compaction_target}}\n{{preserved_fields}}",
+          hardPath: "/tmp/reminder-hard.md",
+          hardText: "Hard reminder\n{{compressible_content}}\n{{compaction_target}}\n{{preserved_fields}}",
+        },
       },
+      reminderModelName: "gpt-5",
     });
     const output = {
       messages: canonicalMessages.map((message) => structuredClone(message)),

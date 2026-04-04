@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -7,12 +7,14 @@ import type { Hooks, PluginInput } from "@opencode-ai/plugin";
 
 import { createChatParamsSchedulerHook } from "../../src/runtime/chat-params-scheduler.js";
 import { readSessionFileLock, releaseSessionFileLock } from "../../src/runtime/file-lock.js";
+import { createRuntimeEventWriter } from "../../src/runtime/runtime-events.js";
 import { waitForOrdinaryChatGateIfNeeded } from "../../src/runtime/send-entry-gate.js";
 import { persistMark } from "../../src/marks/mark-service.js";
 import { createSqliteSessionStateStore, type SqliteSessionStateStore } from "../../src/state/store.js";
 import type { CompactionRunnerTransport } from "../../src/compaction/runner.js";
 import type { RuntimeConfig } from "../../src/config/runtime-config.js";
 import { findProductionCallSites, formatAuditHits, readRepoFile } from "./cutover-test-helpers.js";
+import { OpencodeContextCompressionTokenEstimationError } from "../../src/token-estimation.js";
 
 type ChatParamsInput = Parameters<NonNullable<Hooks["chat.params"]>>[0];
 type ChatParamsOutput = Parameters<NonNullable<Hooks["chat.params"]>>[1];
@@ -102,6 +104,52 @@ test("scheduler reaches batch freeze and runner", async () => {
         hostMessageIDs: ["assistant-1", "tool-1"],
       },
     ]);
+  });
+});
+
+test("scheduler waits for marked-token readiness before running compaction", async () => {
+  await withSchedulerEnvironment(async ({ pluginDirectory, store, clock, runtimeConfig, sessionMessages }) => {
+    seedMarkedSession(store, clock);
+
+    const belowThresholdHook = createChatParamsSchedulerHook({
+      pluginDirectory,
+      client: createClientFixture(sessionMessages),
+      runtimeConfig: {
+        ...runtimeConfig,
+        markedTokenAutoCompactionThreshold: 8,
+      },
+      runInBackground: false,
+      now: () => clock.tick(),
+      transport: createSafeTransport(async () => {
+        throw new Error("scheduler should not invoke transport before marked-token threshold is met");
+      }),
+    });
+
+    await belowThresholdHook(
+      createChatParamsInput(store.sessionID, "user-trigger-1"),
+      createChatParamsOutput(),
+    );
+
+    assert.equal(store.findFirstCommittedReplacementForMark("mark-1"), undefined);
+
+    const atThresholdHook = createChatParamsSchedulerHook({
+      pluginDirectory,
+      client: createClientFixture(sessionMessages),
+      runtimeConfig: {
+        ...runtimeConfig,
+        markedTokenAutoCompactionThreshold: 7,
+      },
+      runInBackground: false,
+      now: () => clock.tick(),
+      transport: createSafeTransport(async () => ({ contentText: "Compressed summary." })),
+    });
+
+    await atThresholdHook(
+      createChatParamsInput(store.sessionID, "user-trigger-2"),
+      createChatParamsOutput(),
+    );
+
+    assert.equal(store.findFirstCommittedReplacementForMark("mark-1")?.contentText, "Compressed summary.");
   });
 });
 
@@ -284,6 +332,143 @@ test("default chat.params scheduler path returns before transport completion", a
   });
 });
 
+test("scheduler ignores explicit tokenCount metadata when tokenizer-based text stays below marked-token threshold", async () => {
+  await withSchedulerEnvironment(async ({ pluginDirectory, store, clock, runtimeConfig }) => {
+    seedMarkedSession(store, clock, {
+      assistantText: "short draft",
+      toolText: "short tool",
+      assistantTokenCount: 50_000,
+      toolTokenCount: 50_000,
+    });
+
+    const hook = createChatParamsSchedulerHook({
+      pluginDirectory,
+      client: createClientFixture(createSessionMessagesFixture({
+        assistantText: "short draft",
+        toolText: "short tool",
+        assistantTokenCount: 50_000,
+        toolTokenCount: 50_000,
+      })),
+      runtimeConfig,
+      runInBackground: false,
+      now: () => clock.tick(),
+      transport: createSafeTransport(async () => {
+        throw new Error("scheduler should not trust explicit tokenCount metadata over tokenizer-based text");
+      }),
+    });
+
+    await hook(
+      createChatParamsInput(store.sessionID, "user-trigger-1"),
+      createChatParamsOutput(),
+    );
+
+    assert.equal(store.findFirstCommittedReplacementForMark("mark-1"), undefined);
+    assert.equal(store.listMarks({ status: "active" }).length, 1);
+  });
+});
+
+test("scheduler tokenization fails fast instead of using heuristic threshold guesses", async () => {
+  await withSchedulerEnvironment(async ({ pluginDirectory, store, clock, runtimeConfig, sessionMessages }) => {
+    seedMarkedSession(store, clock, {
+      assistantText: "token rich content",
+      toolText: "token rich output",
+    });
+
+    const hook = createChatParamsSchedulerHook({
+      pluginDirectory,
+      client: createClientFixture(sessionMessages),
+      runtimeConfig: {
+        ...runtimeConfig,
+        models: ["unsupported-threshold-model"],
+        markedTokenAutoCompactionThreshold: 1,
+      },
+      runInBackground: false,
+      now: () => clock.tick(),
+      transport: createSafeTransport(async () => ({ contentText: "Compressed summary." })),
+    });
+
+    await assert.rejects(
+      () => hook(createChatParamsInput(store.sessionID, "user-trigger-1"), createChatParamsOutput()),
+      (error: unknown) => {
+        assert.ok(error instanceof OpencodeContextCompressionTokenEstimationError);
+        assert.match(String(error), /Unsupported tokenizer model/u);
+        return true;
+      },
+    );
+  });
+});
+
+test("runtime event writer respects logging levels for runtime gate observations", async () => {
+  const pluginDirectory = await mkdtemp(join(tmpdir(), "opencode-context-compression-runtime-events-"));
+  const logPath = join(pluginDirectory, "logs", "runtime-events.jsonl");
+  const observed = {
+    observationID: "obs-1",
+    gateName: "compressing" as const,
+    authority: "file-lock" as const,
+    observedState: "running" as const,
+    lockPath: join(pluginDirectory, "locks", "session.lock"),
+    observedAtMs: 1,
+    startedAtMs: 1,
+    settledAtMs: undefined,
+    activeJobCount: 1,
+    note: "runtime event",
+    metadata: undefined,
+  };
+
+  try {
+    createRuntimeEventWriter({ filePath: logPath, level: "off" }).recordRuntimeGateObservation(
+      {
+        observationID: observed.observationID,
+        observedState: observed.observedState,
+      },
+      observed,
+    );
+    await assert.rejects(() => readFile(logPath, "utf8"));
+
+    createRuntimeEventWriter({ filePath: logPath, level: "error" }).recordRuntimeGateObservation(
+      {
+        observationID: "obs-2",
+        observedState: "running",
+      },
+      {
+        ...observed,
+        observationID: "obs-2",
+      },
+    );
+    await assert.rejects(() => readFile(logPath, "utf8"));
+
+    createRuntimeEventWriter({ filePath: logPath, level: "error" }).recordRuntimeGateObservation(
+      {
+        observationID: "obs-3",
+        observedState: "failed",
+      },
+      {
+        ...observed,
+        observationID: "obs-3",
+        observedState: "failed",
+      },
+    );
+    const errorLog = await readFile(logPath, "utf8");
+    assert.match(errorLog, /"observationID":"obs-3"/u);
+    assert.doesNotMatch(errorLog, /"observationID":"obs-2"/u);
+
+    createRuntimeEventWriter({ filePath: logPath, level: "debug" }).recordRuntimeGateObservation(
+      {
+        observationID: "obs-4",
+        observedState: "running",
+      },
+      {
+        ...observed,
+        observationID: "obs-4",
+      },
+    );
+    const debugLog = await readFile(logPath, "utf8");
+    assert.match(debugLog, /"observationID":"obs-4"/u);
+  } finally {
+    await rm(pluginDirectory, { recursive: true, force: true });
+  }
+});
+
 async function withSchedulerEnvironment(
   run: (context: {
     pluginDirectory: string;
@@ -320,8 +505,12 @@ async function withSchedulerEnvironment(
   }
 }
 
-function seedMarkedSession(store: SqliteSessionStateStore, clock: ReturnType<typeof createClock>): void {
-  const sessionMessages = createSessionMessagesFixture();
+function seedMarkedSession(
+  store: SqliteSessionStateStore,
+  clock: ReturnType<typeof createClock>,
+  fixtureOptions?: Parameters<typeof createSessionMessagesFixture>[0],
+): void {
+  const sessionMessages = createSessionMessagesFixture(fixtureOptions);
   store.syncCanonicalHostMessages({
     revision: `rev-${clock.tick()}`,
     syncedAtMs: clock.current,
@@ -349,6 +538,30 @@ function createRuntimeConfigFixture(): RuntimeConfig {
     promptPath: "/tmp/opencode-context-compression-test/prompts/compaction.md",
     promptText: "Repo-owned compaction prompt.",
     models: ["model-primary"],
+    markedTokenAutoCompactionThreshold: 20_000,
+    smallUserMessageThreshold: 1_024,
+    reminder: {
+      hsoft: 12,
+      hhard: 24,
+      counter: {
+        source: "eligible_messages",
+        soft: { repeatEvery: 3 },
+        hard: { repeatEvery: 1 },
+      },
+      prompts: {
+        softPath: "/tmp/opencode-context-compression-test/prompts/reminder-soft.md",
+        softText: "Soft reminder\n{{compressible_content}}\n{{compaction_target}}\n{{preserved_fields}}",
+        hardPath: "/tmp/opencode-context-compression-test/prompts/reminder-hard.md",
+        hardText: "Hard reminder\n{{compressible_content}}\n{{compaction_target}}\n{{preserved_fields}}",
+      },
+    },
+    logging: {
+      level: "off",
+    },
+    compressing: {
+      timeoutSeconds: 600,
+      timeoutMs: 600_000,
+    },
     schedulerMarkThreshold: 1,
     route: "keep",
     runtimeLogPath: "/tmp/opencode-context-compression-test/runtime-events.jsonl",
@@ -356,7 +569,9 @@ function createRuntimeConfigFixture(): RuntimeConfig {
   };
 }
 
-function createClientFixture(sessionMessages: ReturnType<typeof createSessionMessagesFixture>): PluginClient {
+function createClientFixture(
+  sessionMessages: ReturnType<typeof createSessionMessagesFixture>,
+): PluginClient {
   return {
     session: {
       async messages() {
@@ -366,13 +581,28 @@ function createClientFixture(sessionMessages: ReturnType<typeof createSessionMes
   } as unknown as PluginClient;
 }
 
-function createSessionMessagesFixture() {
+function createSessionMessagesFixture(options?: {
+  readonly assistantText?: string;
+  readonly toolText?: string;
+  readonly assistantTokenCount?: number;
+  readonly toolTokenCount?: number;
+}) {
+  const defaultAssistantText = "assistant token rich content ".repeat(3000).trim();
+  const defaultToolText = "tool token rich output ".repeat(3000).trim();
   return [
     createEnvelope(createMessage({ id: "assistant-1", role: "assistant", created: 1 }), [
-      createTextPart("assistant-1", "draft"),
+      createTextPart(
+        "assistant-1",
+        options?.assistantText ?? defaultAssistantText,
+        options?.assistantTokenCount ?? 12_000,
+      ),
     ]),
     createEnvelope(createMessage({ id: "tool-1", role: "tool", created: 2 }), [
-      createTextPart("tool-1", "tool output"),
+      createTextPart(
+        "tool-1",
+        options?.toolText ?? defaultToolText,
+        options?.toolTokenCount ?? 11_000,
+      ),
     ]),
     createEnvelope(createMessage({ id: "mark-tool-1", role: "tool", created: 3 }), [
       createTextPart("mark-tool-1", "mark: assistant-1~tool-1"),
@@ -534,13 +764,14 @@ function createUserMessage(messageID: string): ChatParamsInput["message"] {
   return createMessage({ id: messageID, role: "user", created: 6 }) as ChatParamsInput["message"];
 }
 
-function createTextPart(messageID: string, text: string) {
+function createTextPart(messageID: string, text: string, tokenCount?: number) {
   return {
     id: `${messageID}:part`,
     sessionID: "test-session",
     messageID,
     type: "text",
     text,
+    ...(tokenCount === undefined ? {} : { tokenCount }),
   };
 }
 
