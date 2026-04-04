@@ -10,7 +10,7 @@ When the workflow is complete, the canonical docs and target-repo notepad all de
 ### Mechanism
 This repo has two separate but connected truth layers.
 
-The first layer is the runtime contract itself. That contract lives in repo-owned code and assets such as `src/config/runtime-config.json`, `prompts/compaction.md`, the plugin entry at `src/index.ts`, and repo-owned log and state paths.
+The first layer is the runtime contract itself. That contract lives in repo-owned code and assets such as `src/config/runtime-config.jsonc`, `src/config/runtime-config.schema.json`, `prompts/compaction.md`, the plugin entry at `src/index.ts`, and repo-owned log and state paths.
 
 The second layer is the operator contract. That contract lives in `README.md`, `readme.zh.md`, `docs/live-verification-with-mitmproxy-and-debug-log.zh.md`, and the target-repo notepad entries under `.sisyphus/notepads/`. The operator contract must not outclaim what the runtime layer and automated tests actually prove.
 

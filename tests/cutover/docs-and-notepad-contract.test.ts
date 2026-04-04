@@ -23,7 +23,8 @@ test("operator docs advertise only the final repo-owned contract", async () => {
 
   for (const source of [readme, readmeZh]) {
     assert.match(source, /compression_mark/u);
-    assert.match(source, /src\/config\/runtime-config\.json/u);
+    assert.match(source, /src\/config\/runtime-config\.jsonc/u);
+    assert.match(source, /src\/config\/runtime-config\.schema\.json/u);
     assert.match(source, /prompts\/compaction\.md/u);
     assert.match(source, /logs\/runtime-events\.jsonl/u);
     assert.match(source, /logs\/seam-observation\.jsonl/u);

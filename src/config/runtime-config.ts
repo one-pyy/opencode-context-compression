@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
+
 import { DEFAULT_LOCK_TIMEOUT_MS } from "../runtime/file-lock.js";
 import type { CompactionRoute } from "../state/store.js";
 
@@ -86,6 +88,7 @@ export interface RuntimeConfig {
 }
 
 interface RuntimeConfigFile {
+  readonly $schema?: string;
   readonly version: number;
   readonly promptPath: string;
   readonly compactionModels: readonly string[];
@@ -114,7 +117,7 @@ export function resolveRuntimeConfigRepoRoot(): string {
 export function resolveDefaultRuntimeConfigPath(
   repoRoot = resolveRuntimeConfigRepoRoot(),
 ): string {
-  return resolve(repoRoot, "src", "config", "runtime-config.json");
+  return resolve(repoRoot, "src", "config", "runtime-config.jsonc");
 }
 
 export function loadRuntimeConfig(
@@ -184,18 +187,27 @@ function parseRuntimeConfigFile(
     );
   }
 
-  let parsed: unknown;
+  let configText: string;
   try {
-    parsed = JSON.parse(readFileSync(configPath, "utf8"));
+    configText = readFileSync(configPath, "utf8");
   } catch (error) {
     throw new OpencodeContextCompressionRuntimeConfigError(
-      `Runtime config '${configPath}' is malformed JSON: ${describeError(error)}`,
+      `Failed to read runtime config '${configPath}': ${describeError(error)}`,
+    );
+  }
+
+  const parseErrors: ParseError[] = [];
+  const parsed = parse(configText, parseErrors);
+
+  if (parseErrors.length > 0) {
+    throw new OpencodeContextCompressionRuntimeConfigError(
+      `Runtime config '${configPath}' contains invalid JSON/JSONC syntax: ${describeJsoncParseError(configText, parseErrors[0])}.`,
     );
   }
 
   if (!isRecord(parsed)) {
     throw new OpencodeContextCompressionRuntimeConfigError(
-      `Runtime config '${configPath}' must be a JSON object.`,
+      `Runtime config '${configPath}' must be an object.`,
     );
   }
 
@@ -696,4 +708,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function describeJsoncParseError(sourceText: string, error: ParseError): string {
+  const location = describeTextLocation(sourceText, error.offset);
+  return `${printParseErrorCode(error.error)} at line ${location.line}, column ${location.column}`;
+}
+
+function describeTextLocation(sourceText: string, offset: number): {
+  line: number;
+  column: number;
+} {
+  let line = 1;
+  let column = 1;
+
+  for (let index = 0; index < Math.min(offset, sourceText.length); index += 1) {
+    if (sourceText[index] === "\n") {
+      line += 1;
+      column = 1;
+      continue;
+    }
+
+    column += 1;
+  }
+
+  return { line, column };
 }

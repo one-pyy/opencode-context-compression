@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opencode-context-compression.local/runtime-config.schema.json",
+  "title": "OpenCode Context Compression Runtime Config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "promptPath",
+    "compactionModels",
+    "route",
+    "runtimeLogPath",
+    "seamLogPath"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Local editor-only schema reference for the JSONC config file."
+    },
+    "version": {
+      "const": 1,
+      "description": "Current runtime config contract version."
+    },
+    "promptPath": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Repo-relative or absolute path to the compaction prompt asset."
+    },
+    "compactionModels": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Ordered compaction model chain."
+    },
+    "markedTokenAutoCompactionThreshold": {
+      "$ref": "#/$defs/positiveInteger",
+      "description": "Marked-token readiness threshold for auto compaction."
+    },
+    "smallUserMessageThreshold": {
+      "$ref": "#/$defs/positiveInteger",
+      "description": "Protection threshold for short user messages in projection."
+    },
+    "schedulerMarkThreshold": {
+      "$ref": "#/$defs/positiveInteger",
+      "description": "Internal/test compatibility knob for mark-count scheduling."
+    },
+    "route": {
+      "enum": ["keep", "delete"],
+      "description": "Committed replacement route."
+    },
+    "runtimeLogPath": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Repo-relative or absolute runtime event log path."
+    },
+    "seamLogPath": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Repo-relative or absolute seam observation log path."
+    },
+    "logging": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "enum": ["off", "error", "info", "debug"]
+        }
+      }
+    },
+    "compressing": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timeoutSeconds": {
+          "$ref": "#/$defs/positiveInteger"
+        }
+      }
+    },
+    "reminder": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hsoft": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "hhard": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "promptPaths": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "soft": {
+              "type": "string",
+              "minLength": 1
+            },
+            "hard": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "counter": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "enum": ["eligible_messages", "assistant_turns"]
+            },
+            "soft": {
+              "$ref": "#/$defs/repeatRule"
+            },
+            "hard": {
+              "$ref": "#/$defs/repeatRule"
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "positiveInteger": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "repeatRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repeatEvery": {
+          "$ref": "#/$defs/positiveInteger"
+        }
+      }
+    }
+  }
+}

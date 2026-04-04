@@ -19,7 +19,7 @@ Two tradeoffs drove the final wording:
 - Hide the proof boundary and only describe green tests: rejected because future operators would have to rediscover why live-session success claims were intentionally narrower than repo-owned automated coverage.
 
 ### Consequences
-Canonical operator docs must keep pointing to `src/config/runtime-config.json`, `prompts/compaction.md`, repo-owned log and debug paths, `compression_mark`, keep and delete semantics, and lock behavior.
+Canonical operator docs must keep pointing to `src/config/runtime-config.jsonc`, `src/config/runtime-config.schema.json`, `prompts/compaction.md`, repo-owned log and debug paths, `compression_mark`, keep and delete semantics, and lock behavior.
 
 Future work that adds a default production executor or a fully repo-owned real-session execute path must update both the docs and the cutover audit test before broadening live verification claims.
 

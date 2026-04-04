@@ -1,9 +1,12 @@
 {
+  "$schema": "./runtime-config.schema.json",
+  // Canonical repo-owned runtime config for local plugin development.
   "version": 1,
   "promptPath": "prompts/compaction.md",
   "compactionModels": [
     "openai.right/gpt-5.4-mini",
-    "openai.doro/gpt-5.4-mini"],
+    "openai.doro/gpt-5.4-mini"
+  ],
   "schedulerMarkThreshold": 1,
   "route": "keep",
   "runtimeLogPath": "logs/runtime-events.jsonl",

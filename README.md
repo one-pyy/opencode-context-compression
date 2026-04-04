@@ -26,7 +26,8 @@ Operator notes:
 
 The canonical runtime contract ships inside this repo:
 
-- `src/config/runtime-config.json`, canonical runtime settings file
+- `src/config/runtime-config.jsonc`, canonical runtime settings file
+- `src/config/runtime-config.schema.json`, local JSON Schema for editor validation and `$schema` wiring
 - `prompts/compaction.md`, explicit compaction prompt asset
 - `prompts/reminder-soft.md`, soft reminder template asset
 - `prompts/reminder-hard.md`, hard reminder template asset
@@ -37,7 +38,9 @@ Prompt loading is explicit. The plugin loads the configured prompt file and fail
 
 ### Restored runtime config surface
 
-The repo-owned `runtime-config.json` now restores the preserved user-facing contract instead of only exposing the cutover-minimal fields.
+The repo-owned `runtime-config.jsonc` now restores the preserved user-facing contract instead of only exposing the cutover-minimal fields.
+
+The canonical config is now comment-capable and carries a local `$schema` reference to `src/config/runtime-config.schema.json` for editor-aware validation.
 
 - `markedTokenAutoCompactionThreshold`, explicit external readiness contract carried forward from older DCP work
 - `smallUserMessageThreshold`, explicit preserved user-message threshold contract for protecting short user messages in projection

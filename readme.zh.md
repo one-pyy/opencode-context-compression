@@ -26,7 +26,8 @@
 
 规范运行时契约由本仓库直接维护：
 
-- `src/config/runtime-config.json`，规范运行时配置文件
+- `src/config/runtime-config.jsonc`，规范运行时配置文件
+- `src/config/runtime-config.schema.json`，用于编辑器校验与 `$schema` 关联的本地 JSON Schema
 - `prompts/compaction.md`，显式压缩提示词资源
 - `prompts/reminder-soft.md`，软提醒模板资源
 - `prompts/reminder-hard.md`，硬提醒模板资源
@@ -37,7 +38,9 @@
 
 ### 已恢复的运行时配置面
 
-仓库自有的 `runtime-config.json` 现在重新承载此前明确保留的用户侧契约，而不再只是 cutover 阶段的最小运行字段。
+仓库自有的 `runtime-config.jsonc` 现在重新承载此前明确保留的用户侧契约，而不再只是 cutover 阶段的最小运行字段。
+
+这份规范配置现在支持注释，并通过指向 `src/config/runtime-config.schema.json` 的本地 `$schema` 为编辑器提供结构校验。
 
 - `markedTokenAutoCompactionThreshold`：保留的外部压缩就绪阈值契约
 - `smallUserMessageThreshold`：用于在 projection 中保护短用户消息的保留阈值契约

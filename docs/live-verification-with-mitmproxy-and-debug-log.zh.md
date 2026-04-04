@@ -6,7 +6,7 @@
 
 当前可重复、已经自动化覆盖的证明边界是：
 
-1. `tests/cutover/runtime-config-precedence.test.ts` 证明仓库自有的 `src/config/runtime-config.json`、`prompts/compaction.md`、日志路径和环境变量优先级契约成立。
+1. `tests/cutover/runtime-config-precedence.test.ts` 证明仓库自有的 `src/config/runtime-config.jsonc`、`src/config/runtime-config.schema.json`、`prompts/compaction.md`、日志路径和环境变量优先级契约成立。
 2. `tests/cutover/legacy-independence.test.ts` 证明规范插件合同不依赖旧 runtime、旧工具名或旧 provider-side DCP 字段。
 3. `tests/cutover/docs-and-notepad-contract.test.ts` 证明 README、中文 README、这份 live verification 指南，以及目标仓库 notepad 记录的是同一份 final repo-owned 合同。
 4. `tests/e2e/plugin-loading-and-compaction.test.ts` 与 `tests/e2e/delete-route.test.ts` 证明仓库自有插件入口、`compression_mark`、scheduler seam、keep 与 delete 提交路径在注入 safe transport fixture 时可以稳定工作。
@@ -25,7 +25,8 @@
 ### 2.1 插件入口与规范资源
 
 - 插件入口：`/root/_/opencode/opencode-context-compression/src/index.ts`
-- 规范运行时配置：`/root/_/opencode/opencode-context-compression/src/config/runtime-config.json`
+- 规范运行时配置：`/root/_/opencode/opencode-context-compression/src/config/runtime-config.jsonc`
+- 配置 schema：`/root/_/opencode/opencode-context-compression/src/config/runtime-config.schema.json`
 - 规范提示词：`/root/_/opencode/opencode-context-compression/prompts/compaction.md`
 
 ### 2.2 仓库自有日志与调试路径

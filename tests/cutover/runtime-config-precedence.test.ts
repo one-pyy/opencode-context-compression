@@ -23,13 +23,14 @@ test("repo-owned runtime config, prompt assets, and docs resolve from this repo 
   const readmeZh = await readRepoFile("readme.zh.md");
   const runtimeConfig = loadRuntimeConfig({});
 
-  assert.ok(configFiles.includes("src/config/runtime-config.json"));
+  assert.ok(configFiles.includes("src/config/runtime-config.jsonc"));
+  assert.ok(configFiles.includes("src/config/runtime-config.schema.json"));
   assert.ok(configFiles.includes("src/config/runtime-config.ts"));
   assert.ok(promptFiles.includes("prompts/compaction.md"));
   assert.ok(promptFiles.includes("prompts/reminder-soft.md"));
   assert.ok(promptFiles.includes("prompts/reminder-hard.md"));
   assert.equal(runtimeConfig.repoRoot, resolveRuntimeConfigRepoRoot());
-  assert.match(runtimeConfig.configPath, /src\/config\/runtime-config\.json$/u);
+  assert.match(runtimeConfig.configPath, /src\/config\/runtime-config\.jsonc$/u);
   assert.match(runtimeConfig.promptPath, /prompts\/compaction\.md$/u);
   assert.deepEqual(runtimeConfig.models, [
     "openai.right/gpt-5.4-mini",
@@ -64,6 +65,7 @@ test("repo-owned runtime config, prompt assets, and docs resolve from this repo 
   assert.match(runtimeConfig.seamLogPath, /logs\/seam-observation\.jsonl$/u);
   assert.equal(runtimeConfig.debugSnapshotPath, undefined);
   assert.match(runtimeConfig.promptText, /route=keep/u);
+  assert.match(await readRepoFile("src/config/runtime-config.jsonc"), /"\$schema"\s*:\s*"\.\/runtime-config\.schema\.json"/u);
   assert.doesNotMatch(readme, /config\/dcp-runtime\.json/u);
   assert.doesNotMatch(readmeZh, /config\/dcp-runtime\.json/u);
 });
@@ -93,12 +95,24 @@ test("explicit env overrides take precedence over the repo-owned runtime config 
     await writeFile(promptFromEnv, "Env prompt text.\n", "utf8");
     await writeFile(
       softReminderFromConfig,
-      "Soft reminder from config.\n",
+      [
+        "Soft reminder from config.",
+        "{{compressible_content}}",
+        "{{compaction_target}}",
+        "{{preserved_fields}}",
+        "",
+      ].join("\n"),
       "utf8",
     );
     await writeFile(
       hardReminderFromConfig,
-      "Hard reminder from config.\n",
+      [
+        "Hard reminder from config.",
+        "{{compressible_content}}",
+        "{{compaction_target}}",
+        "{{preserved_fields}}",
+        "",
+      ].join("\n"),
       "utf8",
     );
     await writeFile(
