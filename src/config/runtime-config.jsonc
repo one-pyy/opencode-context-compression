@@ -8,7 +8,6 @@
     "openai.doro/gpt-5.4-mini"
   ],
   "schedulerMarkThreshold": 1,
-  "route": "keep",
   "runtimeLogPath": "logs/runtime-events.jsonl",
   "seamLogPath": "logs/seam-observation.jsonl",
   "markedTokenAutoCompactionThreshold": 20000,
@@ -16,17 +15,16 @@
   "reminder": {
     "hsoft": 30000,
     "hhard": 70000,
+    "softRepeatEveryTokens": 20000,
+    "hardRepeatEveryTokens": 10000,
     "promptPaths": {
-      "soft": "prompts/reminder-soft.md",
-      "hard": "prompts/reminder-hard.md"
-    },
-    "counter": {
-      "source": "eligible_messages",
-      "soft": {
-        "repeatEvery": 3
+      "compactOnly": {
+        "soft": "prompts/reminder-soft-compact-only.md",
+        "hard": "prompts/reminder-hard-compact-only.md"
       },
-      "hard": {
-        "repeatEvery": 3
+      "deleteAllowed": {
+        "soft": "prompts/reminder-soft-delete-allowed.md",
+        "hard": "prompts/reminder-hard-delete-allowed.md"
       }
     }
   },

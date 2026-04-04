@@ -212,8 +212,9 @@ function buildRequestPayload(
     payload.temperature = 0;
   }
 
-  const routeHint = `The compaction route is: **${input.route}**`;
-  const effectivePrompt = `${input.promptText}\n\n## Route\n\n${routeHint}`;
+  const permissionHint = `allowDelete=${input.allowDelete ? "true" : "false"}`;
+  const executionModeHint = `executionMode=${input.executionMode}`;
+  const effectivePrompt = `${input.promptText}\n\n## Runtime Instructions\n\n- Delete permission: **${permissionHint}**\n- Current execution mode: **${executionModeHint}**`;
 
   if (endpoint === "responses") {
     payload.instructions = effectivePrompt;
@@ -369,7 +370,8 @@ function renderCompactionRequestBody(input: CompactionInput): string {
   });
 
   return [
-    `Route: ${input.route}`,
+    `Delete permission: ${input.allowDelete ? "true" : "false"}`,
+    `Execution mode: ${input.executionMode}`,
     `Source snapshot id: ${input.sourceSnapshotID}`,
     `Source fingerprint: ${input.sourceFingerprint}`,
     input.canonicalRevision

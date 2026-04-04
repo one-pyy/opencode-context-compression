@@ -58,10 +58,7 @@ export function buildProjectedMessages(
     ? deriveReminder({
         policy,
         cadence: options.reminder,
-        templates: {
-          soft: options.reminder.prompts.softText,
-          hard: options.reminder.prompts.hardText,
-        },
+        templates: selectReminderTemplates(policy, options.store, options.reminder),
         modelName: options.reminderModelName,
       })
     : undefined;
@@ -370,6 +367,25 @@ function renderReminder(
   });
 }
 
+function selectReminderTemplates(
+  policy: ProjectionPolicy,
+  store: SqliteSessionStateStore,
+  reminder: ReminderRuntimeConfig,
+): { soft: string; hard: string } {
+  const hasDeleteAllowedContext = policy.messages.some((message) => {
+    const mark = store.getMarkByToolCallMessageID(message.identity.hostMessageID);
+    return mark?.status === "active" && mark.allowDelete;
+  });
+  const promptSet = hasDeleteAllowedContext
+    ? reminder.prompts["deleteAllowed"]
+    : reminder.prompts["compactOnly"];
+
+  return {
+    soft: promptSet.soft.text,
+    hard: promptSet.hard.text,
+  };
+}
+
 function createSyntheticTextEnvelope(input: {
   readonly info: TransformMessage;
   readonly messageID: string;
@@ -483,7 +499,7 @@ function readReplacementText(
     return stableStringify(replacement.contentJSON);
   }
 
-  return replacement.route === "delete"
+  return replacement.executionMode === "delete"
     ? `Deleted ${sourceCount} earlier message(s).`
     : `Compacted ${sourceCount} earlier message(s).`;
 }

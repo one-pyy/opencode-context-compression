@@ -5,16 +5,14 @@ import { fileURLToPath } from "node:url";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 
 import { DEFAULT_LOCK_TIMEOUT_MS } from "../runtime/file-lock.js";
-import type { CompactionRoute } from "../state/store.js";
 
 const DEFAULT_SCHEDULER_MARK_THRESHOLD = 1;
 const DEFAULT_MARKED_TOKEN_AUTO_COMPACTION_THRESHOLD = 20_000;
 const DEFAULT_SMALL_USER_MESSAGE_THRESHOLD = 1_024;
 const DEFAULT_REMINDER_HSOFT = 30_000;
 const DEFAULT_REMINDER_HHARD = 70_000;
-const DEFAULT_REMINDER_COUNTER_SOURCE = "eligible_messages";
-const DEFAULT_SOFT_REMINDER_REPEAT_EVERY = 3;
-const DEFAULT_HARD_REMINDER_REPEAT_EVERY = 1;
+const DEFAULT_SOFT_REMINDER_REPEAT_EVERY_TOKENS = 20_000;
+const DEFAULT_HARD_REMINDER_REPEAT_EVERY_TOKENS = 10_000;
 const DEFAULT_RUNTIME_LOG_LEVEL = "off";
 const DEFAULT_COMPRESSING_TIMEOUT_SECONDS = Math.floor(
   DEFAULT_LOCK_TIMEOUT_MS / 1_000,
@@ -24,7 +22,6 @@ export const RUNTIME_CONFIG_ENV = Object.freeze({
   configPath: "OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH",
   promptPath: "OPENCODE_CONTEXT_COMPRESSION_PROMPT_PATH",
   models: "OPENCODE_CONTEXT_COMPRESSION_MODELS",
-  route: "OPENCODE_CONTEXT_COMPRESSION_ROUTE",
   runtimeLogPath: "OPENCODE_CONTEXT_COMPRESSION_RUNTIME_LOG_PATH",
   seamLogPath: "OPENCODE_CONTEXT_COMPRESSION_SEAM_LOG",
   logLevel: "OPENCODE_CONTEXT_COMPRESSION_LOG_LEVEL",
@@ -34,29 +31,26 @@ export const RUNTIME_CONFIG_ENV = Object.freeze({
 });
 
 export type RuntimeLogLevel = "off" | "error" | "info" | "debug";
-export type ReminderCounterSource = "eligible_messages" | "assistant_turns";
-
-export interface ReminderCounterRule {
-  readonly repeatEvery: number;
+export interface ReminderPromptAssetConfig {
+  readonly path: string;
+  readonly text: string;
 }
 
-export interface ReminderCounterConfig {
-  readonly source: ReminderCounterSource;
-  readonly soft: ReminderCounterRule;
-  readonly hard: ReminderCounterRule;
+export interface ReminderPromptVariantConfig {
+  readonly soft: ReminderPromptAssetConfig;
+  readonly hard: ReminderPromptAssetConfig;
 }
 
 export interface ReminderPromptConfig {
-  readonly softPath: string;
-  readonly softText: string;
-  readonly hardPath: string;
-  readonly hardText: string;
+  readonly compactOnly: ReminderPromptVariantConfig;
+  readonly deleteAllowed: ReminderPromptVariantConfig;
 }
 
 export interface ReminderRuntimeConfig {
   readonly hsoft: number;
   readonly hhard: number;
-  readonly counter: ReminderCounterConfig;
+  readonly softRepeatEveryTokens: number;
+  readonly hardRepeatEveryTokens: number;
   readonly prompts: ReminderPromptConfig;
 }
 
@@ -81,7 +75,6 @@ export interface RuntimeConfig {
   readonly logging: LoggingRuntimeConfig;
   readonly compressing: CompressingRuntimeConfig;
   readonly schedulerMarkThreshold: number;
-  readonly route: CompactionRoute;
   readonly runtimeLogPath: string;
   readonly seamLogPath: string;
   readonly debugSnapshotPath?: string;
@@ -98,7 +91,6 @@ interface RuntimeConfigFile {
   readonly logging: LoggingRuntimeConfig;
   readonly compressing: CompressingRuntimeConfig;
   readonly schedulerMarkThreshold: number;
-  readonly route: CompactionRoute;
   readonly runtimeLogPath: string;
   readonly seamLogPath: string;
 }
@@ -150,7 +142,6 @@ export function loadRuntimeConfig(
   );
   const promptText = readPromptText(promptPath);
   const models = readModelsOverride(env, fileConfig.compactionModels);
-  const route = readRouteOverride(env, fileConfig.route);
 
   return {
     repoRoot,
@@ -170,7 +161,6 @@ export function loadRuntimeConfig(
       timeoutMs: timeoutSeconds * 1_000,
     },
     schedulerMarkThreshold: fileConfig.schedulerMarkThreshold,
-    route,
     runtimeLogPath,
     seamLogPath,
     ...(debugSnapshotPath === undefined ? {} : { debugSnapshotPath }),
@@ -228,20 +218,15 @@ function parseRuntimeConfigFile(
     configPath,
     "reminder.promptPaths",
   );
-  const reminderCounter = readOptionalRecord(
-    reminderConfig?.counter,
+  const reminderPromptPathsCompactOnly = readOptionalRecord(
+    reminderPromptPaths?.compactOnly,
     configPath,
-    "reminder.counter",
+    "reminder.promptPaths.compactOnly",
   );
-  const reminderCounterSoft = readOptionalRecord(
-    reminderCounter?.soft,
+  const reminderPromptPathsDeleteAllowed = readOptionalRecord(
+    reminderPromptPaths?.deleteAllowed,
     configPath,
-    "reminder.counter.soft",
-  );
-  const reminderCounterHard = readOptionalRecord(
-    reminderCounter?.hard,
-    configPath,
-    "reminder.counter.hard",
+    "reminder.promptPaths.deleteAllowed",
   );
   const loggingConfig = readOptionalRecord(
     parsed.logging,
@@ -273,25 +258,43 @@ function parseRuntimeConfigFile(
     );
   }
 
-  const softPromptPath = resolveConfiguredPath(
+  const compactOnlySoftPromptPath = resolveConfiguredPath(
     readOptionalNonEmptyString(
-      reminderPromptPaths?.soft,
+      reminderPromptPathsCompactOnly?.soft,
       configPath,
-      "reminder.promptPaths.soft",
-    ) ?? "prompts/reminder-soft.md",
+      "reminder.promptPaths.compactOnly.soft",
+    ) ?? "prompts/reminder-soft-compact-only.md",
     repoRoot,
   );
-  const hardPromptPath = resolveConfiguredPath(
+  const compactOnlyHardPromptPath = resolveConfiguredPath(
     readOptionalNonEmptyString(
-      reminderPromptPaths?.hard,
+      reminderPromptPathsCompactOnly?.hard,
       configPath,
-      "reminder.promptPaths.hard",
-    ) ?? "prompts/reminder-hard.md",
+      "reminder.promptPaths.compactOnly.hard",
+    ) ?? "prompts/reminder-hard-compact-only.md",
+    repoRoot,
+  );
+  const deleteAllowedSoftPromptPath = resolveConfiguredPath(
+    readOptionalNonEmptyString(
+      reminderPromptPathsDeleteAllowed?.soft,
+      configPath,
+      "reminder.promptPaths.deleteAllowed.soft",
+    ) ?? "prompts/reminder-soft-delete-allowed.md",
+    repoRoot,
+  );
+  const deleteAllowedHardPromptPath = resolveConfiguredPath(
+    readOptionalNonEmptyString(
+      reminderPromptPathsDeleteAllowed?.hard,
+      configPath,
+      "reminder.promptPaths.deleteAllowed.hard",
+    ) ?? "prompts/reminder-hard-delete-allowed.md",
     repoRoot,
   );
 
-  const softPromptText = readPromptText(softPromptPath);
-  const hardPromptText = readPromptText(hardPromptPath);
+  const compactOnlySoftPromptText = readPromptText(compactOnlySoftPromptPath);
+  const compactOnlyHardPromptText = readPromptText(compactOnlyHardPromptPath);
+  const deleteAllowedSoftPromptText = readPromptText(deleteAllowedSoftPromptPath);
+  const deleteAllowedHardPromptText = readPromptText(deleteAllowedHardPromptPath);
   const timeoutSeconds =
     readOptionalPositiveInteger(
       compressingConfig?.timeoutSeconds,
@@ -324,35 +327,39 @@ function parseRuntimeConfigFile(
     reminder: {
       hsoft: reminderHsoft,
       hhard: reminderHhard,
-      counter: {
-        source:
-          readOptionalReminderCounterSource(
-            reminderCounter?.source,
-            configPath,
-            "reminder.counter.source",
-          ) ?? DEFAULT_REMINDER_COUNTER_SOURCE,
-        soft: {
-          repeatEvery:
-            readOptionalPositiveInteger(
-              reminderCounterSoft?.repeatEvery,
-              configPath,
-              "reminder.counter.soft.repeatEvery",
-            ) ?? DEFAULT_SOFT_REMINDER_REPEAT_EVERY,
-        },
-        hard: {
-          repeatEvery:
-            readOptionalPositiveInteger(
-              reminderCounterHard?.repeatEvery,
-              configPath,
-              "reminder.counter.hard.repeatEvery",
-            ) ?? DEFAULT_HARD_REMINDER_REPEAT_EVERY,
-        },
-      },
+      softRepeatEveryTokens:
+        readOptionalPositiveInteger(
+          reminderConfig?.softRepeatEveryTokens,
+          configPath,
+          "reminder.softRepeatEveryTokens",
+        ) ?? DEFAULT_SOFT_REMINDER_REPEAT_EVERY_TOKENS,
+      hardRepeatEveryTokens:
+        readOptionalPositiveInteger(
+          reminderConfig?.hardRepeatEveryTokens,
+          configPath,
+          "reminder.hardRepeatEveryTokens",
+        ) ?? DEFAULT_HARD_REMINDER_REPEAT_EVERY_TOKENS,
       prompts: {
-        softPath: softPromptPath,
-        softText: softPromptText,
-        hardPath: hardPromptPath,
-        hardText: hardPromptText,
+        compactOnly: {
+          soft: {
+            path: compactOnlySoftPromptPath,
+            text: compactOnlySoftPromptText,
+          },
+          hard: {
+            path: compactOnlyHardPromptPath,
+            text: compactOnlyHardPromptText,
+          },
+        },
+        deleteAllowed: {
+          soft: {
+            path: deleteAllowedSoftPromptPath,
+            text: deleteAllowedSoftPromptText,
+          },
+          hard: {
+            path: deleteAllowedHardPromptPath,
+            text: deleteAllowedHardPromptText,
+          },
+        },
       },
     },
     logging: {
@@ -373,7 +380,6 @@ function parseRuntimeConfigFile(
         configPath,
         "schedulerMarkThreshold",
       ) ?? DEFAULT_SCHEDULER_MARK_THRESHOLD,
-    route: readRequiredRoute(parsed.route, configPath, "route"),
     runtimeLogPath: resolveConfiguredPath(
       readRequiredNonEmptyString(
         parsed.runtimeLogPath,
@@ -437,22 +443,6 @@ function readModelsOverride(
   }
 
   return Object.freeze([...models]);
-}
-
-function readRouteOverride(
-  env: NodeJS.ProcessEnv,
-  fallback: CompactionRoute,
-): CompactionRoute {
-  const value = readOptionalStringEnv(env, RUNTIME_CONFIG_ENV.route);
-  if (value === undefined) {
-    return fallback;
-  }
-
-  return readRequiredRoute(
-    value,
-    RUNTIME_CONFIG_ENV.route,
-    RUNTIME_CONFIG_ENV.route,
-  );
 }
 
 function readLogLevelOverride(
@@ -613,20 +603,6 @@ function readRequiredModelArray(
   return Object.freeze(models);
 }
 
-function readRequiredRoute(
-  value: unknown,
-  sourcePath: string,
-  fieldName: string,
-): CompactionRoute {
-  if (value !== "keep" && value !== "delete") {
-    throw new OpencodeContextCompressionRuntimeConfigError(
-      `${sourcePath} field '${fieldName}' must be either 'keep' or 'delete'.`,
-    );
-  }
-
-  return value;
-}
-
 function readRequiredLogLevel(
   value: unknown,
   sourcePath: string,
@@ -682,24 +658,6 @@ function readOptionalPositiveInteger(
   }
 
   return readRequiredPositiveInteger(value, sourcePath, fieldName);
-}
-
-function readOptionalReminderCounterSource(
-  value: unknown,
-  sourcePath: string,
-  fieldName: string,
-): ReminderCounterSource | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (value !== "eligible_messages" && value !== "assistant_turns") {
-    throw new OpencodeContextCompressionRuntimeConfigError(
-      `${sourcePath} field '${fieldName}' must be either 'eligible_messages' or 'assistant_turns'.`,
-    );
-  }
-
-  return value;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

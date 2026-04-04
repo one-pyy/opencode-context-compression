@@ -35,7 +35,7 @@ test("freezeCurrentCompactionBatch persists the exact current mark set and later
       store,
       markID: "mark-1",
       toolCallMessageID: "mark-tool-1",
-      route: "keep",
+      allowDelete: false,
       createdAtMs: clock.tick(),
       sourceMessages: [{ hostMessageID: "src-1" }, { hostMessageID: "src-2" }],
     });
@@ -43,7 +43,7 @@ test("freezeCurrentCompactionBatch persists the exact current mark set and later
       store,
       markID: "mark-2",
       toolCallMessageID: "mark-tool-2",
-      route: "delete",
+      allowDelete: true,
       createdAtMs: clock.tick(),
       sourceMessages: [{ hostMessageID: "src-3" }, { hostMessageID: "src-4" }],
     });
@@ -71,14 +71,14 @@ test("freezeCurrentCompactionBatch persists the exact current mark set and later
         memberIndex: 0,
         markID: "mark-1",
         sourceSnapshotID: "mark-1:snapshot",
-        route: "keep",
+        allowDelete: false,
       },
       {
         batchID: "batch-1",
         memberIndex: 1,
         markID: "mark-2",
         sourceSnapshotID: "mark-2:snapshot",
-        route: "delete",
+        allowDelete: true,
       },
     ]);
 
@@ -86,7 +86,7 @@ test("freezeCurrentCompactionBatch persists the exact current mark set and later
       store,
       markID: "mark-3",
       toolCallMessageID: "mark-tool-3",
-      route: "keep",
+      allowDelete: false,
       createdAtMs: clock.tick(),
       sourceMessages: [{ hostMessageID: "src-1" }],
     });

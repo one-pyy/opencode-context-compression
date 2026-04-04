@@ -50,7 +50,7 @@ test("delete route commits through the same replacement framework, projects a de
         store,
         markID: "mark-delete-1",
         toolCallMessageID: "mark-tool-1",
-        route: "delete",
+        allowDelete: true,
         createdAtMs: clock.tick(),
         sourceMessages: [
           { hostMessageID: "user-1" },
@@ -65,7 +65,8 @@ test("delete route commits through the same replacement framework, projects a de
         promptText: "Produce a delete notice for the selected canonical span.",
         models: ["model-delete"],
         transport: createSafeTransport(async (request) => {
-          assert.equal(request.input.route, "delete");
+          assert.equal(request.input.allowDelete, true);
+          assert.equal(request.input.executionMode, "delete");
           assert.deepEqual(
             request.input.sourceMessages.map(
               (message) => message.hostMessageID,
@@ -87,7 +88,7 @@ test("delete route commits through the same replacement framework, projects a de
       }
 
       assert.equal(result.finalStatus, "succeeded");
-      assert.equal(result.jobs[0]?.replacement?.route, "delete");
+      assert.equal(result.jobs[0]?.replacement?.executionMode, "delete");
 
       const transform = createMessagesTransformHook({
         pluginDirectory: projectDirectory,
@@ -105,21 +106,21 @@ test("delete route commits through the same replacement framework, projects a de
       assert.deepEqual(
         querySqlite(
           store.databasePath,
-          "SELECT route || '|' || status || '|' || COALESCE(content_text, '') FROM replacements ORDER BY replacement_id;",
+          "SELECT allow_delete || '|' || execution_mode || '|' || status || '|' || COALESCE(content_text, '') FROM replacements ORDER BY replacement_id;",
         ),
-        ["delete|committed|Deleted source span notice."],
+        ["1|delete|committed|Deleted source span notice."],
       );
       assert.deepEqual(
         querySqlite(
           store.databasePath,
-          "SELECT snapshot_kind || '|' || route || '|' || source_count FROM source_snapshots ORDER BY snapshot_kind, snapshot_id;",
+          "SELECT snapshot_kind || '|' || allow_delete || '|' || source_count FROM source_snapshots ORDER BY snapshot_kind, snapshot_id;",
         ),
-        ["mark|delete|2", "replacement|delete|2"],
+        ["mark|1|2", "replacement|1|2"],
       );
       assert.deepEqual(
         querySqlite(
           store.databasePath,
-          "SELECT replacements.route || '|' || replacement_mark_links.link_kind FROM replacements JOIN replacement_mark_links ON replacements.replacement_id = replacement_mark_links.replacement_id ORDER BY replacements.replacement_id;",
+          "SELECT replacements.execution_mode || '|' || replacement_mark_links.link_kind FROM replacements JOIN replacement_mark_links ON replacements.replacement_id = replacement_mark_links.replacement_id ORDER BY replacements.replacement_id;",
         ),
         ["delete|consumed"],
       );

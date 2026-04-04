@@ -1,4 +1,4 @@
-import type { CompactionRoute, JsonValue } from "../state/store.js";
+import type { CompactionExecutionMode, JsonValue } from "../state/store.js";
 
 export interface RawCompactionOutput {
   readonly contentText?: string;
@@ -23,7 +23,8 @@ export class InvalidCompactionOutputError extends Error {
 }
 
 export function validateCompactionOutput(options: {
-  readonly route: CompactionRoute;
+  readonly allowDelete: boolean;
+  readonly executionMode: CompactionExecutionMode;
   readonly candidate: RawCompactionOutput;
 }): ValidatedCompactionOutput {
   const issues: string[] = [];
@@ -34,15 +35,21 @@ export function validateCompactionOutput(options: {
 
   if (!hasText && !hasJSON) {
     issues.push(
-      options.route === "delete"
+      options.executionMode === "delete"
         ? "Delete compaction output must include a non-empty delete notice or structured payload."
         : "Compaction output must include a non-empty replacement text or structured payload.",
     );
   }
 
+  if (options.executionMode === "delete" && !options.allowDelete) {
+    issues.push(
+      "Delete compaction output is invalid when allowDelete is false.",
+    );
+  }
+
   if (issues.length > 0) {
     throw new InvalidCompactionOutputError(
-      `Invalid ${options.route} compaction output: ${issues.join(" ")}`,
+      `Invalid ${options.executionMode} compaction output: ${issues.join(" ")}`,
       issues,
     );
   }

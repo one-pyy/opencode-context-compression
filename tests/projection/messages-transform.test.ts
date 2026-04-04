@@ -62,7 +62,7 @@ test("messages.transform mutates output.messages in place and preserves metadata
       store,
       markID: "mark-1",
       toolCallMessageID: "mark-tool-1",
-      route: "keep",
+      allowDelete: false,
       createdAtMs: 2,
       sourceMessages: [
         { hostMessageID: "assistant-1" },
@@ -71,7 +71,8 @@ test("messages.transform mutates output.messages in place and preserves metadata
     });
     store.commitReplacement({
       replacementID: "replacement-1",
-      route: "keep",
+      allowDelete: false,
+      executionMode: "compact",
       committedAtMs: 3,
       contentText: "Compressed summary.",
       markIDs: ["mark-1"],
@@ -88,18 +89,29 @@ test("messages.transform mutates output.messages in place and preserves metadata
       reminder: {
         hsoft: 10,
         hhard: 20,
-        counter: {
-          source: "eligible_messages",
-          soft: { repeatEvery: 3 },
-          hard: { repeatEvery: 1 },
-        },
+        softRepeatEveryTokens: 10,
+        hardRepeatEveryTokens: 10,
         prompts: {
-          softPath: "/tmp/reminder-soft.md",
-          softText:
-            "Soft reminder\n{{compressible_content}}\n{{compaction_target}}\n{{preserved_fields}}",
-          hardPath: "/tmp/reminder-hard.md",
-          hardText:
-            "Hard reminder\n{{compressible_content}}\n{{compaction_target}}\n{{preserved_fields}}",
+          compactOnly: {
+            soft: {
+              path: "/tmp/reminder-soft-compact-only.md",
+              text: "Soft compact-only reminder.",
+            },
+            hard: {
+              path: "/tmp/reminder-hard-compact-only.md",
+              text: "Hard compact-only reminder.",
+            },
+          },
+          deleteAllowed: {
+            soft: {
+              path: "/tmp/reminder-soft-delete-allowed.md",
+              text: "Soft delete-allowed reminder.",
+            },
+            hard: {
+              path: "/tmp/reminder-hard-delete-allowed.md",
+              text: "Hard delete-allowed reminder.",
+            },
+          },
         },
       },
       reminderModelName: "gpt-5",

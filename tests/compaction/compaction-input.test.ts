@@ -32,7 +32,7 @@ test("buildCompactionInput follows canonical source snapshot ordering and ignore
       store,
       markID: "mark-1",
       toolCallMessageID: "mark-tool-1",
-      route: "keep",
+      allowDelete: false,
       createdAtMs: clock.tick(),
       sourceMessages: [{ hostMessageID: "src-b" }, { hostMessageID: "src-a" }],
     });
@@ -44,6 +44,7 @@ test("buildCompactionInput follows canonical source snapshot ordering and ignore
     const input = buildCompactionInput({
       sourceSnapshot,
       promptText: "Summarize this canonical source span.",
+      executionMode: "compact",
       canonicalMessages: [
         {
           hostMessageID: "src-a",
@@ -70,7 +71,8 @@ test("buildCompactionInput follows canonical source snapshot ordering and ignore
 
     assert.equal(input.kind, "canonical-source-compaction");
     assert.equal(input.promptContext, "dedicated-compaction-prompt");
-    assert.equal(input.route, "keep");
+    assert.equal(input.allowDelete, false);
+    assert.equal(input.executionMode, "compact");
     assert.deepEqual(
       input.sourceMessages.map((message) => message.hostMessageID),
       ["src-b", "src-a"],
@@ -98,7 +100,7 @@ test("revalidateCompactionSourceIdentity fails when the live canonical source no
       store,
       markID: "mark-2",
       toolCallMessageID: "mark-tool-1",
-      route: "delete",
+      allowDelete: true,
       createdAtMs: clock.tick(),
       sourceMessages: [{ hostMessageID: "src-a" }, { hostMessageID: "src-b" }],
     });

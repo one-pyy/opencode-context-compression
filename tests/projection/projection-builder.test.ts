@@ -52,7 +52,7 @@ test("projection builder deterministically applies committed replacements and hi
       store,
       markID: "mark-1",
       toolCallMessageID: "mark-tool-1",
-      route: "keep",
+      allowDelete: false,
       createdAtMs: clock.tick(),
       sourceMessages: [
         { hostMessageID: "assistant-1" },
@@ -61,7 +61,8 @@ test("projection builder deterministically applies committed replacements and hi
     });
     store.commitReplacement({
       replacementID: "replacement-1",
-      route: "keep",
+      allowDelete: false,
+      executionMode: "compact",
       committedAtMs: clock.tick(),
       contentText: "Compressed summary.",
       markIDs: ["mark-1"],
@@ -133,7 +134,7 @@ test("projection builder renders committed delete replacements as minimal refera
       store,
       markID: "mark-delete-1",
       toolCallMessageID: "mark-tool-1",
-      route: "delete",
+      allowDelete: true,
       createdAtMs: clock.tick(),
       sourceMessages: [
         { hostMessageID: "user-1" },
@@ -142,7 +143,8 @@ test("projection builder renders committed delete replacements as minimal refera
     });
     store.commitReplacement({
       replacementID: "replacement-delete-1",
-      route: "delete",
+      allowDelete: true,
+      executionMode: "delete",
       committedAtMs: clock.tick(),
       markIDs: ["mark-delete-1"],
       sourceSnapshot: {
@@ -365,16 +367,29 @@ function createReminderConfigFixture(): ReminderRuntimeConfig {
   return {
     hsoft: 2,
     hhard: 4,
-    counter: {
-      source: "eligible_messages",
-      soft: { repeatEvery: 2 },
-      hard: { repeatEvery: 1 },
-    },
+    softRepeatEveryTokens: 2,
+    hardRepeatEveryTokens: 1,
     prompts: {
-      softPath: "/tmp/reminder-soft.md",
-      softText: "Soft reminder text.",
-      hardPath: "/tmp/reminder-hard.md",
-      hardText: "Hard reminder text.",
+      compactOnly: {
+        soft: {
+          path: "/tmp/reminder-soft-compact-only.md",
+          text: "Soft reminder text.",
+        },
+        hard: {
+          path: "/tmp/reminder-hard-compact-only.md",
+          text: "Hard reminder text.",
+        },
+      },
+      deleteAllowed: {
+        soft: {
+          path: "/tmp/reminder-soft-delete-allowed.md",
+          text: "Soft delete-allowed reminder.",
+        },
+        hard: {
+          path: "/tmp/reminder-hard-delete-allowed.md",
+          text: "Hard delete-allowed reminder.",
+        },
+      },
     },
   };
 }

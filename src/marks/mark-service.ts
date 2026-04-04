@@ -1,6 +1,5 @@
 import {
   computeSourceFingerprint,
-  type CompactionRoute,
   type JsonValue,
   type MarkRecord,
   type SqliteSessionStateStore,
@@ -22,7 +21,7 @@ export interface CapturedMarkSourceMessage extends SourceSnapshotMessageInput {
 }
 
 export interface CapturedMarkSourceSnapshot {
-  readonly route: CompactionRoute;
+  readonly allowDelete: boolean;
   readonly sourceFingerprint: string;
   readonly canonicalRevision?: string;
   readonly metadata?: JsonValue;
@@ -31,7 +30,7 @@ export interface CapturedMarkSourceSnapshot {
 
 export interface CaptureMarkSourceSnapshotOptions {
   readonly store: SqliteSessionStateStore;
-  readonly route: CompactionRoute;
+  readonly allowDelete: boolean;
   readonly sourceMessages: readonly MarkSourceMessageSelection[];
   readonly canonicalRevision?: string;
   readonly sourceFingerprint?: string;
@@ -60,10 +59,10 @@ export function captureMarkSourceSnapshot(
   );
 
   return {
-    route: options.route,
+    allowDelete: options.allowDelete,
     sourceFingerprint:
       options.sourceFingerprint ??
-      computeSourceFingerprint(options.route, messages),
+      computeSourceFingerprint(options.allowDelete, messages),
     canonicalRevision:
       options.canonicalRevision ??
       options.store.getSessionState().lastCanonicalRevision,
@@ -77,7 +76,7 @@ export function persistMark(options: PersistMarkOptions): PersistMarkResult {
   const mark = options.store.createMark({
     markID: options.markID,
     toolCallMessageID: options.toolCallMessageID,
-    route: options.route,
+    allowDelete: options.allowDelete,
     markLabel: options.markLabel,
     createdAtMs: options.createdAtMs,
     metadata: options.metadata,

@@ -340,7 +340,7 @@ test("explicit plugin loading plus compression_mark commits the delete route thr
       const toolOutput = await readToolRegistry(hooks).compression_mark.execute(
         {
           contractVersion: "v1",
-          route: "delete",
+          allowDelete: true,
           target: {
             startVisibleMessageID: readVisibleMessageID(
               initialProjection.messages[1],
@@ -449,16 +449,16 @@ test("explicit plugin loading plus compression_mark commits the delete route thr
       assert.deepEqual(
         querySqlite(
           databasePath,
-          "SELECT route || '|' || status || '|' || COALESCE(content_text, '') FROM replacements ORDER BY replacement_id;",
+          "SELECT allow_delete || '|' || execution_mode || '|' || status || '|' || COALESCE(content_text, '') FROM replacements ORDER BY replacement_id;",
         ),
-        ["delete|committed|Deleted source span notice."],
+        ["1|delete|committed|Deleted source span notice."],
       );
       assert.deepEqual(
         querySqlite(
           databasePath,
-          "SELECT snapshot_kind || '|' || route || '|' || source_count FROM source_snapshots ORDER BY snapshot_kind, snapshot_id;",
+          "SELECT snapshot_kind || '|' || allow_delete || '|' || source_count FROM source_snapshots ORDER BY snapshot_kind, snapshot_id;",
         ),
-        ["mark|delete|2", "replacement|delete|2"],
+        ["mark|1|2", "replacement|1|2"],
       );
       assert.deepEqual(
         querySqlite(
@@ -489,7 +489,11 @@ test("explicit plugin loading plus compression_mark commits the delete route thr
       assert.equal(deleteRequestBody?.messages?.[1]?.role, "user");
       assert.match(
         deleteRequestBody?.messages?.[1]?.content ?? "",
-        /Route: delete/u,
+        /Delete permission: true/u,
+      );
+      assert.match(
+        deleteRequestBody?.messages?.[1]?.content ?? "",
+        /Execution mode: delete/u,
       );
       assert.match(
         deleteRequestBody?.messages?.[1]?.content ?? "",
@@ -633,7 +637,8 @@ test("ordinary chat waits during the running lock, unrelated tools continue, and
         runtimeConfig,
         runInBackground: true,
         transport: createSafeTransport(async (request) => {
-          assert.equal(request.input.route, "keep");
+          assert.equal(request.input.allowDelete, false);
+          assert.equal(request.input.executionMode, "compact");
           assert.deepEqual(
             request.input.sourceMessages.map(
               (message) => message.hostMessageID,
@@ -672,7 +677,7 @@ test("ordinary chat waits during the running lock, unrelated tools continue, and
       const secondToolOutput = await toolRegistry.compression_mark.execute(
         {
           contractVersion: "v1",
-          route: "keep",
+          allowDelete: false,
           target: {
             startVisibleMessageID: readVisibleMessageID(projected.messages[3]),
             endVisibleMessageID: readVisibleMessageID(projected.messages[4]),
@@ -752,7 +757,8 @@ test("ordinary chat waits during the running lock, unrelated tools continue, and
         runtimeConfig,
         runInBackground: false,
         transport: createSafeTransport(async (request) => {
-          assert.equal(request.input.route, "keep");
+          assert.equal(request.input.allowDelete, false);
+          assert.equal(request.input.executionMode, "compact");
           assert.deepEqual(
             request.input.sourceMessages.map(
               (message) => message.hostMessageID,
@@ -1105,20 +1111,22 @@ function writeE2ERuntimeConfig(
         reminder: {
           hsoft: input.reminderHsoft,
           hhard: input.reminderHhard,
+          softRepeatEveryTokens: 20_000,
+          hardRepeatEveryTokens: 10_000,
           promptPaths: {
-            soft: "prompts/reminder-soft.md",
-            hard: "prompts/reminder-hard.md",
-          },
-          counter: {
-            source: "eligible_messages",
-            soft: { repeatEvery: 3 },
-            hard: { repeatEvery: 1 },
+            compactOnly: {
+              soft: "prompts/reminder-soft-compact-only.md",
+              hard: "prompts/reminder-hard-compact-only.md",
+            },
+            deleteAllowed: {
+              soft: "prompts/reminder-soft-delete-allowed.md",
+              hard: "prompts/reminder-hard-delete-allowed.md",
+            },
           },
         },
         logging: { level: "off" },
         compressing: { timeoutSeconds: 600 },
         schedulerMarkThreshold: 1,
-        route: "keep",
         runtimeLogPath: "logs/runtime-events.jsonl",
         seamLogPath: "logs/seam-observation.jsonl",
       },

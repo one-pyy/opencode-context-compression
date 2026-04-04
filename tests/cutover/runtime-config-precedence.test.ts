@@ -27,8 +27,10 @@ test("repo-owned runtime config, prompt assets, and docs resolve from this repo 
   assert.ok(configFiles.includes("src/config/runtime-config.schema.json"));
   assert.ok(configFiles.includes("src/config/runtime-config.ts"));
   assert.ok(promptFiles.includes("prompts/compaction.md"));
-  assert.ok(promptFiles.includes("prompts/reminder-soft.md"));
-  assert.ok(promptFiles.includes("prompts/reminder-hard.md"));
+  assert.ok(promptFiles.includes("prompts/reminder-soft-compact-only.md"));
+  assert.ok(promptFiles.includes("prompts/reminder-soft-delete-allowed.md"));
+  assert.ok(promptFiles.includes("prompts/reminder-hard-compact-only.md"));
+  assert.ok(promptFiles.includes("prompts/reminder-hard-delete-allowed.md"));
   assert.equal(runtimeConfig.repoRoot, resolveRuntimeConfigRepoRoot());
   assert.match(
     runtimeConfig.configPath,
@@ -43,27 +45,25 @@ test("repo-owned runtime config, prompt assets, and docs resolve from this repo 
   assert.equal(runtimeConfig.smallUserMessageThreshold, 1_024);
   assert.equal(runtimeConfig.reminder.hsoft, 30_000);
   assert.equal(runtimeConfig.reminder.hhard, 70_000);
-  assert.equal(runtimeConfig.reminder.counter.source, "eligible_messages");
-  assert.equal(runtimeConfig.reminder.counter.soft.repeatEvery, 3);
-  assert.equal(runtimeConfig.reminder.counter.hard.repeatEvery, 1);
+  assert.equal(runtimeConfig.reminder.softRepeatEveryTokens, 20_000);
+  assert.equal(runtimeConfig.reminder.hardRepeatEveryTokens, 10_000);
   assert.match(
-    runtimeConfig.reminder.prompts.softPath,
-    /prompts\/reminder-soft\.md$/u,
+    runtimeConfig.reminder.prompts.compactOnly.soft.path,
+    /prompts\/reminder-soft-compact-only\.md$/u,
   );
   assert.match(
-    runtimeConfig.reminder.prompts.hardPath,
-    /prompts\/reminder-hard\.md$/u,
+    runtimeConfig.reminder.prompts.deleteAllowed.hard.path,
+    /prompts\/reminder-hard-delete-allowed\.md$/u,
   );
-  assert.match(runtimeConfig.reminder.prompts.softText, /consider compacting/u);
+  assert.match(runtimeConfig.reminder.prompts.compactOnly.soft.text, /Compress material/u);
   assert.match(
-    runtimeConfig.reminder.prompts.hardText,
-    /compact older compressible context now/u,
+    runtimeConfig.reminder.prompts.deleteAllowed.hard.text,
+    /delete it directly/u,
   );
   assert.equal(runtimeConfig.logging.level, "off");
   assert.equal(runtimeConfig.compressing.timeoutSeconds, 600);
   assert.equal(runtimeConfig.compressing.timeoutMs, 600_000);
   assert.equal(runtimeConfig.schedulerMarkThreshold, 1);
-  assert.equal(runtimeConfig.route, "keep");
   assert.match(runtimeConfig.runtimeLogPath, /logs\/runtime-events\.jsonl$/u);
   assert.match(runtimeConfig.seamLogPath, /logs\/seam-observation\.jsonl$/u);
   assert.equal(runtimeConfig.debugSnapshotPath, undefined);
@@ -87,15 +87,25 @@ test("explicit env overrides take precedence over the repo-owned runtime config 
   try {
     const promptFromConfig = join(tempDirectory, "prompts", "from-config.md");
     const promptFromEnv = join(tempDirectory, "prompts", "from-env.md");
-    const softReminderFromConfig = join(
+    const softReminderCompactOnlyFromConfig = join(
       tempDirectory,
       "prompts",
-      "soft-reminder.md",
+      "soft-reminder-compact-only.md",
     );
-    const hardReminderFromConfig = join(
+    const hardReminderCompactOnlyFromConfig = join(
       tempDirectory,
       "prompts",
-      "hard-reminder.md",
+      "hard-reminder-compact-only.md",
+    );
+    const softReminderDeleteAllowedFromConfig = join(
+      tempDirectory,
+      "prompts",
+      "soft-reminder-delete-allowed.md",
+    );
+    const hardReminderDeleteAllowedFromConfig = join(
+      tempDirectory,
+      "prompts",
+      "hard-reminder-delete-allowed.md",
     );
     const runtimeConfigPath = join(tempDirectory, "runtime-config.json");
 
@@ -103,25 +113,23 @@ test("explicit env overrides take precedence over the repo-owned runtime config 
     await writeFile(promptFromConfig, "Config prompt text.\n", "utf8");
     await writeFile(promptFromEnv, "Env prompt text.\n", "utf8");
     await writeFile(
-      softReminderFromConfig,
-      [
-        "Soft reminder from config.",
-        "{{compressible_content}}",
-        "{{compaction_target}}",
-        "{{preserved_fields}}",
-        "",
-      ].join("\n"),
+      softReminderCompactOnlyFromConfig,
+      "Soft compact-only reminder from config.\n",
       "utf8",
     );
     await writeFile(
-      hardReminderFromConfig,
-      [
-        "Hard reminder from config.",
-        "{{compressible_content}}",
-        "{{compaction_target}}",
-        "{{preserved_fields}}",
-        "",
-      ].join("\n"),
+      hardReminderCompactOnlyFromConfig,
+      "Hard compact-only reminder from config.\n",
+      "utf8",
+    );
+    await writeFile(
+      softReminderDeleteAllowedFromConfig,
+      "Soft delete-allowed reminder from config.\n",
+      "utf8",
+    );
+    await writeFile(
+      hardReminderDeleteAllowedFromConfig,
+      "Hard delete-allowed reminder from config.\n",
       "utf8",
     );
     await writeFile(
@@ -136,14 +144,17 @@ test("explicit env overrides take precedence over the repo-owned runtime config 
           reminder: {
             hsoft: 5,
             hhard: 8,
+            softRepeatEveryTokens: 4,
+            hardRepeatEveryTokens: 2,
             promptPaths: {
-              soft: softReminderFromConfig,
-              hard: hardReminderFromConfig,
-            },
-            counter: {
-              source: "assistant_turns",
-              soft: { repeatEvery: 4 },
-              hard: { repeatEvery: 2 },
+              compactOnly: {
+                soft: softReminderCompactOnlyFromConfig,
+                hard: hardReminderCompactOnlyFromConfig,
+              },
+              deleteAllowed: {
+                soft: softReminderDeleteAllowedFromConfig,
+                hard: hardReminderDeleteAllowedFromConfig,
+              },
             },
           },
           logging: {
@@ -152,7 +163,6 @@ test("explicit env overrides take precedence over the repo-owned runtime config 
           compressing: {
             timeoutSeconds: 45,
           },
-          route: "keep",
           runtimeLogPath: "logs/from-config-runtime.jsonl",
           seamLogPath: "logs/from-config-seam.jsonl",
         },
@@ -166,7 +176,6 @@ test("explicit env overrides take precedence over the repo-owned runtime config 
       [RUNTIME_CONFIG_ENV.configPath]: runtimeConfigPath,
       [RUNTIME_CONFIG_ENV.promptPath]: promptFromEnv,
       [RUNTIME_CONFIG_ENV.models]: "env-primary, env-fallback",
-      [RUNTIME_CONFIG_ENV.route]: "delete",
       [RUNTIME_CONFIG_ENV.runtimeLogPath]: "logs/from-env-runtime.jsonl",
       [RUNTIME_CONFIG_ENV.seamLogPath]: "logs/from-env-seam.jsonl",
       [RUNTIME_CONFIG_ENV.logLevel]: "debug",
@@ -182,21 +191,19 @@ test("explicit env overrides take precedence over the repo-owned runtime config 
     assert.equal(runtimeConfig.smallUserMessageThreshold, 222);
     assert.equal(runtimeConfig.reminder.hsoft, 5);
     assert.equal(runtimeConfig.reminder.hhard, 8);
-    assert.equal(runtimeConfig.reminder.counter.source, "assistant_turns");
-    assert.equal(runtimeConfig.reminder.counter.soft.repeatEvery, 4);
-    assert.equal(runtimeConfig.reminder.counter.hard.repeatEvery, 2);
+    assert.equal(runtimeConfig.reminder.softRepeatEveryTokens, 4);
+    assert.equal(runtimeConfig.reminder.hardRepeatEveryTokens, 2);
     assert.equal(
-      runtimeConfig.reminder.prompts.softPath,
-      softReminderFromConfig,
+      runtimeConfig.reminder.prompts.compactOnly.soft.path,
+      softReminderCompactOnlyFromConfig,
     );
     assert.equal(
-      runtimeConfig.reminder.prompts.hardPath,
-      hardReminderFromConfig,
+      runtimeConfig.reminder.prompts.deleteAllowed.hard.path,
+      hardReminderDeleteAllowedFromConfig,
     );
     assert.equal(runtimeConfig.logging.level, "debug");
     assert.equal(runtimeConfig.compressing.timeoutSeconds, 90);
     assert.equal(runtimeConfig.compressing.timeoutMs, 90_000);
-    assert.equal(runtimeConfig.route, "delete");
     assert.equal(
       runtimeConfig.runtimeLogPath,
       join(resolveRuntimeConfigRepoRoot(), "logs", "from-env-runtime.jsonl"),
@@ -295,11 +302,16 @@ test("empty env overrides and missing repo-owned assets fail fast with plugin-ow
           compactionModels: ["config-primary"],
           reminder: {
             promptPaths: {
-              soft: "prompts/missing-soft.md",
-              hard: "prompts/missing-hard.md",
+              compactOnly: {
+                soft: "prompts/missing-soft.md",
+                hard: "prompts/missing-hard.md",
+              },
+              deleteAllowed: {
+                soft: "prompts/missing-soft-delete.md",
+                hard: "prompts/missing-hard-delete.md",
+              },
             },
           },
-          route: "keep",
           runtimeLogPath: "logs/runtime.jsonl",
           seamLogPath: "logs/seam.jsonl",
         },

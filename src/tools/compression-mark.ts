@@ -3,7 +3,6 @@ import { tool, type ToolContext } from "@opencode-ai/plugin";
 import { persistMark } from "../marks/mark-service.js";
 import {
   createSqliteSessionStateStore,
-  type CompactionRoute,
   type HostMessageRecord,
   type JsonValue,
 } from "../state/store.js";
@@ -25,7 +24,7 @@ export interface CreateCompressionMarkToolOptions {
 
 interface CompressionMarkArguments {
   readonly contractVersion: "v1";
-  readonly route: CompactionRoute;
+  readonly allowDelete: boolean;
   readonly target: {
     readonly startVisibleMessageID: string;
     readonly endVisibleMessageID?: string;
@@ -57,10 +56,10 @@ export function createCompressionMarkTool(
         .describe(
           "Frozen compression_mark argument contract version. Use 'v1'.",
         ),
-      route: tool.schema
-        .enum(["keep", "delete"])
+      allowDelete: tool.schema
+        .boolean()
         .describe(
-          "Compaction route to apply to the selected canonical visible span.",
+          "Whether the selected canonical visible span is allowed to enter the delete path later.",
         ),
       target: tool.schema
         .object({
@@ -164,7 +163,7 @@ async function executeCompressionMark(
       store,
       markID: `${context.sessionID}:compression-mark:${context.messageID}`,
       toolCallMessageID: context.messageID,
-      route: args.route,
+      allowDelete: args.allowDelete,
       markLabel: args.label ?? defaultLabel,
       metadata,
       snapshotMetadata: metadata,
@@ -175,7 +174,7 @@ async function executeCompressionMark(
 
     return [
       `Persisted compression_mark ${mark.markID}.`,
-      `Route: ${mark.route}.`,
+      `allowDelete: ${mark.allowDelete}.`,
       `Visible span: ${resolvedVisibleMessageIDs.join(" -> ")}.`,
       `Host messages: ${resolvedHostMessageIDs.join(", ")}.`,
     ].join(" ");

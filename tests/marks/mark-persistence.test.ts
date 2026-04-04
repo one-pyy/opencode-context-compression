@@ -13,7 +13,7 @@ import {
   type SqliteSessionStateStore,
 } from "../../src/state/store.js";
 
-test("persistMark captures an ordered canonical source snapshot and carries route with the durable mark", async () => {
+test("persistMark captures an ordered canonical source snapshot and carries allowDelete with the durable mark", async () => {
   await withTempStore(async (store, clock) => {
     store.syncCanonicalHostMessages({
       revision: "rev-mark-1",
@@ -30,7 +30,7 @@ test("persistMark captures an ordered canonical source snapshot and carries rout
       store,
       markID: "mark-delete-1",
       toolCallMessageID: "mark-tool-1",
-      route: "delete",
+      allowDelete: true,
       markLabel: "b~d",
       createdAtMs: clock.tick(),
       sourceMessages: [
@@ -45,8 +45,8 @@ test("persistMark captures an ordered canonical source snapshot and carries rout
       persisted.mark.sourceSnapshotID,
     );
     assert.ok(storedSnapshot);
-    assert.equal(persisted.mark.route, "delete");
-    assert.equal(storedSnapshot?.route, "delete");
+    assert.equal(persisted.mark.allowDelete, true);
+    assert.equal(storedSnapshot?.allowDelete, true);
     assert.equal(storedSnapshot?.canonicalRevision, "rev-mark-1");
     assert.equal(storedSnapshot?.snapshotKind, "mark");
     assert.deepEqual(storedSnapshot?.metadata, { capturedBy: "mark-service" });
@@ -127,7 +127,7 @@ test("captureMarkSourceSnapshot rejects source ids that do not match synced cano
       () =>
         captureMarkSourceSnapshot({
           store,
-          route: "keep",
+          allowDelete: false,
           sourceMessages: [
             {
               hostMessageID: "src-1",

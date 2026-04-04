@@ -4,9 +4,9 @@ import type { RuntimeEventWriter } from "../runtime/runtime-events.js";
 import type {
   CompactionBatchMarkRecord,
   CompactionBatchRecord,
+  CompactionExecutionMode,
   CompactionJobAttemptRecord,
   CompactionJobRecord,
-  CompactionRoute,
   JsonValue,
   ReplacementRecord,
   SourceSnapshotMessageRecord,
@@ -71,7 +71,7 @@ export interface LoadCanonicalSourceMessagesOptions {
   readonly batchID: string;
   readonly jobID: string;
   readonly markID: string;
-  readonly route: CompactionRoute;
+  readonly allowDelete: boolean;
   readonly sourceSnapshotID: string;
   readonly sourceFingerprint: string;
   readonly sourceMessages: readonly SourceSnapshotMessageRecord[];
@@ -408,14 +408,16 @@ async function runCompactionJob(
       batchID: options.batchID,
       jobID: options.job.jobID,
       markID: options.batchMember.markID,
-      route: options.batchMember.route,
+      allowDelete: options.batchMember.allowDelete,
       sourceSnapshotID: sourceSnapshot.snapshotID,
       sourceFingerprint: sourceSnapshot.sourceFingerprint,
       sourceMessages: sourceSnapshot.messages,
     });
+    const executionMode = resolveExecutionMode(options.batchMember.allowDelete);
     input = buildCompactionInput({
       sourceSnapshot,
       promptText: options.promptText,
+      executionMode,
       canonicalMessages,
     });
   } catch (error) {
@@ -454,7 +456,8 @@ async function runCompactionJob(
       });
 
       validatedOutput = validateCompactionOutput({
-        route: options.batchMember.route,
+        allowDelete: options.batchMember.allowDelete,
+        executionMode: input.executionMode,
         candidate: rawOutput,
       });
     } catch (error) {
@@ -546,7 +549,8 @@ async function runCompactionJob(
     );
     const replacement = options.store.commitReplacement({
       replacementID,
-      route: options.batchMember.route,
+      allowDelete: options.batchMember.allowDelete,
+      executionMode: input.executionMode,
       jobID: options.job.jobID,
       committedAtMs: options.now(),
       contentText: validatedOutput.contentText,
@@ -578,6 +582,12 @@ async function runCompactionJob(
   throw new Error(
     `Compaction job '${options.job.jobID}' exhausted the model chain without reaching a terminal state.`,
   );
+}
+
+function resolveExecutionMode(
+  allowDelete: boolean,
+): CompactionExecutionMode {
+  return allowDelete ? "delete" : "compact";
 }
 
 function normalizeModels(models: readonly string[]): readonly string[] {

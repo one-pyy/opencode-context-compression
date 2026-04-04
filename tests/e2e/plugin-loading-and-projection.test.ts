@@ -177,7 +177,7 @@ test("keep route persists committed sidecar state and projects deterministically
         store,
         markID: "mark-keep-1",
         toolCallMessageID: "mark-tool-1",
-        route: "keep",
+        allowDelete: false,
         createdAtMs: clock.tick(),
         sourceMessages: [
           { hostMessageID: "assistant-1" },
@@ -192,7 +192,8 @@ test("keep route persists committed sidecar state and projects deterministically
         promptText: "Summarize the selected canonical span.",
         models: ["model-keep"],
         transport: createSafeTransport(async (request) => {
-          assert.equal(request.input.route, "keep");
+          assert.equal(request.input.allowDelete, false);
+          assert.equal(request.input.executionMode, "compact");
           assert.deepEqual(
             request.input.sourceMessages.map(
               (message) => message.hostMessageID,
@@ -214,7 +215,7 @@ test("keep route persists committed sidecar state and projects deterministically
       }
 
       assert.equal(result.finalStatus, "succeeded");
-      assert.equal(result.jobs[0]?.replacement?.route, "keep");
+      assert.equal(result.jobs[0]?.replacement?.executionMode, "compact");
 
       const transform = createMessagesTransformHook({
         pluginDirectory: projectDirectory,
@@ -236,9 +237,9 @@ test("keep route persists committed sidecar state and projects deterministically
       assert.deepEqual(
         querySqlite(
           store.databasePath,
-          "SELECT route || '|' || status || '|' || COALESCE(content_text, '') FROM replacements ORDER BY replacement_id;",
+          "SELECT allow_delete || '|' || execution_mode || '|' || status || '|' || COALESCE(content_text, '') FROM replacements ORDER BY replacement_id;",
         ),
-        ["keep|committed|Compressed summary."],
+        ["0|compact|committed|Compressed summary."],
       );
       assert.deepEqual(
         querySqlite(
@@ -371,7 +372,7 @@ function seedActiveMarkSet(
       store,
       markID,
       toolCallMessageID: `mark-tool-${index + 1}`,
-      route: "keep",
+      allowDelete: false,
       createdAtMs: clock.tick(),
       sourceMessages: [{ hostMessageID: "src-1" }],
     });

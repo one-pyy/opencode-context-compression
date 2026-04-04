@@ -148,11 +148,8 @@ test("reminder counter repeatEvery changes when soft reminders are due", async (
       cadence: {
         hsoft: 40,
         hhard: 99,
-        counter: {
-          source: "eligible_messages",
-          soft: { repeatEvery: 2 },
-          hard: { repeatEvery: 1 },
-        },
+        softRepeatEveryTokens: 2,
+        hardRepeatEveryTokens: 1,
       },
       templates,
       modelName: "gpt-5",
@@ -162,11 +159,8 @@ test("reminder counter repeatEvery changes when soft reminders are due", async (
       cadence: {
         hsoft: 40,
         hhard: 99,
-        counter: {
-          source: "eligible_messages",
-          soft: { repeatEvery: 3 },
-          hard: { repeatEvery: 1 },
-        },
+        softRepeatEveryTokens: 3,
+        hardRepeatEveryTokens: 1,
       },
       templates,
       modelName: "gpt-5",
@@ -178,7 +172,7 @@ test("reminder counter repeatEvery changes when soft reminders are due", async (
   });
 });
 
-test("reminder counter source distinguishes assistant turns from eligible messages", async () => {
+test("reminder token cadence increases the anchor only when the next token milestone is crossed", async () => {
   await withTempStore(async (store) => {
     const repeatedTokenText = "token rich content ".repeat(8).trim();
     const messages = [
@@ -213,11 +207,8 @@ test("reminder counter source distinguishes assistant turns from eligible messag
       cadence: {
         hsoft: 40,
         hhard: 99,
-        counter: {
-          source: "eligible_messages",
-          soft: { repeatEvery: 3 },
-          hard: { repeatEvery: 1 },
-        },
+        softRepeatEveryTokens: 3,
+        hardRepeatEveryTokens: 1,
       },
       templates,
       modelName: "gpt-5",
@@ -227,11 +218,8 @@ test("reminder counter source distinguishes assistant turns from eligible messag
       cadence: {
         hsoft: 40,
         hhard: 99,
-        counter: {
-          source: "assistant_turns",
-          soft: { repeatEvery: 3 },
-          hard: { repeatEvery: 1 },
-        },
+        softRepeatEveryTokens: 300,
+        hardRepeatEveryTokens: 1,
       },
       templates,
       modelName: "gpt-5",

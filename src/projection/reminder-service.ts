@@ -6,15 +6,8 @@ export type ReminderSeverity = "soft" | "hard";
 export interface ReminderCadence {
   readonly hsoft?: number;
   readonly hhard?: number;
-  readonly counter?: {
-    readonly source?: "eligible_messages" | "assistant_turns";
-    readonly soft?: {
-      readonly repeatEvery?: number;
-    };
-    readonly hard?: {
-      readonly repeatEvery?: number;
-    };
-  };
+  readonly softRepeatEveryTokens?: number;
+  readonly hardRepeatEveryTokens?: number;
 }
 
 export interface ReminderTemplates {
@@ -39,7 +32,7 @@ export function deriveReminder(options: {
 }): DerivedReminder | undefined {
   const cadence = normalizeReminderCadence(options.cadence);
   const eligibleMessages = options.policy.messages.filter(
-    (message) => message.identity.role !== "tool",
+    (message) => message.visibleState === "compressible",
   );
   const eligibleMessageTokenCounts = eligibleMessages.map(
     (message) =>
@@ -83,34 +76,24 @@ function normalizeReminderCadence(
 ): ReminderCadence {
   if (cadence === undefined) {
     return {
-      hsoft: 12,
-      hhard: 24,
-      counter: {
-        source: "eligible_messages",
-        soft: { repeatEvery: 3 },
-        hard: { repeatEvery: 1 },
-      },
+      hsoft: 30_000,
+      hhard: 70_000,
+      softRepeatEveryTokens: 20_000,
+      hardRepeatEveryTokens: 10_000,
     };
   }
 
   return {
     hsoft: normalizePositiveInteger(cadence.hsoft, "hsoft"),
     hhard: normalizePositiveInteger(cadence.hhard, "hhard"),
-    counter: {
-      source: cadence.counter?.source ?? "eligible_messages",
-      soft: {
-        repeatEvery: normalizePositiveInteger(
-          cadence.counter?.soft?.repeatEvery,
-          "counter.soft.repeatEvery",
-        ),
-      },
-      hard: {
-        repeatEvery: normalizePositiveInteger(
-          cadence.counter?.hard?.repeatEvery,
-          "counter.hard.repeatEvery",
-        ),
-      },
-    },
+    softRepeatEveryTokens: normalizePositiveInteger(
+      cadence.softRepeatEveryTokens,
+      "softRepeatEveryTokens",
+    ),
+    hardRepeatEveryTokens: normalizePositiveInteger(
+      cadence.hardRepeatEveryTokens,
+      "hardRepeatEveryTokens",
+    ),
   };
 }
 
@@ -142,11 +125,10 @@ function deriveReminderState(
     return undefined;
   }
 
-  const counterSource = cadence.counter?.source ?? "eligible_messages";
   const repeatEvery =
     severity === "hard"
-      ? (cadence.counter?.hard?.repeatEvery ?? 1)
-      : (cadence.counter?.soft?.repeatEvery ?? 1);
+      ? (cadence.hardRepeatEveryTokens ?? 1)
+      : (cadence.softRepeatEveryTokens ?? 1);
   const thresholdIndex = findThresholdCrossingIndex(
     eligibleMessageTokenCounts,
     threshold,
@@ -155,37 +137,23 @@ function deriveReminderState(
     return undefined;
   }
 
-  if (repeatEvery <= 1) {
-    return {
-      anchorIndex: eligibleMessages.length - 1,
-    };
-  }
-
-  if (counterSource === "assistant_turns") {
-    const assistantCount = countEligibleMessagesSinceThreshold(
-      eligibleMessages,
-      thresholdIndex,
-      "assistant",
-    );
-    if (assistantCount < 1 || assistantCount % repeatEvery !== 0) {
-      return undefined;
-    }
-
-    return {
-      anchorIndex: eligibleMessages.length - 1,
-    };
-  }
-
-  const eligibleSinceThreshold = eligibleMessages.length - thresholdIndex;
-  if (
-    eligibleSinceThreshold < 1 ||
-    eligibleSinceThreshold % repeatEvery !== 0
-  ) {
+  const totalEligibleTokens = totalTokens(eligibleMessageTokenCounts);
+  const reminderTokenThreshold =
+    severity === "hard" || repeatEvery <= 0
+      ? threshold
+      : threshold +
+        Math.floor(Math.max(totalEligibleTokens - threshold, 0) / repeatEvery) *
+          repeatEvery;
+  const anchorIndex = findThresholdCrossingIndex(
+    eligibleMessageTokenCounts,
+    reminderTokenThreshold,
+  );
+  if (anchorIndex === undefined) {
     return undefined;
   }
 
   return {
-    anchorIndex: eligibleMessages.length - 1,
+    anchorIndex,
   };
 }
 
@@ -204,14 +172,8 @@ function findThresholdCrossingIndex(
   return undefined;
 }
 
-function countEligibleMessagesSinceThreshold(
-  eligibleMessages: readonly ProjectionPolicy["messages"][number][],
-  thresholdIndex: number,
-  role: string,
-): number {
-  return eligibleMessages
-    .slice(thresholdIndex)
-    .filter((message) => message.identity.role === role).length;
+function totalTokens(tokenCounts: readonly number[]): number {
+  return tokenCounts.reduce((sum, count) => sum + count, 0);
 }
 
 function createReminder(

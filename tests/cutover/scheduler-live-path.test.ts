@@ -702,7 +702,7 @@ function seedMarkedSession(
     store,
     markID: "mark-1",
     toolCallMessageID: "mark-tool-1",
-    route: "keep",
+    allowDelete: false,
     createdAtMs: clock.tick(),
     sourceMessages: [
       { hostMessageID: "assistant-1" },
@@ -723,20 +723,29 @@ function createRuntimeConfigFixture(): RuntimeConfig {
     reminder: {
       hsoft: 12,
       hhard: 24,
-      counter: {
-        source: "eligible_messages",
-        soft: { repeatEvery: 3 },
-        hard: { repeatEvery: 1 },
-      },
+      softRepeatEveryTokens: 20_000,
+      hardRepeatEveryTokens: 10_000,
       prompts: {
-        softPath:
-          "/tmp/opencode-context-compression-test/prompts/reminder-soft.md",
-        softText:
-          "Soft reminder\n{{compressible_content}}\n{{compaction_target}}\n{{preserved_fields}}",
-        hardPath:
-          "/tmp/opencode-context-compression-test/prompts/reminder-hard.md",
-        hardText:
-          "Hard reminder\n{{compressible_content}}\n{{compaction_target}}\n{{preserved_fields}}",
+        compactOnly: {
+          soft: {
+            path: "/tmp/opencode-context-compression-test/prompts/reminder-soft-compact-only.md",
+            text: "Soft compact-only reminder.",
+          },
+          hard: {
+            path: "/tmp/opencode-context-compression-test/prompts/reminder-hard-compact-only.md",
+            text: "Hard compact-only reminder.",
+          },
+        },
+        deleteAllowed: {
+          soft: {
+            path: "/tmp/opencode-context-compression-test/prompts/reminder-soft-delete-allowed.md",
+            text: "Soft delete-allowed reminder.",
+          },
+          hard: {
+            path: "/tmp/opencode-context-compression-test/prompts/reminder-hard-delete-allowed.md",
+            text: "Hard delete-allowed reminder.",
+          },
+        },
       },
     },
     logging: {
@@ -747,7 +756,6 @@ function createRuntimeConfigFixture(): RuntimeConfig {
       timeoutMs: 600_000,
     },
     schedulerMarkThreshold: 1,
-    route: "keep",
     runtimeLogPath:
       "/tmp/opencode-context-compression-test/runtime-events.jsonl",
     seamLogPath:

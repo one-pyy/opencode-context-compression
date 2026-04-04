@@ -102,7 +102,7 @@ test("compression_mark v1 resolves visible ids, persists durable source snapshot
       const output = await compressionMark.execute(
         {
           contractVersion: "v1",
-          route: "keep",
+          allowDelete: false,
           target: {
             startVisibleMessageID: readVisibleMessageID(projectedMessages[1]),
             endVisibleMessageID: readVisibleMessageID(projectedMessages[2]),
@@ -121,7 +121,7 @@ test("compression_mark v1 resolves visible ids, persists durable source snapshot
 
       const mark = store.getMarkByToolCallMessageID("assistant-mark-call-1");
       assert.ok(mark);
-      assert.equal(mark?.route, "keep");
+      assert.equal(mark?.allowDelete, false);
       assert.equal(mark?.markLabel, "keep-window");
       assert.deepEqual(store.getHostMessage("assistant-mark-call-1"), {
         hostMessageID: "assistant-mark-call-1",
@@ -220,7 +220,7 @@ test("compression_mark remains callable during lock and late marks stay out of t
         store,
         markID: "existing-mark-1",
         toolCallMessageID: "mark-tool-1",
-        route: "keep",
+        allowDelete: false,
         sourceMessages: [{ hostMessageID: "assistant-1" }],
       });
 
@@ -257,7 +257,7 @@ test("compression_mark remains callable during lock and late marks stay out of t
       const output = await readCompressionMarkTool(hooks).execute(
         {
           contractVersion: "v1",
-          route: "delete",
+          allowDelete: true,
           target: {
             startVisibleMessageID: readVisibleMessageID(projectedMessages[0]),
             endVisibleMessageID: readVisibleMessageID(projectedMessages[1]),

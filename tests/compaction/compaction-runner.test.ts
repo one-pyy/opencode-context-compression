@@ -59,7 +59,7 @@ test("runCompactionBatch falls back across the ordered model array and commits t
     assert.deepEqual(seenModels, ["model-primary", "model-fallback"]);
     assert.equal(result.jobs.length, 1);
     assert.equal(result.jobs[0]?.job.status, "succeeded");
-    assert.equal(result.jobs[0]?.replacement?.route, "delete");
+    assert.equal(result.jobs[0]?.replacement?.executionMode, "delete");
     assert.equal(
       result.jobs[0]?.replacement?.contentText,
       "Deleted source span notice.",
@@ -77,7 +77,7 @@ test("runCompactionBatch falls back across the ordered model array and commits t
     );
     assert.equal(store.getMark("mark-delete-1")?.status, "consumed");
     assert.equal(
-      store.findFirstCommittedReplacementForMark("mark-delete-1")?.route,
+      store.findFirstCommittedReplacementForMark("mark-delete-1")?.executionMode,
       "delete",
     );
 
@@ -364,7 +364,7 @@ function seedMark(
   store: SqliteSessionStateStore,
   clock: ReturnType<typeof createClock>,
   markID: string,
-  route: "keep" | "delete",
+  executionMode: "keep" | "delete",
 ): void {
   store.syncCanonicalHostMessages({
     revision: `rev-${markID}`,
@@ -380,7 +380,7 @@ function seedMark(
     store,
     markID,
     toolCallMessageID: "mark-tool-1",
-    route,
+    allowDelete: executionMode === "delete",
     createdAtMs: clock.tick(),
     sourceMessages: [{ hostMessageID: "src-1" }, { hostMessageID: "src-2" }],
   });

@@ -1,5 +1,5 @@
 import type {
-  CompactionRoute,
+  CompactionExecutionMode,
   HostMessageRecord,
   JsonValue,
   SourceSnapshotMessageRecord,
@@ -23,7 +23,7 @@ export interface CanonicalCompactionMessage {
 
 export interface ResolvedCompactionSourceSnapshot {
   readonly snapshotID: string;
-  readonly route: CompactionRoute;
+  readonly allowDelete: boolean;
   readonly sourceFingerprint: string;
   readonly canonicalRevision?: string;
   readonly messages: readonly SourceSnapshotMessageRecord[];
@@ -35,7 +35,8 @@ export interface CompactionInput {
   readonly kind: "canonical-source-compaction";
   readonly promptContext: "dedicated-compaction-prompt";
   readonly promptText: string;
-  readonly route: CompactionRoute;
+  readonly allowDelete: boolean;
+  readonly executionMode: CompactionExecutionMode;
   readonly sourceSnapshotID: string;
   readonly sourceFingerprint: string;
   readonly canonicalRevision?: string;
@@ -47,6 +48,7 @@ export interface CompactionInput {
 export interface BuildCompactionInputOptions {
   readonly sourceSnapshot: ResolvedCompactionSourceSnapshot;
   readonly promptText: string;
+  readonly executionMode: CompactionExecutionMode;
   readonly canonicalMessages: readonly CanonicalCompactionMessage[];
   readonly metadata?: JsonValue;
 }
@@ -120,7 +122,7 @@ export function resolveCompactionSourceSnapshot(
 
   return {
     snapshotID: sourceSnapshot.snapshotID,
-    route: sourceSnapshot.route,
+    allowDelete: sourceSnapshot.allowDelete,
     sourceFingerprint: sourceSnapshot.sourceFingerprint,
     canonicalRevision: sourceSnapshot.canonicalRevision,
     messages,
@@ -140,7 +142,8 @@ export function buildCompactionInput(
     kind: "canonical-source-compaction",
     promptContext: "dedicated-compaction-prompt",
     promptText,
-    route: options.sourceSnapshot.route,
+    allowDelete: options.sourceSnapshot.allowDelete,
+    executionMode: options.executionMode,
     sourceSnapshotID: options.sourceSnapshot.snapshotID,
     sourceFingerprint: options.sourceSnapshot.sourceFingerprint,
     canonicalRevision: options.sourceSnapshot.canonicalRevision,

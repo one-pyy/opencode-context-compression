@@ -8,7 +8,6 @@
     "version",
     "promptPath",
     "compactionModels",
-    "route",
     "runtimeLogPath",
     "seamLogPath"
   ],
@@ -46,10 +45,6 @@
     "schedulerMarkThreshold": {
       "$ref": "#/$defs/positiveInteger",
       "description": "Internal/test compatibility knob for mark-count scheduling."
-    },
-    "route": {
-      "enum": ["keep", "delete"],
-      "description": "Committed replacement route."
     },
     "runtimeLogPath": {
       "type": "string",
@@ -89,32 +84,21 @@
         "hhard": {
           "$ref": "#/$defs/positiveInteger"
         },
+        "softRepeatEveryTokens": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "hardRepeatEveryTokens": {
+          "$ref": "#/$defs/positiveInteger"
+        },
         "promptPaths": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "soft": {
-              "type": "string",
-              "minLength": 1
+            "compactOnly": {
+              "$ref": "#/$defs/reminderPromptVariant"
             },
-            "hard": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
-        },
-        "counter": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "source": {
-              "enum": ["eligible_messages", "assistant_turns"]
-            },
-            "soft": {
-              "$ref": "#/$defs/repeatRule"
-            },
-            "hard": {
-              "$ref": "#/$defs/repeatRule"
+            "deleteAllowed": {
+              "$ref": "#/$defs/reminderPromptVariant"
             }
           }
         }
@@ -126,12 +110,17 @@
       "type": "integer",
       "minimum": 1
     },
-    "repeatRule": {
+    "reminderPromptVariant": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "repeatEvery": {
-          "$ref": "#/$defs/positiveInteger"
+        "soft": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hard": {
+          "type": "string",
+          "minLength": 1
         }
       }
     }

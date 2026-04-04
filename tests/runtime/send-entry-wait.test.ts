@@ -244,7 +244,7 @@ test("compression_mark remains allowed during lock while blocked internal execut
         store,
         markID: "mark-3",
         toolCallMessageID: "mark-tool-3",
-        route: "keep",
+        allowDelete: false,
         sourceMessages: [{ hostMessageID: "src-1" }],
       });
 
@@ -287,7 +287,7 @@ function seedMarkSet(
       store,
       markID,
       toolCallMessageID: `mark-tool-${index + 1}`,
-      route: "keep",
+      allowDelete: false,
       sourceMessages:
         index % 2 === 0
           ? [{ hostMessageID: "src-1" }]
