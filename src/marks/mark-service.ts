@@ -55,12 +55,18 @@ export interface PersistMarkResult {
 export function captureMarkSourceSnapshot(
   options: CaptureMarkSourceSnapshotOptions,
 ): CapturedMarkSourceSnapshot {
-  const messages = options.sourceMessages.map((message) => normalizeMarkSourceMessage(options.store, message));
+  const messages = options.sourceMessages.map((message) =>
+    normalizeMarkSourceMessage(options.store, message),
+  );
 
   return {
     route: options.route,
-    sourceFingerprint: options.sourceFingerprint ?? computeSourceFingerprint(options.route, messages),
-    canonicalRevision: options.canonicalRevision ?? options.store.getSessionState().lastCanonicalRevision,
+    sourceFingerprint:
+      options.sourceFingerprint ??
+      computeSourceFingerprint(options.route, messages),
+    canonicalRevision:
+      options.canonicalRevision ??
+      options.store.getSessionState().lastCanonicalRevision,
     metadata: options.snapshotMetadata,
     messages,
   };
@@ -96,7 +102,9 @@ function normalizeMarkSourceMessage(
 ): CapturedMarkSourceMessage {
   const hostMessage = store.getHostMessage(message.hostMessageID);
   if (hostMessage === undefined) {
-    throw new Error(`Unknown host message '${message.hostMessageID}'. Sync canonical host history first.`);
+    throw new Error(
+      `Unknown host message '${message.hostMessageID}'. Sync canonical host history first.`,
+    );
   }
 
   const role = message.role ?? hostMessage.role;
@@ -106,7 +114,8 @@ function normalizeMarkSourceMessage(
     );
   }
 
-  const canonicalMessageID = message.canonicalMessageID ?? hostMessage.canonicalMessageID;
+  const canonicalMessageID =
+    message.canonicalMessageID ?? hostMessage.canonicalMessageID;
   if (canonicalMessageID !== hostMessage.canonicalMessageID) {
     throw new Error(
       `Mark source canonical id mismatch for host message '${message.hostMessageID}': '${canonicalMessageID}' !== '${hostMessage.canonicalMessageID}'.`,

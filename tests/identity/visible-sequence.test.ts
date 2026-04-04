@@ -9,7 +9,10 @@ import {
   ensureReferableVisibleMessageIdentity,
   ensureVisibleMessageIdentity,
 } from "../../src/identity/visible-sequence.js";
-import { createSqliteSessionStateStore, type SqliteSessionStateStore } from "../../src/state/store.js";
+import {
+  createSqliteSessionStateStore,
+  type SqliteSessionStateStore,
+} from "../../src/state/store.js";
 
 test("visible ids use the canonical identifier checksum and bare sequence format", async () => {
   await withTempStore(async (store, clock) => {
@@ -32,7 +35,10 @@ test("visible ids use the canonical identifier checksum and bare sequence format
       visibleChecksum: expectedChecksum,
       visibleMessageID: `000001_${expectedChecksum}`,
     });
-    assert.equal(store.getHostMessage("host-row-1")?.visibleChecksum, expectedChecksum);
+    assert.equal(
+      store.getHostMessage("host-row-1")?.visibleChecksum,
+      expectedChecksum,
+    );
   });
 });
 
@@ -138,13 +144,20 @@ test("referable blocks inherit the earliest source visible identity", async () =
       canonicalMessageID: "canon-2",
     });
 
-    assert.equal(referableIdentity.visibleMessageID, sourceIdentity.visibleMessageID);
+    assert.equal(
+      referableIdentity.visibleMessageID,
+      sourceIdentity.visibleMessageID,
+    );
     assert.equal(referableIdentity.hostMessageID, "host-2");
     assert.equal(referableIdentity.canonicalMessageID, "canon-2");
   });
 });
 
-function hostMessage(hostMessageID: string, canonicalMessageID: string, role: string) {
+function hostMessage(
+  hostMessageID: string,
+  canonicalMessageID: string,
+  role: string,
+) {
   return {
     hostMessageID,
     canonicalMessageID,
@@ -153,9 +166,14 @@ function hostMessage(hostMessageID: string, canonicalMessageID: string, role: st
 }
 
 async function withTempStore(
-  run: (store: SqliteSessionStateStore, clock: ReturnType<typeof createClock>) => Promise<void>,
+  run: (
+    store: SqliteSessionStateStore,
+    clock: ReturnType<typeof createClock>,
+  ) => Promise<void>,
 ): Promise<void> {
-  const pluginDirectory = await mkdtemp(join(tmpdir(), "opencode-context-compression-identity-"));
+  const pluginDirectory = await mkdtemp(
+    join(tmpdir(), "opencode-context-compression-identity-"),
+  );
   const clock = createClock();
   const store = createSqliteSessionStateStore({
     pluginDirectory,

@@ -1,5 +1,8 @@
 import type { FrozenBatch } from "../runtime/frozen-batch.js";
-import { releaseSessionFileLock, type AcquireSessionFileLockResult } from "../runtime/file-lock.js";
+import {
+  releaseSessionFileLock,
+  type AcquireSessionFileLockResult,
+} from "../runtime/file-lock.js";
 import { startFrozenCompactionBatch } from "../runtime/lock-gate.js";
 import type {
   CompactionBatchMarkRecord,
@@ -30,7 +33,10 @@ export type FreezeCurrentCompactionBatchResult =
       readonly started: false;
       readonly reason: "active-compaction-lock";
       readonly lockPath: string;
-      readonly state: Extract<AcquireSessionFileLockResult, { acquired: false }>["state"];
+      readonly state: Extract<
+        AcquireSessionFileLockResult,
+        { acquired: false }
+      >["state"];
     }
   | {
       readonly started: true;
@@ -38,7 +44,10 @@ export type FreezeCurrentCompactionBatchResult =
       readonly persistedBatch: CompactionBatchRecord;
       readonly persistedMembers: readonly CompactionBatchMarkRecord[];
       readonly lockPath: string;
-      readonly lock: Extract<AcquireSessionFileLockResult, { acquired: true }>["record"];
+      readonly lock: Extract<
+        AcquireSessionFileLockResult,
+        { acquired: true }
+      >["record"];
     };
 
 export async function freezeCurrentCompactionBatch(
@@ -74,7 +83,9 @@ export async function freezeCurrentCompactionBatch(
   try {
     const persistedBatch = options.store.createCompactionBatch({
       batchID: options.batchID,
-      canonicalRevision: options.canonicalRevision ?? options.store.getSessionState().lastCanonicalRevision,
+      canonicalRevision:
+        options.canonicalRevision ??
+        options.store.getSessionState().lastCanonicalRevision,
       frozenAtMs: startResult.batch.frozenAtMs,
       metadata: options.metadata,
       markIDs: startResult.batch.memberIDs,
@@ -84,7 +95,9 @@ export async function freezeCurrentCompactionBatch(
       started: true,
       runtimeBatch: startResult.batch,
       persistedBatch,
-      persistedMembers: options.store.listCompactionBatchMarks(persistedBatch.batchID),
+      persistedMembers: options.store.listCompactionBatchMarks(
+        persistedBatch.batchID,
+      ),
       lockPath: startResult.lockPath,
       lock: startResult.lock,
     };

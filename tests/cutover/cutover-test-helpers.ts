@@ -30,10 +30,17 @@ type PluginModule = {
 };
 
 export const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
-export const WORKSPACE_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
-export const PLUGIN_ENTRY_PATH = fileURLToPath(new URL("../../src/index.ts", import.meta.url));
+export const WORKSPACE_ROOT = fileURLToPath(
+  new URL("../../../", import.meta.url),
+);
+export const PLUGIN_ENTRY_PATH = fileURLToPath(
+  new URL("../../src/index.ts", import.meta.url),
+);
 export const PLUGIN_TYPES_PATH = fileURLToPath(
-  new URL("../../node_modules/@opencode-ai/plugin/dist/index.d.ts", import.meta.url),
+  new URL(
+    "../../node_modules/@opencode-ai/plugin/dist/index.d.ts",
+    import.meta.url,
+  ),
 );
 export const CANONICAL_CONTRACT_FILES = Object.freeze([
   "src/index.ts",
@@ -58,14 +65,18 @@ export async function readInstalledPluginTypes(): Promise<string> {
 export async function withLoadedPluginHooks<T>(
   run: (fixture: LoadedPluginHooksFixture) => Promise<T>,
 ): Promise<T> {
-  const tempDirectory = await mkdtemp(join(tmpdir(), "opencode-context-compression-cutover-"));
+  const tempDirectory = await mkdtemp(
+    join(tmpdir(), "opencode-context-compression-cutover-"),
+  );
   const seamLogPath = join(tempDirectory, "seam-observation.jsonl");
   const originalSeamLogPath = process.env.OPENCODE_CONTEXT_COMPRESSION_SEAM_LOG;
 
   process.env.OPENCODE_CONTEXT_COMPRESSION_SEAM_LOG = seamLogPath;
 
   try {
-    const pluginModule = (await import(pathToFileURL(PLUGIN_ENTRY_PATH).href)) as PluginModule;
+    const pluginModule = (await import(
+      pathToFileURL(PLUGIN_ENTRY_PATH).href
+    )) as PluginModule;
     const hooks = await pluginModule.default({
       directory: tempDirectory,
       worktree: tempDirectory,
@@ -86,11 +97,15 @@ export async function withLoadedPluginHooks<T>(
   }
 }
 
-export async function listRepoFiles(relativeDirectory: string): Promise<string[]> {
+export async function listRepoFiles(
+  relativeDirectory: string,
+): Promise<string[]> {
   return walkRelativeDirectory(REPO_ROOT, relativeDirectory);
 }
 
-export async function listWorkspaceFiles(relativeDirectory: string): Promise<string[]> {
+export async function listWorkspaceFiles(
+  relativeDirectory: string,
+): Promise<string[]> {
   return walkRelativeDirectory(WORKSPACE_ROOT, relativeDirectory);
 }
 
@@ -101,8 +116,12 @@ export async function findProductionCallSites(
   } = {},
 ): Promise<AuditHit[]> {
   const sourceFiles = await listRepoFiles("src");
-  const trackedFiles = sourceFiles.filter((filePath) => filePath.endsWith(".ts"));
-  const candidateFiles = trackedFiles.filter((filePath) => !options.excludeFiles?.includes(filePath));
+  const trackedFiles = sourceFiles.filter((filePath) =>
+    filePath.endsWith(".ts"),
+  );
+  const candidateFiles = trackedFiles.filter(
+    (filePath) => !options.excludeFiles?.includes(filePath),
+  );
 
   return collectAuditHits(candidateFiles, [
     {
@@ -142,7 +161,10 @@ export async function collectAuditHits(
   return hits;
 }
 
-export function formatAuditHits(title: string, hits: readonly AuditHit[]): string {
+export function formatAuditHits(
+  title: string,
+  hits: readonly AuditHit[],
+): string {
   if (hits.length === 0) {
     return `${title}: none`;
   }
@@ -150,19 +172,25 @@ export function formatAuditHits(title: string, hits: readonly AuditHit[]): strin
   return [
     `${title}:`,
     ...hits.map(
-      (hit) => `- ${hit.filePath}:${hit.line} — ${hit.reason}\n  ${hit.snippet || "(blank line)"}`,
+      (hit) =>
+        `- ${hit.filePath}:${hit.line} — ${hit.reason}\n  ${hit.snippet || "(blank line)"}`,
     ),
   ].join("\n");
 }
 
-export function listVisibleRepoFiles(relativePaths: readonly string[]): string[] {
+export function listVisibleRepoFiles(
+  relativePaths: readonly string[],
+): string[] {
   return relativePaths.filter((relativePath) => {
     const name = basename(relativePath);
     return !name.startsWith(".") && name !== ".gitkeep";
   });
 }
 
-async function walkRelativeDirectory(rootDirectory: string, relativeDirectory: string): Promise<string[]> {
+async function walkRelativeDirectory(
+  rootDirectory: string,
+  relativeDirectory: string,
+): Promise<string[]> {
   const absoluteDirectory = join(rootDirectory, relativeDirectory);
 
   try {
@@ -193,7 +221,9 @@ async function walkRelativeDirectory(rootDirectory: string, relativeDirectory: s
 }
 
 function cloneAsGlobal(pattern: RegExp): RegExp {
-  const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+  const flags = pattern.flags.includes("g")
+    ? pattern.flags
+    : `${pattern.flags}g`;
   return new RegExp(pattern.source, flags);
 }
 
@@ -202,5 +232,10 @@ function escapeForRegExp(value: string): string {
 }
 
 function isMissingPathError(error: unknown): error is NodeJS.ErrnoException {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "ENOENT"
+  );
 }

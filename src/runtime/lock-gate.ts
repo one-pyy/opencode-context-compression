@@ -46,7 +46,9 @@ export interface EvaluateLockGateOptions extends WaitForSessionFileLockOptions {
   readonly target: LockGateTarget;
 }
 
-export interface StartFrozenCompactionBatchOptions<T> extends AcquireSessionFileLockOptions {
+export interface StartFrozenCompactionBatchOptions<
+  T,
+> extends AcquireSessionFileLockOptions {
   readonly marks: readonly T[];
   readonly identifyMark: (mark: T) => string;
 }
@@ -56,12 +58,18 @@ export type StartFrozenCompactionBatchResult<T> =
       readonly started: true;
       readonly batch: FrozenBatch<T>;
       readonly lockPath: string;
-      readonly lock: Extract<AcquireSessionFileLockResult, { acquired: true }>["record"];
+      readonly lock: Extract<
+        AcquireSessionFileLockResult,
+        { acquired: true }
+      >["record"];
     }
   | {
       readonly started: false;
       readonly lockPath: string;
-      readonly state: Extract<AcquireSessionFileLockResult, { acquired: false }>["state"];
+      readonly state: Extract<
+        AcquireSessionFileLockResult,
+        { acquired: false }
+      >["state"];
     };
 
 export function classifyLockGatePath(target: LockGateTarget): LockGatePath {
@@ -69,10 +77,14 @@ export function classifyLockGatePath(target: LockGateTarget): LockGatePath {
     return "ordinary-chat";
   }
 
-  return target.toolName === target.dcpMarkToolName ? "dcp-mark-tool" : "non-dcp-tool";
+  return target.toolName === target.dcpMarkToolName
+    ? "dcp-mark-tool"
+    : "non-dcp-tool";
 }
 
-export async function evaluateLockGate(options: EvaluateLockGateOptions): Promise<LockGateDecision> {
+export async function evaluateLockGate(
+  options: EvaluateLockGateOptions,
+): Promise<LockGateDecision> {
   const path = classifyLockGatePath(options.target);
   const lockState = await readSessionFileLock(options);
 
@@ -90,7 +102,10 @@ export async function evaluateLockGate(options: EvaluateLockGateOptions): Promis
     return {
       path,
       action: "allow",
-      reason: path === "dcp-mark-tool" ? "dcp-mark-tool-bypasses-active-lock" : "non-dcp-tool-bypasses-lock",
+      reason:
+        path === "dcp-mark-tool"
+          ? "dcp-mark-tool-bypasses-active-lock"
+          : "non-dcp-tool-bypasses-lock",
       lockState,
     };
   }

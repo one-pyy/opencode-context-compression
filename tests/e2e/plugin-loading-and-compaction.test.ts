@@ -10,9 +10,15 @@ import { pathToFileURL } from "node:url";
 import type { Hooks, PluginInput } from "@opencode-ai/plugin";
 
 import type { CompactionRunnerTransport } from "../../src/compaction/runner.js";
-import { loadRuntimeConfig, RUNTIME_CONFIG_ENV } from "../../src/config/runtime-config.js";
+import {
+  loadRuntimeConfig,
+  RUNTIME_CONFIG_ENV,
+} from "../../src/config/runtime-config.js";
 import { createChatParamsSchedulerHook } from "../../src/runtime/chat-params-scheduler.js";
-import { readSessionFileLock, releaseSessionFileLock } from "../../src/runtime/file-lock.js";
+import {
+  readSessionFileLock,
+  releaseSessionFileLock,
+} from "../../src/runtime/file-lock.js";
 import { waitForOrdinaryChatGateIfNeeded } from "../../src/runtime/send-entry-gate.js";
 import type {
   MessagesTransformOutput,
@@ -21,560 +27,785 @@ import type {
   TransformPart,
 } from "../../src/seams/noop-observation.js";
 
-const PLUGIN_ENTRY = "/root/_/opencode/opencode-context-compression/src/index.ts";
+const PLUGIN_ENTRY =
+  "/root/_/opencode/opencode-context-compression/src/index.ts";
 
 type ChatParamsInput = Parameters<NonNullable<Hooks["chat.params"]>>[0];
 type ChatParamsOutput = Parameters<NonNullable<Hooks["chat.params"]>>[1];
 
 test("explicit plugin loading plus compression_mark drives the repo-owned keep route through scheduler and runner", async () => {
-  await withLoadedPluginFixture(async ({ tempDirectory, seamLogPath, hooks }) => {
-    const sessionID = "test-session";
-    const e2eRuntimeConfigPath = writeE2ERuntimeConfig(tempDirectory, {
-      reminderHsoft: 999_999,
-      reminderHhard: 1_999_999,
-      markedTokenAutoCompactionThreshold: 5_000,
-    });
-    const canonicalMessages = [
-      createEnvelope(createMessage({ id: "user-1", role: "user", created: 1 }), [createTextPart("user-1", "hello")]),
-      createEnvelope(createMessage({ id: "assistant-1", role: "assistant", created: 2 }), [createTextPart("assistant-1", "assistant token rich content ".repeat(3000).trim())]),
-      createEnvelope(createMessage({ id: "tool-1", role: "tool", created: 3 }), [createTextPart("tool-1", "tool token rich output ".repeat(3000).trim())]),
-      createEnvelope(createMessage({ id: "user-2", role: "user", created: 4 }), [createTextPart("user-2", "next")]),
-    ] as const;
-    const sessionHistory = createMutableSessionHistory(canonicalMessages);
-    const transform = readMessagesTransformHook(hooks);
-    const toolRegistry = readToolRegistry(hooks);
-    const initialProjection = {
-      messages: canonicalMessages.map((message) => structuredClone(message)),
-    } satisfies MessagesTransformOutput;
+  await withLoadedPluginFixture(
+    async ({ tempDirectory, seamLogPath, hooks }) => {
+      const sessionID = "test-session";
+      const e2eRuntimeConfigPath = writeE2ERuntimeConfig(tempDirectory, {
+        reminderHsoft: 999_999,
+        reminderHhard: 1_999_999,
+        markedTokenAutoCompactionThreshold: 5_000,
+      });
+      const canonicalMessages = [
+        createEnvelope(
+          createMessage({ id: "user-1", role: "user", created: 1 }),
+          [createTextPart("user-1", "hello")],
+        ),
+        createEnvelope(
+          createMessage({ id: "assistant-1", role: "assistant", created: 2 }),
+          [
+            createTextPart(
+              "assistant-1",
+              "assistant token rich content ".repeat(3000).trim(),
+            ),
+          ],
+        ),
+        createEnvelope(
+          createMessage({ id: "tool-1", role: "tool", created: 3 }),
+          [
+            createTextPart(
+              "tool-1",
+              "tool token rich output ".repeat(3000).trim(),
+            ),
+          ],
+        ),
+        createEnvelope(
+          createMessage({ id: "user-2", role: "user", created: 4 }),
+          [createTextPart("user-2", "next")],
+        ),
+      ] as const;
+      const sessionHistory = createMutableSessionHistory(canonicalMessages);
+      const transform = readMessagesTransformHook(hooks);
+      const toolRegistry = readToolRegistry(hooks);
+      const initialProjection = {
+        messages: canonicalMessages.map((message) => structuredClone(message)),
+      } satisfies MessagesTransformOutput;
 
-    assert.deepEqual(Object.keys(toolRegistry).sort(), ["compression_mark"]);
-    await transform({}, initialProjection);
+      assert.deepEqual(Object.keys(toolRegistry).sort(), ["compression_mark"]);
+      await transform({}, initialProjection);
 
-    const compressionMark = toolRegistry.compression_mark;
-    const toolOutput = await compressionMark.execute(
-      {
-        contractVersion: "v1",
-        route: "keep",
-        target: {
-          startVisibleMessageID: readVisibleMessageID(initialProjection.messages[1]),
-          endVisibleMessageID: readVisibleMessageID(initialProjection.messages[2]),
+      const compressionMark = toolRegistry.compression_mark;
+      const toolOutput = await compressionMark.execute(
+        {
+          contractVersion: "v1",
+          route: "keep",
+          target: {
+            startVisibleMessageID: readVisibleMessageID(
+              initialProjection.messages[1],
+            ),
+            endVisibleMessageID: readVisibleMessageID(
+              initialProjection.messages[2],
+            ),
+          },
         },
-      },
-      createToolContext({
-        tempDirectory,
-        sessionID,
-        messageID: "assistant-mark-call-1",
-        messages: initialProjection.messages,
-      }),
-    );
+        createToolContext({
+          tempDirectory,
+          sessionID,
+          messageID: "assistant-mark-call-1",
+          messages: initialProjection.messages,
+        }),
+      );
 
-    assert.match(toolOutput, /Persisted compression_mark/u);
-    sessionHistory.push(
-      createEnvelope(createMessage({ id: "assistant-mark-call-1", role: "assistant", created: 5 }), [
-        createTextPart("assistant-mark-call-1", toolOutput),
-      ]),
-      createEnvelope(createMessage({ id: "user-trigger-1", role: "user", created: 6 }), [
-        createTextPart("user-trigger-1", "please continue"),
-      ]),
-    );
+      assert.match(toolOutput, /Persisted compression_mark/u);
+      sessionHistory.push(
+        createEnvelope(
+          createMessage({
+            id: "assistant-mark-call-1",
+            role: "assistant",
+            created: 5,
+          }),
+          [createTextPart("assistant-mark-call-1", toolOutput)],
+        ),
+        createEnvelope(
+          createMessage({ id: "user-trigger-1", role: "user", created: 6 }),
+          [createTextPart("user-trigger-1", "please continue")],
+        ),
+      );
 
-    const runtimeConfig = loadRuntimeConfig({
-      ...process.env,
-      [RUNTIME_CONFIG_ENV.configPath]: e2eRuntimeConfigPath,
-      [RUNTIME_CONFIG_ENV.runtimeLogPath]: join(tempDirectory, "runtime-events.jsonl"),
-      [RUNTIME_CONFIG_ENV.seamLogPath]: seamLogPath,
-    });
-    assert.equal(runtimeConfig.configPath, e2eRuntimeConfigPath);
-    assert.match(runtimeConfig.promptPath, /prompts\/compaction\.md$/u);
+      const runtimeConfig = loadRuntimeConfig({
+        ...process.env,
+        [RUNTIME_CONFIG_ENV.configPath]: e2eRuntimeConfigPath,
+        [RUNTIME_CONFIG_ENV.runtimeLogPath]: join(
+          tempDirectory,
+          "runtime-events.jsonl",
+        ),
+        [RUNTIME_CONFIG_ENV.seamLogPath]: seamLogPath,
+      });
+      assert.equal(runtimeConfig.configPath, e2eRuntimeConfigPath);
+      assert.match(runtimeConfig.promptPath, /prompts\/compaction\.md$/u);
 
-    const scheduler = createChatParamsSchedulerHook({
-      pluginDirectory: tempDirectory,
-      client: createClientFixture(sessionHistory),
-      runtimeConfig,
-      runInBackground: false,
-    });
-
-    const requests: Array<{ url: string; authorization?: string; body: unknown }> = [];
-    const restoreFetch = installFetchMock(async (input, init) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      const headers = new Headers(init?.headers);
-      requests.push({
-        url,
-        authorization: headers.get("authorization") ?? undefined,
-        body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
+      const scheduler = createChatParamsSchedulerHook({
+        pluginDirectory: tempDirectory,
+        client: createClientFixture(sessionHistory),
+        runtimeConfig,
+        runInBackground: false,
       });
 
-      return new Response(
-        JSON.stringify({
-          choices: [
-            {
-              message: {
-                content: "Compressed summary.",
+      const requests: Array<{
+        url: string;
+        authorization?: string;
+        body: unknown;
+      }> = [];
+      const restoreFetch = installFetchMock(async (input, init) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        const headers = new Headers(init?.headers);
+        requests.push({
+          url,
+          authorization: headers.get("authorization") ?? undefined,
+          body:
+            typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
+        });
+
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: "Compressed summary.",
+                },
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        );
+      });
+
+      try {
+        await scheduler(
+          createChatParamsInput(sessionID, "user-trigger-1", {
+            providerInfo: {
+              id: "openai.doro",
+              key: "test-provider-key",
+              options: {
+                baseURL: "https://provider.example/v1",
               },
             },
-          ],
-        }),
-        {
-          status: 200,
-          headers: {
-            "content-type": "application/json",
-          },
-        },
-      );
-    });
+          }),
+          createChatParamsOutput(),
+        );
+      } finally {
+        restoreFetch();
+      }
 
-    try {
-      await scheduler(
-        createChatParamsInput(sessionID, "user-trigger-1", {
-          providerInfo: {
-            id: "openai.doro",
-            key: "test-provider-key",
-            options: {
-              baseURL: "https://provider.example/v1",
-            },
-          },
-        }),
-        createChatParamsOutput(),
-      );
-    } finally {
-      restoreFetch();
-    }
-
-    const databasePath = join(tempDirectory, "state", `${sessionID}.db`);
-    assert.deepEqual(
-      querySqlite(
-        databasePath,
-        "SELECT host_message_id || '|' || canonical_present FROM host_messages WHERE host_message_id = 'assistant-mark-call-1';",
-      ),
-      ["assistant-mark-call-1|1"],
-    );
-    assert.deepEqual(
-      querySqlite(
-        databasePath,
-        "SELECT route || '|' || status || '|' || COALESCE(content_text, '') FROM replacements ORDER BY replacement_id;",
-      ),
-      ["keep|committed|Compressed summary."],
-    );
-    assert.deepEqual(
-      querySqlite(databasePath, "SELECT mark_id || '|' || status FROM marks ORDER BY mark_id;"),
-      ["test-session:compression-mark:assistant-mark-call-1|consumed"],
-    );
-    assert.deepEqual(
-      querySqlite(databasePath, "SELECT status FROM compaction_batches ORDER BY batch_id;"),
-      ["succeeded"],
-    );
-    assert.equal(requests.length, 1);
-    assert.equal(requests[0]?.url, "https://provider.example/v1/chat/completions");
-    assert.equal(requests[0]?.authorization, "Bearer test-provider-key");
-    const keepRequestBody = requests[0]?.body as
-      | {
-          model?: string;
-          temperature?: number;
-          stream?: boolean;
-          messages?: Array<{ role?: string; content?: string }>;
-        }
-      | undefined;
-    assert.equal(keepRequestBody?.model, "gpt-5.4-mini");
-    assert.equal(keepRequestBody?.temperature, 0);
-    assert.equal(keepRequestBody?.stream, false);
-    assert.equal(keepRequestBody?.messages?.[0]?.role, "system");
-    assert.equal(keepRequestBody?.messages?.[0]?.content, runtimeConfig.promptText);
-    assert.equal(keepRequestBody?.messages?.[1]?.role, "user");
-    assert.match(keepRequestBody?.messages?.[1]?.content ?? "", /Route: keep/u);
-    assert.match(
-      keepRequestBody?.messages?.[1]?.content ?? "",
-      /Source snapshot id: test-session:compression-mark:assistant-mark-call-1:snapshot/u,
-    );
-    assert.match(keepRequestBody?.messages?.[1]?.content ?? "", /Source fingerprint: [0-9a-f]{64}/u);
-    assert.match(keepRequestBody?.messages?.[1]?.content ?? "", /### 1\. assistant assistant-1 \(assistant-1\)/u);
-    assert.match(keepRequestBody?.messages?.[1]?.content ?? "", /### 2\. tool tool-1 \(tool-1\)/u);
-
-    const finalProjection = {
-      messages: canonicalMessages.map((message) => structuredClone(message)),
-    } satisfies MessagesTransformOutput;
-    await transform({}, finalProjection);
-    const projectedTexts = finalProjection.messages.map(readText);
-    assert.equal(projectedTexts.length, 3);
-    assert.match(projectedTexts[0] ?? "", /^\[protected_[^\]]+\] hello$/u);
-    assert.match(projectedTexts[1] ?? "", /^\[referable_[^\]]+\] Compressed summary\.$/u);
-    assert.match(projectedTexts[2] ?? "", /^\[protected_[^\]]+\] next$/u);
-
-    const observations = parseObservationLog(await readFile(seamLogPath, "utf8"));
-    assert.ok(
-      observations.some((observation) =>
-        observation.identityFields.some(
-          (field) => field.path === "pluginInit.directory" && field.value === tempDirectory,
+      const databasePath = join(tempDirectory, "state", `${sessionID}.db`);
+      assert.deepEqual(
+        querySqlite(
+          databasePath,
+          "SELECT host_message_id || '|' || canonical_present FROM host_messages WHERE host_message_id = 'assistant-mark-call-1';",
         ),
-      ),
-      "expected plugin init seam journal entry for the temp project directory",
-    );
-  });
+        ["assistant-mark-call-1|1"],
+      );
+      assert.deepEqual(
+        querySqlite(
+          databasePath,
+          "SELECT route || '|' || status || '|' || COALESCE(content_text, '') FROM replacements ORDER BY replacement_id;",
+        ),
+        ["keep|committed|Compressed summary."],
+      );
+      assert.deepEqual(
+        querySqlite(
+          databasePath,
+          "SELECT mark_id || '|' || status FROM marks ORDER BY mark_id;",
+        ),
+        ["test-session:compression-mark:assistant-mark-call-1|consumed"],
+      );
+      assert.deepEqual(
+        querySqlite(
+          databasePath,
+          "SELECT status FROM compaction_batches ORDER BY batch_id;",
+        ),
+        ["succeeded"],
+      );
+      assert.equal(requests.length, 1);
+      assert.equal(
+        requests[0]?.url,
+        "https://provider.example/v1/chat/completions",
+      );
+      assert.equal(requests[0]?.authorization, "Bearer test-provider-key");
+      const keepRequestBody = requests[0]?.body as
+        | {
+            model?: string;
+            temperature?: number;
+            stream?: boolean;
+            messages?: Array<{ role?: string; content?: string }>;
+          }
+        | undefined;
+      assert.equal(keepRequestBody?.model, "gpt-5.4-mini");
+      assert.equal(keepRequestBody?.temperature, 0);
+      assert.equal(keepRequestBody?.stream, false);
+      assert.equal(keepRequestBody?.messages?.[0]?.role, "system");
+      assert.equal(
+        keepRequestBody?.messages?.[0]?.content,
+        runtimeConfig.promptText,
+      );
+      assert.equal(keepRequestBody?.messages?.[1]?.role, "user");
+      assert.match(
+        keepRequestBody?.messages?.[1]?.content ?? "",
+        /Route: keep/u,
+      );
+      assert.match(
+        keepRequestBody?.messages?.[1]?.content ?? "",
+        /Source snapshot id: test-session:compression-mark:assistant-mark-call-1:snapshot/u,
+      );
+      assert.match(
+        keepRequestBody?.messages?.[1]?.content ?? "",
+        /Source fingerprint: [0-9a-f]{64}/u,
+      );
+      assert.match(
+        keepRequestBody?.messages?.[1]?.content ?? "",
+        /### 1\. assistant assistant-1 \(assistant-1\)/u,
+      );
+      assert.match(
+        keepRequestBody?.messages?.[1]?.content ?? "",
+        /### 2\. tool tool-1 \(tool-1\)/u,
+      );
+
+      const finalProjection = {
+        messages: canonicalMessages.map((message) => structuredClone(message)),
+      } satisfies MessagesTransformOutput;
+      await transform({}, finalProjection);
+      const projectedTexts = finalProjection.messages.map(readText);
+      assert.equal(projectedTexts.length, 3);
+      assert.match(projectedTexts[0] ?? "", /^\[protected_[^\]]+\] hello$/u);
+      assert.match(
+        projectedTexts[1] ?? "",
+        /^\[referable_[^\]]+\] Compressed summary\.$/u,
+      );
+      assert.match(projectedTexts[2] ?? "", /^\[protected_[^\]]+\] next$/u);
+
+      const observations = parseObservationLog(
+        await readFile(seamLogPath, "utf8"),
+      );
+      assert.ok(
+        observations.some((observation) =>
+          observation.identityFields.some(
+            (field) =>
+              field.path === "pluginInit.directory" &&
+              field.value === tempDirectory,
+          ),
+        ),
+        "expected plugin init seam journal entry for the temp project directory",
+      );
+    },
+  );
 });
 
 test("explicit plugin loading plus compression_mark commits the delete route through the same repo-owned scheduler path", async () => {
-  await withLoadedPluginFixture(async ({ tempDirectory, seamLogPath, hooks }) => {
-    const sessionID = "test-session";
-    const e2eRuntimeConfigPath = writeE2ERuntimeConfig(tempDirectory, {
-      reminderHsoft: 999_999,
-      reminderHhard: 1_999_999,
-      markedTokenAutoCompactionThreshold: 5_000,
-    });
-    const canonicalMessages = [
-      createEnvelope(createMessage({ id: "user-1", role: "user", created: 1 }), [createTextPart("user-1", "tiny")]),
-      createEnvelope(createMessage({ id: "assistant-1", role: "assistant", created: 2 }), [createTextPart("assistant-1", "assistant token rich content ".repeat(3000).trim())]),
-      createEnvelope(createMessage({ id: "assistant-2", role: "assistant", created: 3 }), [createTextPart("assistant-2", "assistant tail token rich content ".repeat(3000).trim())]),
-    ] as const;
-    const sessionHistory = createMutableSessionHistory(canonicalMessages);
-    const transform = readMessagesTransformHook(hooks);
-    const initialProjection = {
-      messages: canonicalMessages.map((message) => structuredClone(message)),
-    } satisfies MessagesTransformOutput;
+  await withLoadedPluginFixture(
+    async ({ tempDirectory, seamLogPath, hooks }) => {
+      const sessionID = "test-session";
+      const e2eRuntimeConfigPath = writeE2ERuntimeConfig(tempDirectory, {
+        reminderHsoft: 999_999,
+        reminderHhard: 1_999_999,
+        markedTokenAutoCompactionThreshold: 5_000,
+      });
+      const canonicalMessages = [
+        createEnvelope(
+          createMessage({ id: "user-1", role: "user", created: 1 }),
+          [createTextPart("user-1", "tiny")],
+        ),
+        createEnvelope(
+          createMessage({ id: "assistant-1", role: "assistant", created: 2 }),
+          [
+            createTextPart(
+              "assistant-1",
+              "assistant token rich content ".repeat(3000).trim(),
+            ),
+          ],
+        ),
+        createEnvelope(
+          createMessage({ id: "assistant-2", role: "assistant", created: 3 }),
+          [
+            createTextPart(
+              "assistant-2",
+              "assistant tail token rich content ".repeat(3000).trim(),
+            ),
+          ],
+        ),
+      ] as const;
+      const sessionHistory = createMutableSessionHistory(canonicalMessages);
+      const transform = readMessagesTransformHook(hooks);
+      const initialProjection = {
+        messages: canonicalMessages.map((message) => structuredClone(message)),
+      } satisfies MessagesTransformOutput;
 
-    await transform({}, initialProjection);
+      await transform({}, initialProjection);
 
-    const toolOutput = await readToolRegistry(hooks).compression_mark.execute(
-      {
-        contractVersion: "v1",
-        route: "delete",
-        target: {
-          startVisibleMessageID: readVisibleMessageID(initialProjection.messages[1]),
-          endVisibleMessageID: readVisibleMessageID(initialProjection.messages[2]),
+      const toolOutput = await readToolRegistry(hooks).compression_mark.execute(
+        {
+          contractVersion: "v1",
+          route: "delete",
+          target: {
+            startVisibleMessageID: readVisibleMessageID(
+              initialProjection.messages[1],
+            ),
+            endVisibleMessageID: readVisibleMessageID(
+              initialProjection.messages[2],
+            ),
+          },
         },
-      },
-      createToolContext({
-        tempDirectory,
-        sessionID,
-        messageID: "assistant-mark-call-1",
-        messages: initialProjection.messages,
-      }),
-    );
+        createToolContext({
+          tempDirectory,
+          sessionID,
+          messageID: "assistant-mark-call-1",
+          messages: initialProjection.messages,
+        }),
+      );
 
-    sessionHistory.push(
-      createEnvelope(createMessage({ id: "assistant-mark-call-1", role: "assistant", created: 4 }), [
-        createTextPart("assistant-mark-call-1", toolOutput),
-      ]),
-      createEnvelope(createMessage({ id: "user-trigger-1", role: "user", created: 5 }), [
-        createTextPart("user-trigger-1", "please continue"),
-      ]),
-    );
+      sessionHistory.push(
+        createEnvelope(
+          createMessage({
+            id: "assistant-mark-call-1",
+            role: "assistant",
+            created: 4,
+          }),
+          [createTextPart("assistant-mark-call-1", toolOutput)],
+        ),
+        createEnvelope(
+          createMessage({ id: "user-trigger-1", role: "user", created: 5 }),
+          [createTextPart("user-trigger-1", "please continue")],
+        ),
+      );
 
-    const scheduler = createChatParamsSchedulerHook({
-      pluginDirectory: tempDirectory,
-      client: createClientFixture(sessionHistory),
-      runtimeConfig: loadRuntimeConfig({
-        ...process.env,
-        [RUNTIME_CONFIG_ENV.configPath]: e2eRuntimeConfigPath,
-        [RUNTIME_CONFIG_ENV.runtimeLogPath]: join(tempDirectory, "runtime-events.jsonl"),
-        [RUNTIME_CONFIG_ENV.seamLogPath]: seamLogPath,
-      }),
-      runInBackground: false,
-    });
-
-    const requests: Array<{ url: string; authorization?: string; body: unknown }> = [];
-    const runtimePrompt = schedulerRuntimePrompt(seamLogPath, tempDirectory);
-    const restoreFetch = installFetchMock(async (input, init) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      const headers = new Headers(init?.headers);
-      requests.push({
-        url,
-        authorization: headers.get("authorization") ?? undefined,
-        body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
+      const scheduler = createChatParamsSchedulerHook({
+        pluginDirectory: tempDirectory,
+        client: createClientFixture(sessionHistory),
+        runtimeConfig: loadRuntimeConfig({
+          ...process.env,
+          [RUNTIME_CONFIG_ENV.configPath]: e2eRuntimeConfigPath,
+          [RUNTIME_CONFIG_ENV.runtimeLogPath]: join(
+            tempDirectory,
+            "runtime-events.jsonl",
+          ),
+          [RUNTIME_CONFIG_ENV.seamLogPath]: seamLogPath,
+        }),
+        runInBackground: false,
       });
 
-      return new Response(
-        JSON.stringify({
-          choices: [
-            {
-              message: {
-                content: "Deleted source span notice.",
+      const requests: Array<{
+        url: string;
+        authorization?: string;
+        body: unknown;
+      }> = [];
+      const runtimePrompt = schedulerRuntimePrompt(seamLogPath, tempDirectory);
+      const restoreFetch = installFetchMock(async (input, init) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        const headers = new Headers(init?.headers);
+        requests.push({
+          url,
+          authorization: headers.get("authorization") ?? undefined,
+          body:
+            typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
+        });
+
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: "Deleted source span notice.",
+                },
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        );
+      });
+
+      try {
+        await scheduler(
+          createChatParamsInput(sessionID, "user-trigger-1", {
+            providerInfo: {
+              id: "openai.doro",
+              key: "test-provider-key",
+              options: {
+                baseURL: "https://provider.example/v1",
               },
             },
-          ],
-        }),
-        {
-          status: 200,
-          headers: {
-            "content-type": "application/json",
-          },
-        },
+          }),
+          createChatParamsOutput(),
+        );
+      } finally {
+        restoreFetch();
+      }
+
+      const databasePath = join(tempDirectory, "state", `${sessionID}.db`);
+      assert.deepEqual(
+        querySqlite(
+          databasePath,
+          "SELECT route || '|' || status || '|' || COALESCE(content_text, '') FROM replacements ORDER BY replacement_id;",
+        ),
+        ["delete|committed|Deleted source span notice."],
       );
-    });
-
-    try {
-      await scheduler(
-        createChatParamsInput(sessionID, "user-trigger-1", {
-          providerInfo: {
-            id: "openai.doro",
-            key: "test-provider-key",
-            options: {
-              baseURL: "https://provider.example/v1",
-            },
-          },
-        }),
-        createChatParamsOutput(),
+      assert.deepEqual(
+        querySqlite(
+          databasePath,
+          "SELECT snapshot_kind || '|' || route || '|' || source_count FROM source_snapshots ORDER BY snapshot_kind, snapshot_id;",
+        ),
+        ["mark|delete|2", "replacement|delete|2"],
       );
-    } finally {
-      restoreFetch();
-    }
+      assert.deepEqual(
+        querySqlite(
+          databasePath,
+          "SELECT mark_id || '|' || status FROM marks ORDER BY mark_id;",
+        ),
+        ["test-session:compression-mark:assistant-mark-call-1|consumed"],
+      );
+      assert.equal(requests.length, 1);
+      assert.equal(
+        requests[0]?.url,
+        "https://provider.example/v1/chat/completions",
+      );
+      assert.equal(requests[0]?.authorization, "Bearer test-provider-key");
+      const deleteRequestBody = requests[0]?.body as
+        | {
+            model?: string;
+            temperature?: number;
+            stream?: boolean;
+            messages?: Array<{ role?: string; content?: string }>;
+          }
+        | undefined;
+      assert.equal(deleteRequestBody?.model, "gpt-5.4-mini");
+      assert.equal(deleteRequestBody?.temperature, 0);
+      assert.equal(deleteRequestBody?.stream, false);
+      assert.equal(deleteRequestBody?.messages?.[0]?.role, "system");
+      assert.equal(deleteRequestBody?.messages?.[0]?.content, runtimePrompt);
+      assert.equal(deleteRequestBody?.messages?.[1]?.role, "user");
+      assert.match(
+        deleteRequestBody?.messages?.[1]?.content ?? "",
+        /Route: delete/u,
+      );
+      assert.match(
+        deleteRequestBody?.messages?.[1]?.content ?? "",
+        /Source snapshot id: test-session:compression-mark:assistant-mark-call-1:snapshot/u,
+      );
+      assert.match(
+        deleteRequestBody?.messages?.[1]?.content ?? "",
+        /Source fingerprint: [0-9a-f]{64}/u,
+      );
+      assert.match(
+        deleteRequestBody?.messages?.[1]?.content ?? "",
+        /### 1\. assistant assistant-1 \(assistant-1\)/u,
+      );
+      assert.match(
+        deleteRequestBody?.messages?.[1]?.content ?? "",
+        /### 2\. assistant assistant-2 \(assistant-2\)/u,
+      );
 
-    const databasePath = join(tempDirectory, "state", `${sessionID}.db`);
-    assert.deepEqual(
-      querySqlite(
-        databasePath,
-        "SELECT route || '|' || status || '|' || COALESCE(content_text, '') FROM replacements ORDER BY replacement_id;",
-      ),
-      ["delete|committed|Deleted source span notice."],
-    );
-    assert.deepEqual(
-      querySqlite(
-        databasePath,
-        "SELECT snapshot_kind || '|' || route || '|' || source_count FROM source_snapshots ORDER BY snapshot_kind, snapshot_id;",
-      ),
-      ["mark|delete|2", "replacement|delete|2"],
-    );
-    assert.deepEqual(
-      querySqlite(databasePath, "SELECT mark_id || '|' || status FROM marks ORDER BY mark_id;"),
-      ["test-session:compression-mark:assistant-mark-call-1|consumed"],
-    );
-    assert.equal(requests.length, 1);
-    assert.equal(requests[0]?.url, "https://provider.example/v1/chat/completions");
-    assert.equal(requests[0]?.authorization, "Bearer test-provider-key");
-    const deleteRequestBody = requests[0]?.body as
-      | {
-          model?: string;
-          temperature?: number;
-          stream?: boolean;
-          messages?: Array<{ role?: string; content?: string }>;
-        }
-      | undefined;
-    assert.equal(deleteRequestBody?.model, "gpt-5.4-mini");
-    assert.equal(deleteRequestBody?.temperature, 0);
-    assert.equal(deleteRequestBody?.stream, false);
-    assert.equal(deleteRequestBody?.messages?.[0]?.role, "system");
-    assert.equal(deleteRequestBody?.messages?.[0]?.content, runtimePrompt);
-    assert.equal(deleteRequestBody?.messages?.[1]?.role, "user");
-    assert.match(deleteRequestBody?.messages?.[1]?.content ?? "", /Route: delete/u);
-    assert.match(
-      deleteRequestBody?.messages?.[1]?.content ?? "",
-      /Source snapshot id: test-session:compression-mark:assistant-mark-call-1:snapshot/u,
-    );
-    assert.match(deleteRequestBody?.messages?.[1]?.content ?? "", /Source fingerprint: [0-9a-f]{64}/u);
-    assert.match(deleteRequestBody?.messages?.[1]?.content ?? "", /### 1\. assistant assistant-1 \(assistant-1\)/u);
-    assert.match(deleteRequestBody?.messages?.[1]?.content ?? "", /### 2\. assistant assistant-2 \(assistant-2\)/u);
-
-    const finalProjection = {
-      messages: canonicalMessages.map((message) => structuredClone(message)),
-    } satisfies MessagesTransformOutput;
-    await transform({}, finalProjection);
-    assert.equal(finalProjection.messages.length, 2);
-    assert.match(readText(finalProjection.messages[0]), /^\[protected_[^\]]+\] tiny$/u);
-    assert.match(readText(finalProjection.messages[1]), /^\[referable_[^\]]+\] Deleted source span notice\.$/u);
-  });
+      const finalProjection = {
+        messages: canonicalMessages.map((message) => structuredClone(message)),
+      } satisfies MessagesTransformOutput;
+      await transform({}, finalProjection);
+      assert.equal(finalProjection.messages.length, 2);
+      assert.match(
+        readText(finalProjection.messages[0]),
+        /^\[protected_[^\]]+\] tiny$/u,
+      );
+      assert.match(
+        readText(finalProjection.messages[1]),
+        /^\[referable_[^\]]+\] Deleted source span notice\.$/u,
+      );
+    },
+  );
 });
 
 test("ordinary chat waits during the running lock, unrelated tools continue, and lock-time marks join only the next batch", async () => {
-  await withLoadedPluginFixture(async ({ tempDirectory, seamLogPath, hooks }) => {
-    const sessionID = "test-session";
-    const e2eRuntimeConfigPath = writeE2ERuntimeConfig(tempDirectory, {
-      reminderHsoft: 999_999,
-      reminderHhard: 1_999_999,
-      markedTokenAutoCompactionThreshold: 5_000,
-    });
-    const canonicalMessages = [
-      createEnvelope(createMessage({ id: "user-1", role: "user", created: 1 }), [createTextPart("user-1", "hello")]),
-      createEnvelope(createMessage({ id: "assistant-1", role: "assistant", created: 2 }), [createTextPart("assistant-1", "assistant token rich content ".repeat(3000).trim())]),
-      createEnvelope(createMessage({ id: "tool-1", role: "tool", created: 3 }), [createTextPart("tool-1", "tool token rich output ".repeat(3000).trim())]),
-      createEnvelope(createMessage({ id: "assistant-2", role: "assistant", created: 4 }), [createTextPart("assistant-2", "assistant tail token rich content ".repeat(3000).trim())]),
-      createEnvelope(createMessage({ id: "user-2", role: "user", created: 5 }), [createTextPart("user-2", "later user ".repeat(300).trim())]),
-    ] as const;
-    const sessionHistory = createMutableSessionHistory(canonicalMessages);
-    const transform = readMessagesTransformHook(hooks);
-    const toolRegistry = readToolRegistry(hooks);
-    const toolExecuteBefore = readToolExecuteBeforeHook(hooks);
-    const projected = {
-      messages: canonicalMessages.map((message) => structuredClone(message)),
-    } satisfies MessagesTransformOutput;
+  await withLoadedPluginFixture(
+    async ({ tempDirectory, seamLogPath, hooks }) => {
+      const sessionID = "test-session";
+      const e2eRuntimeConfigPath = writeE2ERuntimeConfig(tempDirectory, {
+        reminderHsoft: 999_999,
+        reminderHhard: 1_999_999,
+        markedTokenAutoCompactionThreshold: 5_000,
+      });
+      const canonicalMessages = [
+        createEnvelope(
+          createMessage({ id: "user-1", role: "user", created: 1 }),
+          [createTextPart("user-1", "hello")],
+        ),
+        createEnvelope(
+          createMessage({ id: "assistant-1", role: "assistant", created: 2 }),
+          [
+            createTextPart(
+              "assistant-1",
+              "assistant token rich content ".repeat(3000).trim(),
+            ),
+          ],
+        ),
+        createEnvelope(
+          createMessage({ id: "tool-1", role: "tool", created: 3 }),
+          [
+            createTextPart(
+              "tool-1",
+              "tool token rich output ".repeat(3000).trim(),
+            ),
+          ],
+        ),
+        createEnvelope(
+          createMessage({ id: "assistant-2", role: "assistant", created: 4 }),
+          [
+            createTextPart(
+              "assistant-2",
+              "assistant tail token rich content ".repeat(3000).trim(),
+            ),
+          ],
+        ),
+        createEnvelope(
+          createMessage({ id: "user-2", role: "user", created: 5 }),
+          [createTextPart("user-2", "later user ".repeat(300).trim())],
+        ),
+      ] as const;
+      const sessionHistory = createMutableSessionHistory(canonicalMessages);
+      const transform = readMessagesTransformHook(hooks);
+      const toolRegistry = readToolRegistry(hooks);
+      const toolExecuteBefore = readToolExecuteBeforeHook(hooks);
+      const projected = {
+        messages: canonicalMessages.map((message) => structuredClone(message)),
+      } satisfies MessagesTransformOutput;
 
-    await transform({}, projected);
+      await transform({}, projected);
 
-    const firstToolOutput = await toolRegistry.compression_mark.execute(
-      {
-        contractVersion: "v1",
-        route: "keep",
-        target: {
-          startVisibleMessageID: readVisibleMessageID(projected.messages[1]),
-          endVisibleMessageID: readVisibleMessageID(projected.messages[2]),
+      const firstToolOutput = await toolRegistry.compression_mark.execute(
+        {
+          contractVersion: "v1",
+          route: "keep",
+          target: {
+            startVisibleMessageID: readVisibleMessageID(projected.messages[1]),
+            endVisibleMessageID: readVisibleMessageID(projected.messages[2]),
+          },
         },
-      },
-      createToolContext({
-        tempDirectory,
-        sessionID,
-        messageID: "assistant-mark-call-1",
-        messages: projected.messages,
-      }),
-    );
+        createToolContext({
+          tempDirectory,
+          sessionID,
+          messageID: "assistant-mark-call-1",
+          messages: projected.messages,
+        }),
+      );
 
-    sessionHistory.push(
-      createEnvelope(createMessage({ id: "assistant-mark-call-1", role: "assistant", created: 6 }), [
-        createTextPart("assistant-mark-call-1", firstToolOutput),
-      ]),
-      createEnvelope(createMessage({ id: "user-trigger-1", role: "user", created: 7 }), [
-        createTextPart("user-trigger-1", "please continue"),
-      ]),
-    );
+      sessionHistory.push(
+        createEnvelope(
+          createMessage({
+            id: "assistant-mark-call-1",
+            role: "assistant",
+            created: 6,
+          }),
+          [createTextPart("assistant-mark-call-1", firstToolOutput)],
+        ),
+        createEnvelope(
+          createMessage({ id: "user-trigger-1", role: "user", created: 7 }),
+          [createTextPart("user-trigger-1", "please continue")],
+        ),
+      );
 
-    let releaseFirstTransport: (() => void) | undefined;
-    const firstTransportBlocked = new Promise<void>((resolve) => {
-      releaseFirstTransport = resolve;
-    });
-    const backgroundErrors: unknown[] = [];
-    const runtimeConfig = loadRuntimeConfig({
-      ...process.env,
-      [RUNTIME_CONFIG_ENV.configPath]: e2eRuntimeConfigPath,
-      [RUNTIME_CONFIG_ENV.runtimeLogPath]: join(tempDirectory, "runtime-events.jsonl"),
-      [RUNTIME_CONFIG_ENV.seamLogPath]: seamLogPath,
-    });
-    const firstScheduler = createChatParamsSchedulerHook({
-      pluginDirectory: tempDirectory,
-      client: createClientFixture(sessionHistory),
-      runtimeConfig,
-      runInBackground: true,
-      transport: createSafeTransport(async (request) => {
-        assert.equal(request.input.route, "keep");
-        assert.deepEqual(
-          request.input.sourceMessages.map((message) => message.hostMessageID),
-          ["assistant-1", "tool-1"],
-        );
-        await firstTransportBlocked;
-        return { contentText: "First summary." };
-      }),
-      onBackgroundError(error) {
-        backgroundErrors.push(error);
-      },
-    });
-
-    await firstScheduler(createChatParamsInput(sessionID, "user-trigger-1"), createChatParamsOutput());
-    await waitForRunningLock(tempDirectory, sessionID, backgroundErrors);
-    await toolExecuteBefore({ tool: "read", sessionID, callID: "call-read-1" }, { args: {} });
-
-    const waitPromise = waitForOrdinaryChatGateIfNeeded({
-      pluginDirectory: tempDirectory,
-      sessionID,
-      pollIntervalMs: 1,
-    });
-    const waitRace = await Promise.race([
-      waitPromise.then(() => "settled"),
-      delay(10).then(() => "pending"),
-    ]);
-    assert.equal(waitRace, "pending");
-
-    const secondToolOutput = await toolRegistry.compression_mark.execute(
-      {
-        contractVersion: "v1",
-        route: "keep",
-        target: {
-          startVisibleMessageID: readVisibleMessageID(projected.messages[3]),
-          endVisibleMessageID: readVisibleMessageID(projected.messages[4]),
+      let releaseFirstTransport: (() => void) | undefined;
+      const firstTransportBlocked = new Promise<void>((resolve) => {
+        releaseFirstTransport = resolve;
+      });
+      const backgroundErrors: unknown[] = [];
+      const runtimeConfig = loadRuntimeConfig({
+        ...process.env,
+        [RUNTIME_CONFIG_ENV.configPath]: e2eRuntimeConfigPath,
+        [RUNTIME_CONFIG_ENV.runtimeLogPath]: join(
+          tempDirectory,
+          "runtime-events.jsonl",
+        ),
+        [RUNTIME_CONFIG_ENV.seamLogPath]: seamLogPath,
+      });
+      const firstScheduler = createChatParamsSchedulerHook({
+        pluginDirectory: tempDirectory,
+        client: createClientFixture(sessionHistory),
+        runtimeConfig,
+        runInBackground: true,
+        transport: createSafeTransport(async (request) => {
+          assert.equal(request.input.route, "keep");
+          assert.deepEqual(
+            request.input.sourceMessages.map(
+              (message) => message.hostMessageID,
+            ),
+            ["assistant-1", "tool-1"],
+          );
+          await firstTransportBlocked;
+          return { contentText: "First summary." };
+        }),
+        onBackgroundError(error) {
+          backgroundErrors.push(error);
         },
-      },
-      createToolContext({
-        tempDirectory,
+      });
+
+      await firstScheduler(
+        createChatParamsInput(sessionID, "user-trigger-1"),
+        createChatParamsOutput(),
+      );
+      await waitForRunningLock(tempDirectory, sessionID, backgroundErrors);
+      await toolExecuteBefore(
+        { tool: "read", sessionID, callID: "call-read-1" },
+        { args: {} },
+      );
+
+      const waitPromise = waitForOrdinaryChatGateIfNeeded({
+        pluginDirectory: tempDirectory,
         sessionID,
-        messageID: "assistant-mark-call-2",
-        messages: projected.messages,
-      }),
-    );
+        pollIntervalMs: 1,
+      });
+      const waitRace = await Promise.race([
+        waitPromise.then(() => "settled"),
+        delay(10).then(() => "pending"),
+      ]);
+      assert.equal(waitRace, "pending");
 
-    sessionHistory.push(
-      createEnvelope(createMessage({ id: "assistant-mark-call-2", role: "assistant", created: 8 }), [
-        createTextPart("assistant-mark-call-2", secondToolOutput),
-      ]),
-    );
+      const secondToolOutput = await toolRegistry.compression_mark.execute(
+        {
+          contractVersion: "v1",
+          route: "keep",
+          target: {
+            startVisibleMessageID: readVisibleMessageID(projected.messages[3]),
+            endVisibleMessageID: readVisibleMessageID(projected.messages[4]),
+          },
+        },
+        createToolContext({
+          tempDirectory,
+          sessionID,
+          messageID: "assistant-mark-call-2",
+          messages: projected.messages,
+        }),
+      );
 
-    const databasePath = join(tempDirectory, "state", `${sessionID}.db`);
-    const firstBatchID = singleValue(
-      querySqlite(databasePath, "SELECT batch_id FROM compaction_batches ORDER BY frozen_at_ms;"),
-      "first running batch id",
-    );
-    assert.deepEqual(
-      querySqlite(
+      sessionHistory.push(
+        createEnvelope(
+          createMessage({
+            id: "assistant-mark-call-2",
+            role: "assistant",
+            created: 8,
+          }),
+          [createTextPart("assistant-mark-call-2", secondToolOutput)],
+        ),
+      );
+
+      const databasePath = join(tempDirectory, "state", `${sessionID}.db`);
+      const firstBatchID = singleValue(
+        querySqlite(
+          databasePath,
+          "SELECT batch_id FROM compaction_batches ORDER BY frozen_at_ms;",
+        ),
+        "first running batch id",
+      );
+      assert.deepEqual(
+        querySqlite(
+          databasePath,
+          `SELECT mark_id FROM compaction_batch_marks WHERE batch_id = '${firstBatchID}' ORDER BY member_index;`,
+        ),
+        ["test-session:compression-mark:assistant-mark-call-1"],
+      );
+      assert.deepEqual(
+        querySqlite(
+          databasePath,
+          "SELECT mark_id || '|' || status FROM marks ORDER BY mark_id;",
+        ),
+        [
+          "test-session:compression-mark:assistant-mark-call-1|active",
+          "test-session:compression-mark:assistant-mark-call-2|active",
+        ],
+      );
+
+      releaseFirstTransport?.();
+      const waitOutcome = await waitPromise;
+      assert.deepEqual(waitOutcome, {
+        outcome: "succeeded",
+        source: "compaction-batch",
+      });
+      assert.deepEqual(
+        querySqlite(
+          databasePath,
+          "SELECT mark_id || '|' || status FROM marks ORDER BY mark_id;",
+        ),
+        [
+          "test-session:compression-mark:assistant-mark-call-1|consumed",
+          "test-session:compression-mark:assistant-mark-call-2|active",
+        ],
+      );
+
+      sessionHistory.push(
+        createEnvelope(
+          createMessage({ id: "user-trigger-2", role: "user", created: 9 }),
+          [createTextPart("user-trigger-2", "please continue again")],
+        ),
+      );
+      const secondScheduler = createChatParamsSchedulerHook({
+        pluginDirectory: tempDirectory,
+        client: createClientFixture(sessionHistory),
+        runtimeConfig,
+        runInBackground: false,
+        transport: createSafeTransport(async (request) => {
+          assert.equal(request.input.route, "keep");
+          assert.deepEqual(
+            request.input.sourceMessages.map(
+              (message) => message.hostMessageID,
+            ),
+            ["assistant-2", "user-2"],
+          );
+          return { contentText: "Late summary." };
+        }),
+      });
+
+      await secondScheduler(
+        createChatParamsInput(sessionID, "user-trigger-2"),
+        createChatParamsOutput(),
+      );
+
+      const batchIDs = querySqlite(
         databasePath,
-        `SELECT mark_id FROM compaction_batch_marks WHERE batch_id = '${firstBatchID}' ORDER BY member_index;`,
-      ),
-      ["test-session:compression-mark:assistant-mark-call-1"],
-    );
-    assert.deepEqual(
-      querySqlite(databasePath, "SELECT mark_id || '|' || status FROM marks ORDER BY mark_id;"),
-      [
-        "test-session:compression-mark:assistant-mark-call-1|active",
-        "test-session:compression-mark:assistant-mark-call-2|active",
-      ],
-    );
-
-    releaseFirstTransport?.();
-    const waitOutcome = await waitPromise;
-    assert.deepEqual(waitOutcome, {
-      outcome: "succeeded",
-      source: "compaction-batch",
-    });
-    assert.deepEqual(
-      querySqlite(databasePath, "SELECT mark_id || '|' || status FROM marks ORDER BY mark_id;"),
-      [
-        "test-session:compression-mark:assistant-mark-call-1|consumed",
-        "test-session:compression-mark:assistant-mark-call-2|active",
-      ],
-    );
-
-    sessionHistory.push(
-      createEnvelope(createMessage({ id: "user-trigger-2", role: "user", created: 9 }), [
-        createTextPart("user-trigger-2", "please continue again"),
-      ]),
-    );
-    const secondScheduler = createChatParamsSchedulerHook({
-      pluginDirectory: tempDirectory,
-      client: createClientFixture(sessionHistory),
-      runtimeConfig,
-      runInBackground: false,
-      transport: createSafeTransport(async (request) => {
-        assert.equal(request.input.route, "keep");
-        assert.deepEqual(
-          request.input.sourceMessages.map((message) => message.hostMessageID),
-          ["assistant-2", "user-2"],
-        );
-        return { contentText: "Late summary." };
-      }),
-    });
-
-    await secondScheduler(createChatParamsInput(sessionID, "user-trigger-2"), createChatParamsOutput());
-
-    const batchIDs = querySqlite(databasePath, "SELECT batch_id FROM compaction_batches ORDER BY frozen_at_ms;");
-    assert.equal(batchIDs.length, 2);
-    assert.deepEqual(
-      querySqlite(
-        databasePath,
-        `SELECT mark_id FROM compaction_batch_marks WHERE batch_id = '${batchIDs[1]}' ORDER BY member_index;`,
-      ),
-      ["test-session:compression-mark:assistant-mark-call-2"],
-    );
-    assert.deepEqual(
-      querySqlite(databasePath, "SELECT mark_id || '|' || status FROM marks ORDER BY mark_id;"),
-      [
-        "test-session:compression-mark:assistant-mark-call-1|consumed",
-        "test-session:compression-mark:assistant-mark-call-2|consumed",
-      ],
-    );
-    assert.deepEqual(
-      querySqlite(databasePath, "SELECT status FROM compaction_batches ORDER BY frozen_at_ms;"),
-      ["succeeded", "succeeded"],
-    );
-    assert.deepEqual(
-      querySqlite(
-        databasePath,
-        "SELECT COALESCE(content_text, '') FROM replacements ORDER BY committed_at_ms;",
-      ),
-      ["First summary.", "Late summary."],
-    );
-  });
+        "SELECT batch_id FROM compaction_batches ORDER BY frozen_at_ms;",
+      );
+      assert.equal(batchIDs.length, 2);
+      assert.deepEqual(
+        querySqlite(
+          databasePath,
+          `SELECT mark_id FROM compaction_batch_marks WHERE batch_id = '${batchIDs[1]}' ORDER BY member_index;`,
+        ),
+        ["test-session:compression-mark:assistant-mark-call-2"],
+      );
+      assert.deepEqual(
+        querySqlite(
+          databasePath,
+          "SELECT mark_id || '|' || status FROM marks ORDER BY mark_id;",
+        ),
+        [
+          "test-session:compression-mark:assistant-mark-call-1|consumed",
+          "test-session:compression-mark:assistant-mark-call-2|consumed",
+        ],
+      );
+      assert.deepEqual(
+        querySqlite(
+          databasePath,
+          "SELECT status FROM compaction_batches ORDER BY frozen_at_ms;",
+        ),
+        ["succeeded", "succeeded"],
+      );
+      assert.deepEqual(
+        querySqlite(
+          databasePath,
+          "SELECT COALESCE(content_text, '') FROM replacements ORDER BY committed_at_ms;",
+        ),
+        ["First summary.", "Late summary."],
+      );
+    },
+  );
 });
 
 async function withLoadedPluginFixture(
@@ -584,7 +815,9 @@ async function withLoadedPluginFixture(
     hooks: Record<string, unknown>;
   }) => Promise<void>,
 ): Promise<void> {
-  const tempDirectory = await mkdtemp(join(tmpdir(), "opencode-context-compression-task7-e2e-"));
+  const tempDirectory = await mkdtemp(
+    join(tmpdir(), "opencode-context-compression-task7-e2e-"),
+  );
   const seamLogPath = join(tempDirectory, "seam-observation.jsonl");
   const runtimeLogPath = join(tempDirectory, "runtime-events.jsonl");
   const runtimeConfigPath = writeE2ERuntimeConfig(tempDirectory, {
@@ -593,12 +826,15 @@ async function withLoadedPluginFixture(
     markedTokenAutoCompactionThreshold: 5_000,
   });
   const originalSeamLogPath = process.env.OPENCODE_CONTEXT_COMPRESSION_SEAM_LOG;
-  const originalRuntimeLogPath = process.env.OPENCODE_CONTEXT_COMPRESSION_RUNTIME_LOG_PATH;
-  const originalRuntimeConfigPath = process.env.OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH;
+  const originalRuntimeLogPath =
+    process.env.OPENCODE_CONTEXT_COMPRESSION_RUNTIME_LOG_PATH;
+  const originalRuntimeConfigPath =
+    process.env.OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH;
 
   process.env.OPENCODE_CONTEXT_COMPRESSION_SEAM_LOG = seamLogPath;
   process.env.OPENCODE_CONTEXT_COMPRESSION_RUNTIME_LOG_PATH = runtimeLogPath;
-  process.env.OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH = runtimeConfigPath;
+  process.env.OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH =
+    runtimeConfigPath;
 
   try {
     const pluginModule = (await import(pathToFileURL(PLUGIN_ENTRY).href)) as {
@@ -627,13 +863,15 @@ async function withLoadedPluginFixture(
     if (originalRuntimeLogPath === undefined) {
       delete process.env.OPENCODE_CONTEXT_COMPRESSION_RUNTIME_LOG_PATH;
     } else {
-      process.env.OPENCODE_CONTEXT_COMPRESSION_RUNTIME_LOG_PATH = originalRuntimeLogPath;
+      process.env.OPENCODE_CONTEXT_COMPRESSION_RUNTIME_LOG_PATH =
+        originalRuntimeLogPath;
     }
 
     if (originalRuntimeConfigPath === undefined) {
       delete process.env.OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH;
     } else {
-      process.env.OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH = originalRuntimeConfigPath;
+      process.env.OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH =
+        originalRuntimeConfigPath;
     }
 
     await releaseSessionFileLock({
@@ -649,16 +887,23 @@ function readMessagesTransformHook(hooks: Record<string, unknown>) {
     | ((input: unknown, output: MessagesTransformOutput) => Promise<void>)
     | undefined;
   if (transform === undefined) {
-    throw new Error("experimental.chat.messages.transform hook missing from loaded plugin");
+    throw new Error(
+      "experimental.chat.messages.transform hook missing from loaded plugin",
+    );
   }
 
   return transform;
 }
 
 function readToolRegistry(hooks: Record<string, unknown>) {
-  const toolRegistry = (hooks as {
-    tool?: Record<string, { execute(args: unknown, context: unknown): Promise<string> }>;
-  }).tool;
+  const toolRegistry = (
+    hooks as {
+      tool?: Record<
+        string,
+        { execute(args: unknown, context: unknown): Promise<string> }
+      >;
+    }
+  ).tool;
   if (!toolRegistry || typeof toolRegistry !== "object") {
     throw new Error("tool registry missing from loaded plugin");
   }
@@ -668,7 +913,10 @@ function readToolRegistry(hooks: Record<string, unknown>) {
 
 function readToolExecuteBeforeHook(hooks: Record<string, unknown>) {
   const hook = hooks["tool.execute.before"] as
-    | ((input: { tool: string; sessionID: string; callID: string }, output: { args: unknown }) => Promise<void>)
+    | ((
+        input: { tool: string; sessionID: string; callID: string },
+        output: { args: unknown },
+      ) => Promise<void>)
     | undefined;
   if (hook === undefined) {
     throw new Error("tool.execute.before hook missing from loaded plugin");
@@ -677,7 +925,9 @@ function readToolExecuteBeforeHook(hooks: Record<string, unknown>) {
   return hook;
 }
 
-function createMutableSessionHistory(messages: readonly TransformEnvelope[]): TransformEnvelope[] {
+function createMutableSessionHistory(
+  messages: readonly TransformEnvelope[],
+): TransformEnvelope[] {
   return messages.map((message) => structuredClone(message));
 }
 
@@ -763,7 +1013,11 @@ function createChatParamsInput(
       },
       options: providerInfo?.options ?? {},
     },
-    message: createMessage({ id: messageID, role: "user", created: 999 }) as ChatParamsInput["message"],
+    message: createMessage({
+      id: messageID,
+      role: "user",
+      created: 999,
+    }) as ChatParamsInput["message"],
   };
 }
 
@@ -798,7 +1052,10 @@ function createSafeTransport(
 }
 
 function installFetchMock(
-  mock: (input: string | URL | Request, init?: RequestInit) => Promise<Response>,
+  mock: (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ) => Promise<Response>,
 ): () => void {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = mock;
@@ -807,7 +1064,10 @@ function installFetchMock(
   };
 }
 
-function schedulerRuntimePrompt(seamLogPath: string, tempDirectory: string): string {
+function schedulerRuntimePrompt(
+  seamLogPath: string,
+  tempDirectory: string,
+): string {
   return loadRuntimeConfig({
     ...process.env,
     [RUNTIME_CONFIG_ENV.configPath]: writeE2ERuntimeConfig(tempDirectory, {
@@ -815,7 +1075,10 @@ function schedulerRuntimePrompt(seamLogPath: string, tempDirectory: string): str
       reminderHhard: 1_999_999,
       markedTokenAutoCompactionThreshold: 5_000,
     }),
-    [RUNTIME_CONFIG_ENV.runtimeLogPath]: join(tempDirectory, "runtime-events.jsonl"),
+    [RUNTIME_CONFIG_ENV.runtimeLogPath]: join(
+      tempDirectory,
+      "runtime-events.jsonl",
+    ),
     [RUNTIME_CONFIG_ENV.seamLogPath]: seamLogPath,
   }).promptText;
 }
@@ -836,7 +1099,8 @@ function writeE2ERuntimeConfig(
         version: 1,
         promptPath: "prompts/compaction.md",
         compactionModels: ["openai.doro/gpt-5.4-mini"],
-        markedTokenAutoCompactionThreshold: input.markedTokenAutoCompactionThreshold,
+        markedTokenAutoCompactionThreshold:
+          input.markedTokenAutoCompactionThreshold,
         smallUserMessageThreshold: 1_024,
         reminder: {
           hsoft: input.reminderHsoft,
@@ -885,11 +1149,18 @@ function createToolContext(input: {
   };
 }
 
-function createEnvelope(info: TransformMessage, parts: TransformPart[]): TransformEnvelope {
+function createEnvelope(
+  info: TransformMessage,
+  parts: TransformPart[],
+): TransformEnvelope {
   return { info, parts };
 }
 
-function createMessage(input: { readonly id: string; readonly role: string; readonly created: number }): TransformMessage {
+function createMessage(input: {
+  readonly id: string;
+  readonly role: string;
+  readonly created: number;
+}): TransformMessage {
   return {
     id: input.id,
     sessionID: "test-session",
@@ -915,10 +1186,15 @@ function createTextPart(messageID: string, text: string): TransformPart {
 
 function readVisibleMessageID(message: TransformEnvelope | undefined): string {
   const text = message ? readText(message) : undefined;
-  const match = typeof text === "string" ? /^\[(?:protected|referable|compressible)_([^\]]+)\]/u.exec(text) : null;
+  const match =
+    typeof text === "string"
+      ? /^\[(?:protected|referable|compressible)_([^\]]+)\]/u.exec(text)
+      : null;
   const visibleMessageID = match?.[1];
   if (typeof visibleMessageID !== "string" || visibleMessageID.length === 0) {
-    throw new Error(`Unable to read visible message id from projected text '${String(text)}'.`);
+    throw new Error(
+      `Unable to read visible message id from projected text '${String(text)}'.`,
+    );
   }
 
   return visibleMessageID;
@@ -939,7 +1215,13 @@ function parseObservationLog(serialized: string): Array<{
     .split(/\r?\n/u)
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
-    .map((line) => JSON.parse(line) as { seam: string; identityFields: Array<{ path: string; value: string }> });
+    .map(
+      (line) =>
+        JSON.parse(line) as {
+          seam: string;
+          identityFields: Array<{ path: string; value: string }>;
+        },
+    );
 }
 
 function querySqlite(databasePath: string, query: string): string[] {
@@ -955,7 +1237,9 @@ function querySqlite(databasePath: string, query: string): string[] {
 
 function singleValue(values: readonly string[], label: string): string {
   if (values.length !== 1) {
-    throw new Error(`Expected exactly one ${label}, received ${values.length}.`);
+    throw new Error(
+      `Expected exactly one ${label}, received ${values.length}.`,
+    );
   }
 
   return values[0]!;
@@ -971,7 +1255,9 @@ async function waitForRunningLock(
   for (let attempt = 0; attempt < 50; attempt += 1) {
     if (backgroundErrors.length > 0) {
       const [firstError] = backgroundErrors;
-      throw firstError instanceof Error ? firstError : new Error(String(firstError));
+      throw firstError instanceof Error
+        ? firstError
+        : new Error(String(firstError));
     }
 
     const state = await readSessionFileLock({

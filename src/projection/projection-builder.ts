@@ -6,8 +6,16 @@ import type {
 } from "../state/store.js";
 import type { ReminderRuntimeConfig } from "../config/runtime-config.js";
 import { ensureReferableVisibleMessageIdentity } from "../identity/visible-sequence.js";
-import type { TransformEnvelope, TransformMessage, TransformPart } from "../seams/noop-observation.js";
-import { buildProjectionPolicy, type ProjectionPolicy, type ProjectionVisibleState } from "./policy-engine.js";
+import type {
+  TransformEnvelope,
+  TransformMessage,
+  TransformPart,
+} from "../seams/noop-observation.js";
+import {
+  buildProjectionPolicy,
+  type ProjectionPolicy,
+  type ProjectionVisibleState,
+} from "./policy-engine.js";
 import { deriveReminder, type DerivedReminder } from "./reminder-service.js";
 
 const LEGACY_ROLE_PREFIX_PATTERN = /^(?:assistant|user|tool)_/;
@@ -38,26 +46,32 @@ interface AppliedReplacementSpan {
   readonly visibleMessageID: string;
 }
 
-export function buildProjectedMessages(options: ProjectionBuilderOptions): ProjectionBuildResult {
+export function buildProjectedMessages(
+  options: ProjectionBuilderOptions,
+): ProjectionBuildResult {
   const policy = buildProjectionPolicy({
     messages: options.messages,
     store: options.store,
     smallUserMessageThreshold: options.smallUserMessageThreshold,
   });
-  const reminder = deriveReminder({
-    policy,
-    cadence: options.reminder,
-    templates: options.reminder
-      ? {
+  const reminder = options.reminder
+    ? deriveReminder({
+        policy,
+        cadence: options.reminder,
+        templates: {
           soft: options.reminder.prompts.softText,
           hard: options.reminder.prompts.hardText,
-        }
-      : undefined,
-    modelName: options.reminderModelName,
-  });
+        },
+        modelName: options.reminderModelName,
+      })
+    : undefined;
   const appliedSpans = collectAppliedReplacementSpans(policy, options.store);
-  const spanByStartIndex = new Map(appliedSpans.map((span) => [span.startIndex, span]));
-  const hiddenToolCallMessageIDs = new Set(appliedSpans.flatMap((span) => span.hiddenToolCallMessageIDs));
+  const spanByStartIndex = new Map(
+    appliedSpans.map((span) => [span.startIndex, span]),
+  );
+  const hiddenToolCallMessageIDs = new Set(
+    appliedSpans.flatMap((span) => span.hiddenToolCallMessageIDs),
+  );
   const projectedMessages: TransformEnvelope[] = [];
   let reminderInserted = false;
 
@@ -90,7 +104,13 @@ export function buildProjectedMessages(options: ProjectionBuilderOptions): Proje
       continue;
     }
 
-    projectedMessages.push(renderCanonicalMessage(message.envelope, message.visibleState, message.visible.visibleMessageID));
+    projectedMessages.push(
+      renderCanonicalMessage(
+        message.envelope,
+        message.visibleState,
+        message.visible.visibleMessageID,
+      ),
+    );
     if (
       reminder !== undefined &&
       !reminderInserted &&
@@ -111,7 +131,9 @@ export function buildProjectedMessages(options: ProjectionBuilderOptions): Proje
     projectedMessages,
     policy,
     reminder,
-    appliedReplacementIDs: appliedSpans.map((span) => span.replacement.replacementID),
+    appliedReplacementIDs: appliedSpans.map(
+      (span) => span.replacement.replacementID,
+    ),
     hiddenToolCallMessageIDs: [...hiddenToolCallMessageIDs].sort(),
   };
 }
@@ -123,9 +145,14 @@ function collectAppliedReplacementSpans(
   const candidates: AppliedReplacementSpan[] = [];
   const seenReplacementIDs = new Set<string>();
 
-  for (const mark of store.listMarks().filter((mark) => mark.status !== "invalid")) {
+  for (const mark of store
+    .listMarks()
+    .filter((mark) => mark.status !== "invalid")) {
     const replacement = store.findFirstCommittedReplacementForMark(mark.markID);
-    if (replacement === undefined || seenReplacementIDs.has(replacement.replacementID)) {
+    if (
+      replacement === undefined ||
+      seenReplacementIDs.has(replacement.replacementID)
+    ) {
       continue;
     }
 
@@ -142,18 +169,26 @@ function collectAppliedReplacementSpans(
     (left, right) =>
       left.startIndex - right.startIndex ||
       left.replacement.committedAtMs - right.replacement.committedAtMs ||
-      left.replacement.replacementID.localeCompare(right.replacement.replacementID),
+      left.replacement.replacementID.localeCompare(
+        right.replacement.replacementID,
+      ),
   );
 
   const occupiedIndexes = new Set<number>();
   const selected: AppliedReplacementSpan[] = [];
   for (const candidate of candidates) {
-    if (rangeOverlaps(candidate.startIndex, candidate.endIndex, occupiedIndexes)) {
+    if (
+      rangeOverlaps(candidate.startIndex, candidate.endIndex, occupiedIndexes)
+    ) {
       continue;
     }
 
     selected.push(candidate);
-    for (let index = candidate.startIndex; index <= candidate.endIndex; index += 1) {
+    for (
+      let index = candidate.startIndex;
+      index <= candidate.endIndex;
+      index += 1
+    ) {
       occupiedIndexes.add(index);
     }
   }
@@ -166,24 +201,32 @@ function createAppliedReplacementSpan(
   policy: ProjectionPolicy,
   store: SqliteSessionStateStore,
 ): AppliedReplacementSpan | undefined {
-  if (replacement.status !== "committed" || replacement.invalidatedAtMs !== undefined) {
+  if (
+    replacement.status !== "committed" ||
+    replacement.invalidatedAtMs !== undefined
+  ) {
     return undefined;
   }
 
-  const sourceMessages = store.listReplacementSourceMessages(replacement.replacementID);
+  const sourceMessages = store.listReplacementSourceMessages(
+    replacement.replacementID,
+  );
   if (sourceMessages.length === 0) {
     return undefined;
   }
 
   const sourcePolicyMessages: Array<ProjectionPolicy["messages"][number]> = [];
   for (const sourceMessage of sourceMessages) {
-    const projectedMessage = policy.byHostMessageID.get(sourceMessage.hostMessageID);
+    const projectedMessage = policy.byHostMessageID.get(
+      sourceMessage.hostMessageID,
+    );
     if (projectedMessage === undefined) {
       return undefined;
     }
 
     if (
-      projectedMessage.identity.canonicalMessageID !== sourceMessage.canonicalMessageID ||
+      projectedMessage.identity.canonicalMessageID !==
+        sourceMessage.canonicalMessageID ||
       projectedMessage.identity.role !== sourceMessage.hostRole ||
       projectedMessage.visibleState === "protected"
     ) {
@@ -201,7 +244,10 @@ function createAppliedReplacementSpan(
   const links = store.listReplacementMarkLinks(replacement.replacementID);
   const hiddenToolCallMessageIDs = links
     .map((link) => store.getMark(link.markID)?.toolCallMessageID)
-    .filter((toolCallMessageID): toolCallMessageID is string => toolCallMessageID !== undefined);
+    .filter(
+      (toolCallMessageID): toolCallMessageID is string =>
+        toolCallMessageID !== undefined,
+    );
 
   const referableIdentity = ensureReferableVisibleMessageIdentity(
     store,
@@ -222,7 +268,11 @@ function createAppliedReplacementSpan(
   };
 }
 
-function rangeOverlaps(startIndex: number, endIndex: number, occupiedIndexes: ReadonlySet<number>): boolean {
+function rangeOverlaps(
+  startIndex: number,
+  endIndex: number,
+  occupiedIndexes: ReadonlySet<number>,
+): boolean {
   for (let index = startIndex; index <= endIndex; index += 1) {
     if (occupiedIndexes.has(index)) {
       return true;
@@ -254,7 +304,13 @@ function renderCanonicalMessage(
   const info = structuredClone(envelope.info);
   const parts = structuredClone(envelope.parts);
 
-  applyRenderedTextPrefix(parts, info, visibleState, visibleMessageID, readPrimaryMessageText(parts));
+  applyRenderedTextPrefix(
+    parts,
+    info,
+    visibleState,
+    visibleMessageID,
+    readPrimaryMessageText(parts),
+  );
 
   return {
     info,
@@ -262,13 +318,19 @@ function renderCanonicalMessage(
   };
 }
 
-function renderAppliedReplacement(span: AppliedReplacementSpan, policy: ProjectionPolicy): TransformEnvelope {
+function renderAppliedReplacement(
+  span: AppliedReplacementSpan,
+  policy: ProjectionPolicy,
+): TransformEnvelope {
   const baseMessage = policy.messages[span.startIndex];
   if (baseMessage === undefined) {
-    throw new Error(`Missing base message at index ${span.startIndex} for replacement '${span.replacement.replacementID}'.`);
+    throw new Error(
+      `Missing base message at index ${span.startIndex} for replacement '${span.replacement.replacementID}'.`,
+    );
   }
 
-  const info = structuredClone(baseMessage.envelope.info) as TransformMessage & Record<string, unknown>;
+  const info = structuredClone(baseMessage.envelope.info) as TransformMessage &
+    Record<string, unknown>;
   // Present the synthetic replacement as assistant-authored so compacted summaries are not projected as user/tool turns.
   info.role = "assistant";
   delete info.parentID;
@@ -282,13 +344,19 @@ function renderAppliedReplacement(span: AppliedReplacementSpan, policy: Projecti
   });
 }
 
-function renderReminder(reminder: DerivedReminder, policy: ProjectionPolicy): TransformEnvelope {
+function renderReminder(
+  reminder: DerivedReminder,
+  policy: ProjectionPolicy,
+): TransformEnvelope {
   const anchor = policy.byHostMessageID.get(reminder.anchorHostMessageID);
   if (anchor === undefined) {
-    throw new Error(`Missing reminder anchor '${reminder.anchorHostMessageID}'.`);
+    throw new Error(
+      `Missing reminder anchor '${reminder.anchorHostMessageID}'.`,
+    );
   }
 
-  const info = structuredClone(anchor.envelope.info) as TransformMessage & Record<string, unknown>;
+  const info = structuredClone(anchor.envelope.info) as TransformMessage &
+    Record<string, unknown>;
   info.id = `${anchor.identity.hostMessageID}:dcp-reminder:${reminder.severity}`;
   info.role = "assistant";
   delete info.parentID;
@@ -309,7 +377,11 @@ function createSyntheticTextEnvelope(input: {
   readonly visibleMessageID: string;
   readonly text: string;
 }): TransformEnvelope {
-  const prefixText = renderPrefixedText(input.visibleState, input.visibleMessageID, input.text);
+  const prefixText = renderPrefixedText(
+    input.visibleState,
+    input.visibleMessageID,
+    input.text,
+  );
 
   return {
     info: input.info,
@@ -332,7 +404,11 @@ function applyRenderedTextPrefix(
   visibleMessageID: string,
   currentPrimaryText: string | undefined,
 ): void {
-  const renderedText = renderPrefixedText(visibleState, visibleMessageID, currentPrimaryText);
+  const renderedText = renderPrefixedText(
+    visibleState,
+    visibleMessageID,
+    currentPrimaryText,
+  );
   const firstTextPart = parts.find(isTextPart);
   if (firstTextPart !== undefined) {
     firstTextPart.text = renderedText;
@@ -348,11 +424,18 @@ function applyRenderedTextPrefix(
   } as TransformPart);
 }
 
-function isTextPart(part: TransformPart): part is TransformPart & { type: "text"; text: string } {
-  return part.type === "text" && typeof (part as Record<string, unknown>).text === "string";
+function isTextPart(
+  part: TransformPart,
+): part is TransformPart & { type: "text"; text: string } {
+  return (
+    part.type === "text" &&
+    typeof (part as Record<string, unknown>).text === "string"
+  );
 }
 
-function readPrimaryMessageText(parts: readonly TransformPart[]): string | undefined {
+function readPrimaryMessageText(
+  parts: readonly TransformPart[],
+): string | undefined {
   const firstTextPart = parts.find(isTextPart);
   return firstTextPart?.text;
 }
@@ -362,7 +445,8 @@ function renderPrefixedText(
   visibleMessageID: string,
   text: string | undefined,
 ): string {
-  const bareVisibleMessageID = normalizeVisibleMessageIDForRender(visibleMessageID);
+  const bareVisibleMessageID =
+    normalizeVisibleMessageIDForRender(visibleMessageID);
   const prefix = `[${visibleState}_${bareVisibleMessageID}]`;
   return text && text.length > 0 ? `${prefix} ${text}` : prefix;
 }
@@ -371,7 +455,9 @@ function normalizeVisibleMessageIDForRender(visibleMessageID: string): string {
   let normalized = visibleMessageID;
 
   while (true) {
-    const statePrefixMatch = /^(protected|referable|compressible)_(.+)$/u.exec(normalized);
+    const statePrefixMatch = /^(protected|referable|compressible)_(.+)$/u.exec(
+      normalized,
+    );
     if (statePrefixMatch === null) {
       break;
     }
@@ -382,8 +468,14 @@ function normalizeVisibleMessageIDForRender(visibleMessageID: string): string {
   return normalized.replace(LEGACY_ROLE_PREFIX_PATTERN, "");
 }
 
-function readReplacementText(replacement: ReplacementRecord, sourceCount: number): string {
-  if (replacement.contentText !== undefined && replacement.contentText.length > 0) {
+function readReplacementText(
+  replacement: ReplacementRecord,
+  sourceCount: number,
+): string {
+  if (
+    replacement.contentText !== undefined &&
+    replacement.contentText.length > 0
+  ) {
     return replacement.contentText;
   }
 

@@ -5,11 +5,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { runCompactionBatch, type CompactionRunnerTransport } from "../../src/compaction/runner.js";
+import {
+  runCompactionBatch,
+  type CompactionRunnerTransport,
+} from "../../src/compaction/runner.js";
 import { computeVisibleChecksum } from "../../src/identity/visible-sequence.js";
 import { persistMark } from "../../src/marks/mark-service.js";
 import { createMessagesTransformHook } from "../../src/projection/messages-transform.js";
-import { createSqliteSessionStateStore, type SqliteSessionStateStore } from "../../src/state/store.js";
+import {
+  createSqliteSessionStateStore,
+  type SqliteSessionStateStore,
+} from "../../src/state/store.js";
 import type {
   MessagesTransformOutput,
   TransformEnvelope,
@@ -18,95 +24,114 @@ import type {
 } from "../../src/seams/noop-observation.js";
 
 test("delete route commits through the same replacement framework, projects a delete notice, and persists SQLite sidecar state", async () => {
-  await withTempEnvironment(async ({ projectDirectory, lockDirectory, store, clock }) => {
-    const canonicalMessages = [
-      createEnvelope(createMessage({ id: "user-1", role: "user", created: 1 }), [createTextPart("user-1", "alpha")]),
-      createEnvelope(createMessage({ id: "assistant-1", role: "assistant", created: 2 }), [createTextPart("assistant-1", "beta")]),
-      createEnvelope(createMessage({ id: "mark-tool-1", role: "tool", created: 3 }), [createTextPart("mark-tool-1", "mark: delete")]),
-      createEnvelope(createMessage({ id: "assistant-2", role: "assistant", created: 4 }), [createTextPart("assistant-2", "omega")]),
-    ];
+  await withTempEnvironment(
+    async ({ projectDirectory, lockDirectory, store, clock }) => {
+      const canonicalMessages = [
+        createEnvelope(
+          createMessage({ id: "user-1", role: "user", created: 1 }),
+          [createTextPart("user-1", "alpha")],
+        ),
+        createEnvelope(
+          createMessage({ id: "assistant-1", role: "assistant", created: 2 }),
+          [createTextPart("assistant-1", "beta")],
+        ),
+        createEnvelope(
+          createMessage({ id: "mark-tool-1", role: "tool", created: 3 }),
+          [createTextPart("mark-tool-1", "mark: delete")],
+        ),
+        createEnvelope(
+          createMessage({ id: "assistant-2", role: "assistant", created: 4 }),
+          [createTextPart("assistant-2", "omega")],
+        ),
+      ];
 
-    syncMessages(store, clock, canonicalMessages);
-    persistMark({
-      store,
-      markID: "mark-delete-1",
-      toolCallMessageID: "mark-tool-1",
-      route: "delete",
-      createdAtMs: clock.tick(),
-      sourceMessages: [{ hostMessageID: "user-1" }, { hostMessageID: "assistant-1" }],
-    });
+      syncMessages(store, clock, canonicalMessages);
+      persistMark({
+        store,
+        markID: "mark-delete-1",
+        toolCallMessageID: "mark-tool-1",
+        route: "delete",
+        createdAtMs: clock.tick(),
+        sourceMessages: [
+          { hostMessageID: "user-1" },
+          { hostMessageID: "assistant-1" },
+        ],
+      });
 
-    const result = await runCompactionBatch({
-      store,
-      lockDirectory,
-      sessionID: store.sessionID,
-      promptText: "Produce a delete notice for the selected canonical span.",
-      models: ["model-delete"],
-      transport: createSafeTransport(async (request) => {
-        assert.equal(request.input.route, "delete");
-        assert.deepEqual(
-          request.input.sourceMessages.map((message) => message.hostMessageID),
-          ["user-1", "assistant-1"],
-        );
-        return { contentText: "Deleted source span notice." };
-      }),
-      loadCanonicalSourceMessages: createCanonicalLoader({
-        "user-1": "alpha",
-        "assistant-1": "beta",
-      }),
-      now: () => clock.tick(),
-    });
+      const result = await runCompactionBatch({
+        store,
+        lockDirectory,
+        sessionID: store.sessionID,
+        promptText: "Produce a delete notice for the selected canonical span.",
+        models: ["model-delete"],
+        transport: createSafeTransport(async (request) => {
+          assert.equal(request.input.route, "delete");
+          assert.deepEqual(
+            request.input.sourceMessages.map(
+              (message) => message.hostMessageID,
+            ),
+            ["user-1", "assistant-1"],
+          );
+          return { contentText: "Deleted source span notice." };
+        }),
+        loadCanonicalSourceMessages: createCanonicalLoader({
+          "user-1": "alpha",
+          "assistant-1": "beta",
+        }),
+        now: () => clock.tick(),
+      });
 
-    assert.equal(result.started, true);
-    if (!result.started) {
-      assert.fail("expected delete-route compaction to start");
-    }
+      assert.equal(result.started, true);
+      if (!result.started) {
+        assert.fail("expected delete-route compaction to start");
+      }
 
-    assert.equal(result.finalStatus, "succeeded");
-    assert.equal(result.jobs[0]?.replacement?.route, "delete");
+      assert.equal(result.finalStatus, "succeeded");
+      assert.equal(result.jobs[0]?.replacement?.route, "delete");
 
-    const transform = createMessagesTransformHook({
-      pluginDirectory: projectDirectory,
-    });
-    const output = {
-      messages: canonicalMessages.map((message) => structuredClone(message)),
-    } satisfies MessagesTransformOutput;
+      const transform = createMessagesTransformHook({
+        pluginDirectory: projectDirectory,
+      });
+      const output = {
+        messages: canonicalMessages.map((message) => structuredClone(message)),
+      } satisfies MessagesTransformOutput;
 
-    await transform({}, output);
+      await transform({}, output);
 
-    assert.deepEqual(
-      output.messages.map(readText),
-      [
+      assert.deepEqual(output.messages.map(readText), [
         `[referable_000001_${computeVisibleChecksum("user-1")}] Deleted source span notice.`,
         `[compressible_000004_${computeVisibleChecksum("assistant-2")}] omega`,
-      ],
-    );
-    assert.deepEqual(
-      querySqlite(
-        store.databasePath,
-        "SELECT route || '|' || status || '|' || COALESCE(content_text, '') FROM replacements ORDER BY replacement_id;",
-      ),
-      ["delete|committed|Deleted source span notice."],
-    );
-    assert.deepEqual(
-      querySqlite(
-        store.databasePath,
-        "SELECT snapshot_kind || '|' || route || '|' || source_count FROM source_snapshots ORDER BY snapshot_kind, snapshot_id;",
-      ),
-      ["mark|delete|2", "replacement|delete|2"],
-    );
-    assert.deepEqual(
-      querySqlite(
-        store.databasePath,
-        "SELECT replacements.route || '|' || replacement_mark_links.link_kind FROM replacements JOIN replacement_mark_links ON replacements.replacement_id = replacement_mark_links.replacement_id ORDER BY replacements.replacement_id;",
-      ),
-      ["delete|consumed"],
-    );
-    assert.deepEqual(
-      querySqlite(store.databasePath, "SELECT mark_id || '|' || status FROM marks ORDER BY mark_id;"),
-      ["mark-delete-1|consumed"],
-    );
-  });
+      ]);
+      assert.deepEqual(
+        querySqlite(
+          store.databasePath,
+          "SELECT route || '|' || status || '|' || COALESCE(content_text, '') FROM replacements ORDER BY replacement_id;",
+        ),
+        ["delete|committed|Deleted source span notice."],
+      );
+      assert.deepEqual(
+        querySqlite(
+          store.databasePath,
+          "SELECT snapshot_kind || '|' || route || '|' || source_count FROM source_snapshots ORDER BY snapshot_kind, snapshot_id;",
+        ),
+        ["mark|delete|2", "replacement|delete|2"],
+      );
+      assert.deepEqual(
+        querySqlite(
+          store.databasePath,
+          "SELECT replacements.route || '|' || replacement_mark_links.link_kind FROM replacements JOIN replacement_mark_links ON replacements.replacement_id = replacement_mark_links.replacement_id ORDER BY replacements.replacement_id;",
+        ),
+        ["delete|consumed"],
+      );
+      assert.deepEqual(
+        querySqlite(
+          store.databasePath,
+          "SELECT mark_id || '|' || status FROM marks ORDER BY mark_id;",
+        ),
+        ["mark-delete-1|consumed"],
+      );
+    },
+  );
 });
 
 async function withTempEnvironment(
@@ -117,7 +142,9 @@ async function withTempEnvironment(
     clock: ReturnType<typeof createClock>;
   }) => Promise<void>,
 ): Promise<void> {
-  const projectDirectory = await mkdtemp(join(tmpdir(), "opencode-context-compression-e2e-delete-"));
+  const projectDirectory = await mkdtemp(
+    join(tmpdir(), "opencode-context-compression-e2e-delete-"),
+  );
   const lockDirectory = join(projectDirectory, "locks");
   const clock = createClock();
   const store = createSqliteSessionStateStore({
@@ -146,7 +173,10 @@ function syncMessages(
       hostMessageID: message.info.id,
       canonicalMessageID: message.info.id,
       role: message.info.role,
-      hostCreatedAtMs: typeof message.info.time?.created === "number" ? message.info.time.created : undefined,
+      hostCreatedAtMs:
+        typeof message.info.time?.created === "number"
+          ? message.info.time.created
+          : undefined,
     })),
   });
 }
@@ -185,7 +215,9 @@ function createCanonicalLoader(contentByHostMessageID: Record<string, string>) {
     sourceMessages.map((sourceMessage) => {
       const content = contentByHostMessageID[sourceMessage.hostMessageID];
       if (content === undefined) {
-        throw new Error(`Missing canonical content for '${sourceMessage.hostMessageID}'.`);
+        throw new Error(
+          `Missing canonical content for '${sourceMessage.hostMessageID}'.`,
+        );
       }
 
       return {
@@ -197,7 +229,10 @@ function createCanonicalLoader(contentByHostMessageID: Record<string, string>) {
     });
 }
 
-function createEnvelope(info: TransformMessage, parts: TransformPart[]): TransformEnvelope {
+function createEnvelope(
+  info: TransformMessage,
+  parts: TransformPart[],
+): TransformEnvelope {
   return { info, parts };
 }
 

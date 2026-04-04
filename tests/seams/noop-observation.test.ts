@@ -31,22 +31,19 @@ test("experimental.chat.messages.transform stays no-op while recording identity-
   const observation = journal.entries[0];
   assert.ok(observation);
   assert.equal(observation?.seam, "experimental.chat.messages.transform");
-  assert.deepEqual(
-    observation?.identityFields,
-    [
-      { path: "output.messages[0].info.id", value: "user-1" },
-      { path: "output.messages[0].info.sessionID", value: "session-1" },
-      { path: "output.messages[0].parts[0].id", value: "part-user-1" },
-      { path: "output.messages[0].parts[0].sessionID", value: "session-1" },
-      { path: "output.messages[0].parts[0].messageID", value: "user-1" },
-      { path: "output.messages[1].info.id", value: "assistant-1" },
-      { path: "output.messages[1].info.sessionID", value: "session-1" },
-      { path: "output.messages[1].info.parentID", value: "user-1" },
-      { path: "output.messages[1].parts[0].id", value: "part-assistant-1" },
-      { path: "output.messages[1].parts[0].sessionID", value: "session-1" },
-      { path: "output.messages[1].parts[0].messageID", value: "assistant-1" },
-    ],
-  );
+  assert.deepEqual(observation?.identityFields, [
+    { path: "output.messages[0].info.id", value: "user-1" },
+    { path: "output.messages[0].info.sessionID", value: "session-1" },
+    { path: "output.messages[0].parts[0].id", value: "part-user-1" },
+    { path: "output.messages[0].parts[0].sessionID", value: "session-1" },
+    { path: "output.messages[0].parts[0].messageID", value: "user-1" },
+    { path: "output.messages[1].info.id", value: "assistant-1" },
+    { path: "output.messages[1].info.sessionID", value: "session-1" },
+    { path: "output.messages[1].info.parentID", value: "user-1" },
+    { path: "output.messages[1].parts[0].id", value: "part-assistant-1" },
+    { path: "output.messages[1].parts[0].sessionID", value: "session-1" },
+    { path: "output.messages[1].parts[0].messageID", value: "assistant-1" },
+  ]);
 
   const outputShape = expectObjectShape(observation.outputShape);
   assert.deepEqual(outputShape.keys, ["messages"]);
@@ -125,7 +122,10 @@ test("chat.params and tool.execute.before observations preserve call order and i
   await toolExecuteBefore(toolInput, toolOutput);
 
   assert.deepEqual(
-    journal.entries.map((entry) => ({ seam: entry.seam, sequence: entry.sequence })),
+    journal.entries.map((entry) => ({
+      seam: entry.seam,
+      sequence: entry.sequence,
+    })),
     [
       { seam: "chat.params", sequence: 1 },
       { seam: "tool.execute.before", sequence: 2 },
@@ -258,7 +258,9 @@ function createChatModel(): ChatParamsInput["model"] {
   };
 }
 
-function createProviderContext(model: ChatParamsInput["model"]): ChatParamsInput["provider"] {
+function createProviderContext(
+  model: ChatParamsInput["model"],
+): ChatParamsInput["provider"] {
   return {
     source: "custom",
     info: {
@@ -279,14 +281,18 @@ function createProviderContext(model: ChatParamsInput["model"]): ChatParamsInput
   };
 }
 
-function expectObjectShape(shape: ShapeSummary | undefined): Extract<ShapeSummary, { kind: "object" }> {
+function expectObjectShape(
+  shape: ShapeSummary | undefined,
+): Extract<ShapeSummary, { kind: "object" }> {
   assert.ok(shape);
   assert.equal(shape.kind, "object");
 
   return shape as Extract<ShapeSummary, { kind: "object" }>;
 }
 
-function expectArrayShape(shape: ShapeSummary | undefined): Extract<ShapeSummary, { kind: "array" }> {
+function expectArrayShape(
+  shape: ShapeSummary | undefined,
+): Extract<ShapeSummary, { kind: "array" }> {
   assert.ok(shape);
   assert.equal(shape.kind, "array");
 
@@ -294,7 +300,10 @@ function expectArrayShape(shape: ShapeSummary | undefined): Extract<ShapeSummary
 }
 
 function deepFreeze<T>(value: T): T {
-  if (value !== null && (typeof value === "object" || typeof value === "function")) {
+  if (
+    value !== null &&
+    (typeof value === "object" || typeof value === "function")
+  ) {
     Object.freeze(value);
 
     for (const nestedValue of Object.values(value as Record<string, unknown>)) {

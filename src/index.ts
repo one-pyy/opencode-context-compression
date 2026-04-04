@@ -1,3 +1,5 @@
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import type { Hooks, Plugin, PluginInput } from "@opencode-ai/plugin";
 
 import { loadRuntimeConfig } from "./config/runtime-config.js";
@@ -6,7 +8,10 @@ import { createMessagesTransformHook } from "./projection/messages-transform.js"
 import { createChatParamsSchedulerHook } from "./runtime/chat-params-scheduler.js";
 import { createSendEntryGateHooks } from "./runtime/send-entry-gate.js";
 import { createFileBackedSeamObservationJournal } from "./seams/file-journal.js";
-import { createNoopObservationHooks, createSeamObservationJournal } from "./seams/noop-observation.js";
+import {
+  createNoopObservationHooks,
+  createSeamObservationJournal,
+} from "./seams/noop-observation.js";
 
 const plugin: Plugin = async (ctx) => {
   const runtimeConfig = loadRuntimeConfig();
@@ -27,15 +32,19 @@ const plugin: Plugin = async (ctx) => {
   });
 
   const observedChatParams = hooks["chat.params"];
-  const observedMessagesTransform = hooks["experimental.chat.messages.transform"];
+  const observedMessagesTransform =
+    hooks["experimental.chat.messages.transform"];
   const observedToolExecuteBefore = hooks["tool.execute.before"];
-const chatParamsScheduler = createChatParamsSchedulerHook({
-pluginDirectory: ctx.directory,
-client: ctx.client,
-runtimeConfig,
+  const chatParamsScheduler = createChatParamsSchedulerHook({
+    pluginDirectory: ctx.directory,
+    client: ctx.client,
+    runtimeConfig,
     timeoutMs: runtimeConfig.compressing.timeoutMs,
-    onBackgroundError: createSchedulerErrorHandler(runtimeConfig.runtimeLogPath, runtimeConfig.logging.level),
-});
+    onBackgroundError: createSchedulerErrorHandler(
+      runtimeConfig.runtimeLogPath,
+      runtimeConfig.logging.level,
+    ),
+  });
   const messagesTransform = createMessagesTransformHook({
     pluginDirectory: ctx.directory,
     reminder: runtimeConfig.reminder,
@@ -91,7 +100,9 @@ function recordPluginInitObservation(
             "worktree",
           ],
           entries: {
-            clientPresent: { kind: typeof ctx.client === "object" ? "boolean" : "undefined" },
+            clientPresent: {
+              kind: typeof ctx.client === "object" ? "boolean" : "undefined",
+            },
             clientRootKeys: {
               kind: "array",
               length: clientRootKeys.length,
@@ -120,7 +131,12 @@ function recordPluginInitObservation(
     },
     outputShape: {
       kind: "object",
-      keys: ["clientRootKeys", "clientSessionKeys", "clientSessionMethods", "internalClientKeys"],
+      keys: [
+        "clientRootKeys",
+        "clientSessionKeys",
+        "clientSessionMethods",
+        "internalClientKeys",
+      ],
       entries: {
         clientRootKeys: {
           kind: "array",
@@ -175,7 +191,9 @@ function readOwnKeys(value: unknown): string[] {
   return Object.keys(value as Record<string, unknown>).sort();
 }
 
-function readSessionObject(client: PluginInput["client"]): Record<string, unknown> {
+function readSessionObject(
+  client: PluginInput["client"],
+): Record<string, unknown> {
   const maybeClient = client as unknown;
   if (!maybeClient || typeof maybeClient !== "object") {
     return {};
@@ -203,7 +221,9 @@ function readInternalClientKeys(client: PluginInput["client"]): string[] {
   return Object.keys(internal as Record<string, unknown>).sort();
 }
 
-function readSessionPrototypeMethods(sessionObject: Record<string, unknown>): string[] {
+function readSessionPrototypeMethods(
+  sessionObject: Record<string, unknown>,
+): string[] {
   const proto = Object.getPrototypeOf(sessionObject);
   if (!proto || typeof proto !== "object") {
     return [];
@@ -211,11 +231,17 @@ function readSessionPrototypeMethods(sessionObject: Record<string, unknown>): st
 
   return Object.getOwnPropertyNames(proto)
     .filter((name) => name !== "constructor")
-    .filter((name) => typeof (sessionObject as Record<string, unknown>)[name] === "function")
+    .filter(
+      (name) =>
+        typeof (sessionObject as Record<string, unknown>)[name] === "function",
+    )
     .sort();
 }
 
-function createSchedulerErrorHandler(runtimeLogPath: string, level: string): (error: unknown) => void {
+function createSchedulerErrorHandler(
+  runtimeLogPath: string,
+  level: string,
+): (error: unknown) => void {
   return (error: unknown) => {
     const detail = error instanceof Error ? error.message : String(error);
     const entry = JSON.stringify({
@@ -225,12 +251,11 @@ function createSchedulerErrorHandler(runtimeLogPath: string, level: string): (er
       loggedAtMs: Date.now(),
     });
     try {
-      const { appendFileSync, existsSync, mkdirSync } = require("node:fs");
-      const { dirname } = require("node:path");
       const parent = dirname(runtimeLogPath);
       if (!existsSync(parent)) {
         mkdirSync(parent, { recursive: true });
       }
+      appendFileSync(runtimeLogPath, `${entry}\n`, "utf8");
       appendFileSync(runtimeLogPath, `${entry}\n`, "utf8");
     } catch {
       // Best-effort logging; if the log file cannot be written, the error

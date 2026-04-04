@@ -1,4 +1,7 @@
-import type { VisibleSequenceStore, VisibleMessageIdentity } from "../identity/visible-sequence.js";
+import type {
+  VisibleSequenceStore,
+  VisibleMessageIdentity,
+} from "../identity/visible-sequence.js";
 import { ensureVisibleMessageIdentity } from "../identity/visible-sequence.js";
 import {
   resolveHostMessageCanonicalIdentity,
@@ -7,7 +10,10 @@ import {
 import type { TransformEnvelope } from "../seams/noop-observation.js";
 
 export type ProjectionVisibleState = "protected" | "referable" | "compressible";
-export type CanonicalProjectionVisibleState = Extract<ProjectionVisibleState, "protected" | "compressible">;
+export type CanonicalProjectionVisibleState = Extract<
+  ProjectionVisibleState,
+  "protected" | "compressible"
+>;
 
 export interface CanonicalProjectionMessage {
   readonly envelope: TransformEnvelope;
@@ -28,7 +34,9 @@ export interface BuildProjectionPolicyOptions {
   readonly smallUserMessageThreshold?: number;
 }
 
-export function buildProjectionPolicy(options: BuildProjectionPolicyOptions): ProjectionPolicy {
+export function buildProjectionPolicy(
+  options: BuildProjectionPolicyOptions,
+): ProjectionPolicy {
   const messages = options.messages.map((envelope, index) => {
     const identity = resolveHostMessageCanonicalIdentity(envelope);
 
@@ -37,13 +45,18 @@ export function buildProjectionPolicy(options: BuildProjectionPolicyOptions): Pr
       index,
       identity,
       visible: ensureVisibleMessageIdentity(options.store, identity),
-      visibleState: classifyCanonicalMessage(envelope, options.smallUserMessageThreshold),
+      visibleState: classifyCanonicalMessage(
+        envelope,
+        options.smallUserMessageThreshold,
+      ),
     } satisfies CanonicalProjectionMessage;
   });
 
   return {
     messages,
-    byHostMessageID: new Map(messages.map((message) => [message.identity.hostMessageID, message])),
+    byHostMessageID: new Map(
+      messages.map((message) => [message.identity.hostMessageID, message]),
+    ),
   };
 }
 
@@ -56,7 +69,10 @@ function classifyCanonicalMessage(
     return "protected";
   }
 
-  if (role === "user" && readMessageTextLength(envelope) <= smallUserMessageThreshold) {
+  if (
+    role === "user" &&
+    readMessageTextLength(envelope) <= smallUserMessageThreshold
+  ) {
     return "protected";
   }
 
@@ -65,7 +81,10 @@ function classifyCanonicalMessage(
 
 function readMessageTextLength(envelope: TransformEnvelope): number {
   return envelope.parts.reduce((total, part) => {
-    if (part.type === "text" && typeof (part as { text?: unknown }).text === "string") {
+    if (
+      part.type === "text" &&
+      typeof (part as { text?: unknown }).text === "string"
+    ) {
       return total + (part as { text: string }).text.length;
     }
 

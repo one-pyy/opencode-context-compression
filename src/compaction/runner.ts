@@ -62,7 +62,9 @@ export interface CompactionRunnerTransportRequest {
 
 export interface CompactionRunnerTransport {
   readonly candidate: CompactionTransportCandidate;
-  invoke(request: CompactionRunnerTransportRequest): Awaitable<RawCompactionOutput>;
+  invoke(
+    request: CompactionRunnerTransportRequest,
+  ): Awaitable<RawCompactionOutput>;
 }
 
 export interface LoadCanonicalSourceMessagesOptions {
@@ -79,7 +81,11 @@ export interface CompactionRunnerIDFactory {
   makeBatchID(sessionID: string, seed: number): string;
   makeJobID(batchID: string, markID: string, memberIndex: number): string;
   makeReplacementID(jobID: string, attemptIndex: number): string;
-  makeGateObservationID(batchID: string, phase: string, ordinal: number): string;
+  makeGateObservationID(
+    batchID: string,
+    phase: string,
+    ordinal: number,
+  ): string;
 }
 
 export interface RunCompactionBatchOptions {
@@ -151,10 +157,12 @@ export type RunCompactionBatchResult =
     };
 
 const DEFAULT_ID_FACTORY: CompactionRunnerIDFactory = Object.freeze({
-  makeBatchID: (sessionID: string, seed: number) => `${sessionID}:batch:${seed}`,
+  makeBatchID: (sessionID: string, seed: number) =>
+    `${sessionID}:batch:${seed}`,
   makeJobID: (batchID: string, markID: string, memberIndex: number) =>
     `${batchID}:job:${String(memberIndex).padStart(3, "0")}:${markID}`,
-  makeReplacementID: (jobID: string, attemptIndex: number) => `${jobID}:replacement:${attemptIndex}`,
+  makeReplacementID: (jobID: string, attemptIndex: number) =>
+    `${jobID}:replacement:${attemptIndex}`,
   makeGateObservationID: (batchID: string, phase: string, ordinal: number) =>
     `${batchID}:gate:${phase}:${ordinal}`,
 });
@@ -165,7 +173,9 @@ export async function runCompactionBatch(
   const now = options.now ?? Date.now;
   const models = normalizeModels(options.models);
   const ids = resolveIDFactory(options.ids);
-  const transportAssessment = assessCompactionTransport(options.transport.candidate);
+  const transportAssessment = assessCompactionTransport(
+    options.transport.candidate,
+  );
 
   if (!transportAssessment.safeDefault) {
     return {
@@ -241,7 +251,11 @@ export async function runCompactionBatch(
 
   try {
     for (const batchMember of frozen.persistedMembers) {
-      const jobID = ids.makeJobID(batchID, batchMember.markID, batchMember.memberIndex);
+      const jobID = ids.makeJobID(
+        batchID,
+        batchMember.markID,
+        batchMember.memberIndex,
+      );
       const job = options.store.createCompactionJob({
         jobID,
         batchID,
@@ -271,7 +285,12 @@ export async function runCompactionBatch(
       }
     }
 
-    batch = finalizeBatchStatus(options.store, batchID, finalStatus, options.metadata);
+    batch = finalizeBatchStatus(
+      options.store,
+      batchID,
+      finalStatus,
+      options.metadata,
+    );
 
     const finalObservation = options.store.recordRuntimeGateObservation({
       observationID: gateObservationCounter.next(finalStatus),
@@ -359,13 +378,24 @@ async function runCompactionJob(
   options: RunCompactionJobInternalOptions,
 ): Promise<CompactionJobExecutionResult> {
   const attempts: CompactionJobAttemptRecord[] = [];
-  const sourceSnapshot = resolveCompactionSourceSnapshot(options.store, options.batchMember.sourceSnapshotID);
+  const sourceSnapshot = resolveCompactionSourceSnapshot(
+    options.store,
+    options.batchMember.sourceSnapshotID,
+  );
 
-  const initialIdentity = revalidateCompactionSourceIdentity(options.store, sourceSnapshot.snapshotID);
+  const initialIdentity = revalidateCompactionSourceIdentity(
+    options.store,
+    sourceSnapshot.snapshotID,
+  );
   if (!initialIdentity.matches) {
     const failure = buildSourceRevalidationFailure(initialIdentity.failure);
     return {
-      job: finalizeJobFailure(options.store, options.job.jobID, failure, options.now()),
+      job: finalizeJobFailure(
+        options.store,
+        options.job.jobID,
+        failure,
+        options.now(),
+      ),
       markID: options.batchMember.markID,
       attempts,
       finalFailure: failure,
@@ -396,7 +426,12 @@ async function runCompactionJob(
     };
 
     return {
-      job: finalizeJobFailure(options.store, options.job.jobID, failure, options.now()),
+      job: finalizeJobFailure(
+        options.store,
+        options.job.jobID,
+        failure,
+        options.now(),
+      ),
       markID: options.batchMember.markID,
       attempts,
       finalFailure: failure,
@@ -440,7 +475,12 @@ async function runCompactionJob(
 
       if (modelIndex === options.models.length - 1) {
         return {
-          job: finalizeJobFailure(options.store, options.job.jobID, failure, options.now()),
+          job: finalizeJobFailure(
+            options.store,
+            options.job.jobID,
+            failure,
+            options.now(),
+          ),
           markID: options.batchMember.markID,
           attempts,
           finalFailure: failure,
@@ -450,12 +490,14 @@ async function runCompactionJob(
       continue;
     }
 
-    if (!isJobMutable(options.store, options.job.jobID) || !isBatchMutable(options.store, options.batchID)) {
+    if (
+      !isJobMutable(options.store, options.job.jobID) ||
+      !isBatchMutable(options.store, options.batchID)
+    ) {
       const failure: CompactionJobFailure = {
         code: "stale-attempt-result",
         phase: "commit",
-        detail:
-          `Ignored late compaction result for job '${options.job.jobID}' because a newer terminal state already exists.`,
+        detail: `Ignored late compaction result for job '${options.job.jobID}' because a newer terminal state already exists.`,
       };
 
       return {
@@ -466,7 +508,10 @@ async function runCompactionJob(
       };
     }
 
-    const revalidation = revalidateCompactionSourceIdentity(options.store, sourceSnapshot.snapshotID);
+    const revalidation = revalidateCompactionSourceIdentity(
+      options.store,
+      sourceSnapshot.snapshotID,
+    );
     if (!revalidation.matches) {
       const failure = buildSourceRevalidationFailure(revalidation.failure);
       const attempt = options.store.appendCompactionJobAttempt({
@@ -483,14 +528,22 @@ async function runCompactionJob(
       attempts.push(attempt);
 
       return {
-        job: finalizeJobFailure(options.store, options.job.jobID, failure, options.now()),
+        job: finalizeJobFailure(
+          options.store,
+          options.job.jobID,
+          failure,
+          options.now(),
+        ),
         markID: options.batchMember.markID,
         attempts,
         finalFailure: failure,
       };
     }
 
-    const replacementID = options.ids.makeReplacementID(options.job.jobID, attemptIndex);
+    const replacementID = options.ids.makeReplacementID(
+      options.job.jobID,
+      attemptIndex,
+    );
     const replacement = options.store.commitReplacement({
       replacementID,
       route: options.batchMember.route,
@@ -522,28 +575,41 @@ async function runCompactionJob(
     };
   }
 
-  throw new Error(`Compaction job '${options.job.jobID}' exhausted the model chain without reaching a terminal state.`);
+  throw new Error(
+    `Compaction job '${options.job.jobID}' exhausted the model chain without reaching a terminal state.`,
+  );
 }
 
 function normalizeModels(models: readonly string[]): readonly string[] {
-  const normalized = models.map((model) => model.trim()).filter((model) => model.length > 0);
+  const normalized = models
+    .map((model) => model.trim())
+    .filter((model) => model.length > 0);
   if (normalized.length === 0) {
-    throw new Error("Compaction runner requires at least one model in the ordered fallback chain.");
+    throw new Error(
+      "Compaction runner requires at least one model in the ordered fallback chain.",
+    );
   }
 
   return normalized;
 }
 
-function resolveIDFactory(ids: RunCompactionBatchOptions["ids"]): CompactionRunnerIDFactory {
+function resolveIDFactory(
+  ids: RunCompactionBatchOptions["ids"],
+): CompactionRunnerIDFactory {
   return {
     makeBatchID: ids?.makeBatchID ?? DEFAULT_ID_FACTORY.makeBatchID,
     makeJobID: ids?.makeJobID ?? DEFAULT_ID_FACTORY.makeJobID,
-    makeReplacementID: ids?.makeReplacementID ?? DEFAULT_ID_FACTORY.makeReplacementID,
-    makeGateObservationID: ids?.makeGateObservationID ?? DEFAULT_ID_FACTORY.makeGateObservationID,
+    makeReplacementID:
+      ids?.makeReplacementID ?? DEFAULT_ID_FACTORY.makeReplacementID,
+    makeGateObservationID:
+      ids?.makeGateObservationID ?? DEFAULT_ID_FACTORY.makeGateObservationID,
   };
 }
 
-function createObservationCounter(batchID: string, ids: CompactionRunnerIDFactory): {
+function createObservationCounter(
+  batchID: string,
+  ids: CompactionRunnerIDFactory,
+): {
   next(phase: string): string;
 } {
   let ordinal = 0;
@@ -616,7 +682,10 @@ function finalizeJobSuccess(
   });
 }
 
-function isBatchMutable(store: SqliteSessionStateStore, batchID: string): boolean {
+function isBatchMutable(
+  store: SqliteSessionStateStore,
+  batchID: string,
+): boolean {
   return store.getCompactionBatch(batchID)?.status === "running";
 }
 
@@ -624,7 +693,10 @@ function isJobMutable(store: SqliteSessionStateStore, jobID: string): boolean {
   return store.getCompactionJob(jobID)?.status === "running";
 }
 
-function requireJob(store: SqliteSessionStateStore, jobID: string): CompactionJobRecord {
+function requireJob(
+  store: SqliteSessionStateStore,
+  jobID: string,
+): CompactionJobRecord {
   const job = store.getCompactionJob(jobID);
   if (job === undefined) {
     throw new Error(`Unknown compaction job '${jobID}'.`);
@@ -633,7 +705,9 @@ function requireJob(store: SqliteSessionStateStore, jobID: string): CompactionJo
   return job;
 }
 
-function buildSourceRevalidationFailure(failure: SourceIdentityFailure): CompactionJobFailure {
+function buildSourceRevalidationFailure(
+  failure: SourceIdentityFailure,
+): CompactionJobFailure {
   return {
     code: "source-revalidation-failed",
     phase: "commit",
@@ -641,8 +715,13 @@ function buildSourceRevalidationFailure(failure: SourceIdentityFailure): Compact
   };
 }
 
-function buildAttemptMetadata(failure: CompactionJobFailure): JsonValue | undefined {
-  if (failure.normalizedIssues === undefined || failure.normalizedIssues.length === 0) {
+function buildAttemptMetadata(
+  failure: CompactionJobFailure,
+): JsonValue | undefined {
+  if (
+    failure.normalizedIssues === undefined ||
+    failure.normalizedIssues.length === 0
+  ) {
     return undefined;
   }
 

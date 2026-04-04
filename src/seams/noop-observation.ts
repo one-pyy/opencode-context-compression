@@ -1,6 +1,8 @@
 import type { Hooks } from "@opencode-ai/plugin";
 
-type MessagesTransformHook = NonNullable<Hooks["experimental.chat.messages.transform"]>;
+type MessagesTransformHook = NonNullable<
+  Hooks["experimental.chat.messages.transform"]
+>;
 type ChatParamsHook = NonNullable<Hooks["chat.params"]>;
 type ToolExecuteBeforeHook = NonNullable<Hooks["tool.execute.before"]>;
 
@@ -107,7 +109,11 @@ export function observeMessagesTransform(
   const identityFields: IdentityFieldObservation[] = [];
 
   output.messages.forEach((message, messageIndex) => {
-    captureMessageIdentityFields(identityFields, `output.messages[${messageIndex}].info`, message.info);
+    captureMessageIdentityFields(
+      identityFields,
+      `output.messages[${messageIndex}].info`,
+      message.info,
+    );
     captureTransformPartIdentityFields(
       identityFields,
       `output.messages[${messageIndex}].parts`,
@@ -123,10 +129,17 @@ export function observeMessagesTransform(
   };
 }
 
-export function observeChatParams(input: ChatParamsInput, output: ChatParamsOutput): ObservationDraft {
+export function observeChatParams(
+  input: ChatParamsInput,
+  output: ChatParamsOutput,
+): ObservationDraft {
   const identityFields: IdentityFieldObservation[] = [];
 
-  captureStringIdentityField(identityFields, "input.sessionID", input.sessionID);
+  captureStringIdentityField(
+    identityFields,
+    "input.sessionID",
+    input.sessionID,
+  );
   captureMessageIdentityFields(identityFields, "input.message", input.message);
 
   return {
@@ -143,7 +156,11 @@ export function observeToolExecuteBefore(
 ): ObservationDraft {
   const identityFields: IdentityFieldObservation[] = [];
 
-  captureStringIdentityField(identityFields, "input.sessionID", input.sessionID);
+  captureStringIdentityField(
+    identityFields,
+    "input.sessionID",
+    input.sessionID,
+  );
   captureStringIdentityField(identityFields, "input.callID", input.callID);
 
   return {
@@ -182,13 +199,20 @@ function summarizeShape(value: unknown, depth = 0): ShapeSummary {
   }
 
   if (Array.isArray(value)) {
-    const sampledShapes = value.slice(0, 3).map((item) => summarizeShape(item, depth + 1));
+    const sampledShapes = value
+      .slice(0, 3)
+      .map((item) => summarizeShape(item, depth + 1));
 
     return {
       kind: "array",
       length: value.length,
-      elementKinds: [...new Set(sampledShapes.map((item) => item.kind))].sort() as ShapeKind[],
-      sample: depth >= MAX_SHAPE_DEPTH || sampledShapes.length === 0 ? undefined : sampledShapes[0],
+      elementKinds: [
+        ...new Set(sampledShapes.map((item) => item.kind)),
+      ].sort() as ShapeKind[],
+      sample:
+        depth >= MAX_SHAPE_DEPTH || sampledShapes.length === 0
+          ? undefined
+          : sampledShapes[0],
     };
   }
 
@@ -207,7 +231,9 @@ function summarizeShape(value: unknown, depth = 0): ShapeSummary {
     };
   }
 
-  const entries = Object.fromEntries(keys.map((key) => [key, summarizeShape(record[key], depth + 1)]));
+  const entries = Object.fromEntries(
+    keys.map((key) => [key, summarizeShape(record[key], depth + 1)]),
+  );
 
   return {
     kind: "object",
@@ -222,10 +248,18 @@ function captureMessageIdentityFields(
   message: TransformMessage | ChatParamsInput["message"],
 ): void {
   captureStringIdentityField(fields, `${basePath}.id`, message.id);
-  captureStringIdentityField(fields, `${basePath}.sessionID`, message.sessionID);
+  captureStringIdentityField(
+    fields,
+    `${basePath}.sessionID`,
+    message.sessionID,
+  );
 
   if ("parentID" in message && typeof message.parentID === "string") {
-    captureStringIdentityField(fields, `${basePath}.parentID`, message.parentID);
+    captureStringIdentityField(
+      fields,
+      `${basePath}.parentID`,
+      message.parentID,
+    );
   }
 }
 
@@ -236,8 +270,18 @@ function captureTransformPartIdentityFields(
 ): void {
   parts.forEach((part, index) => {
     captureRecordIdentityField(fields, `${basePath}[${index}].id`, part, "id");
-    captureRecordIdentityField(fields, `${basePath}[${index}].sessionID`, part, "sessionID");
-    captureRecordIdentityField(fields, `${basePath}[${index}].messageID`, part, "messageID");
+    captureRecordIdentityField(
+      fields,
+      `${basePath}[${index}].sessionID`,
+      part,
+      "sessionID",
+    );
+    captureRecordIdentityField(
+      fields,
+      `${basePath}[${index}].messageID`,
+      part,
+      "messageID",
+    );
   });
 }
 

@@ -1,4 +1,8 @@
-import type { TransformEnvelope, TransformMessage, TransformPart } from "../seams/noop-observation.js";
+import type {
+  TransformEnvelope,
+  TransformMessage,
+  TransformPart,
+} from "../seams/noop-observation.js";
 
 export interface CanonicalIdentityAnchor {
   readonly hostMessageID: string;
@@ -16,8 +20,13 @@ export interface HostBackedCanonicalIdentity extends CanonicalIdentityAnchor {
 export function resolveHostMessageCanonicalIdentity(
   message: TransformEnvelope,
 ): HostBackedCanonicalIdentity {
-  const canonicalMessageID = requireNonEmptyString(message.info.id, "message.info.id");
-  const corroboratingPartMessageIDs = collectCorroboratingPartMessageIDs(message.parts);
+  const canonicalMessageID = requireNonEmptyString(
+    message.info.id,
+    "message.info.id",
+  );
+  const corroboratingPartMessageIDs = collectCorroboratingPartMessageIDs(
+    message.parts,
+  );
 
   for (const partMessageID of corroboratingPartMessageIDs) {
     if (partMessageID !== canonicalMessageID) {
@@ -52,7 +61,9 @@ export function pickEarliestSourceCanonicalIdentity(
   };
 }
 
-function collectCorroboratingPartMessageIDs(parts: readonly TransformPart[]): string[] {
+function collectCorroboratingPartMessageIDs(
+  parts: readonly TransformPart[],
+): string[] {
   const uniqueMessageIDs = new Set<string>();
 
   for (const part of parts) {
@@ -72,10 +83,15 @@ function readCreatedAtMs(message: TransformMessage): number | undefined {
   }
 
   const created = (time as Record<string, unknown>).created;
-  return typeof created === "number" && Number.isFinite(created) ? created : undefined;
+  return typeof created === "number" && Number.isFinite(created)
+    ? created
+    : undefined;
 }
 
-function readOptionalRecordString(record: Record<string, unknown>, key: string): string | undefined {
+function readOptionalRecordString(
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined {
   const value = record[key];
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }

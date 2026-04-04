@@ -6,8 +6,15 @@ import test from "node:test";
 
 import { buildProjectionPolicy } from "../../src/projection/policy-engine.js";
 import { deriveReminder } from "../../src/projection/reminder-service.js";
-import { createSqliteSessionStateStore, type SqliteSessionStateStore } from "../../src/state/store.js";
-import type { TransformEnvelope, TransformMessage, TransformPart } from "../../src/seams/noop-observation.js";
+import {
+  createSqliteSessionStateStore,
+  type SqliteSessionStateStore,
+} from "../../src/state/store.js";
+import type {
+  TransformEnvelope,
+  TransformMessage,
+  TransformPart,
+} from "../../src/seams/noop-observation.js";
 import { computeVisibleChecksum } from "../../src/identity/visible-sequence.js";
 import { OpencodeContextCompressionTokenEstimationError } from "../../src/token-estimation.js";
 
@@ -15,11 +22,21 @@ test("reminder service derives a stable hard reminder from canonical history wit
   await withTempStore(async (store) => {
     const repeatedTokenText = "token rich content ".repeat(10).trim();
     const messages = [
-      createEnvelope(createMessage("user-1", "user", 1, 3), [createTextPart("user-1", repeatedTokenText)]),
-      createEnvelope(createMessage("assistant-1", "assistant", 2, 4), [createTextPart("assistant-1", repeatedTokenText)]),
-      createEnvelope(createMessage("tool-1", "tool", 3, 2), [createTextPart("tool-1", repeatedTokenText)]),
-      createEnvelope(createMessage("assistant-2", "assistant", 4, 5), [createTextPart("assistant-2", repeatedTokenText)]),
-      createEnvelope(createMessage("user-2", "user", 5, 6), [createTextPart("user-2", repeatedTokenText)]),
+      createEnvelope(createMessage("user-1", "user", 1, 3), [
+        createTextPart("user-1", repeatedTokenText),
+      ]),
+      createEnvelope(createMessage("assistant-1", "assistant", 2, 4), [
+        createTextPart("assistant-1", repeatedTokenText),
+      ]),
+      createEnvelope(createMessage("tool-1", "tool", 3, 2), [
+        createTextPart("tool-1", repeatedTokenText),
+      ]),
+      createEnvelope(createMessage("assistant-2", "assistant", 4, 5), [
+        createTextPart("assistant-2", repeatedTokenText),
+      ]),
+      createEnvelope(createMessage("user-2", "user", 5, 6), [
+        createTextPart("user-2", repeatedTokenText),
+      ]),
     ];
 
     store.syncCanonicalHostMessages({
@@ -33,16 +50,17 @@ test("reminder service derives a stable hard reminder from canonical history wit
     });
 
     const policy = buildProjectionPolicy({ messages, store });
+    const templates = {
+      soft: "Soft reminder text.",
+      hard: "Hard reminder text.",
+    };
     const first = deriveReminder({
       policy,
       cadence: {
         hsoft: 60,
         hhard: 120,
       },
-      templates: {
-        soft: "Soft {{compressible_content}} {{compaction_target}} {{preserved_fields}}",
-        hard: "Hard reminder\n{{compressible_content}}\nTarget={{compaction_target}}\nPreserve={{preserved_fields}}",
-      },
+      templates,
       modelName: "gpt-5",
     });
     const second = deriveReminder({
@@ -51,10 +69,7 @@ test("reminder service derives a stable hard reminder from canonical history wit
         hsoft: 60,
         hhard: 120,
       },
-      templates: {
-        soft: "Soft {{compressible_content}} {{compaction_target}} {{preserved_fields}}",
-        hard: "Hard reminder\n{{compressible_content}}\nTarget={{compaction_target}}\nPreserve={{preserved_fields}}",
-      },
+      templates,
       modelName: "gpt-5",
     });
 
@@ -65,16 +80,7 @@ test("reminder service derives a stable hard reminder from canonical history wit
       anchorVisibleMessageID: `000005_${computeVisibleChecksum("user-2")}`,
       visibleMessageID: `000005_${computeVisibleChecksum("user-2")}.hard`,
       anchorIndex: 4,
-      text: [
-        "Hard reminder",
-        `- 000001_${computeVisibleChecksum("user-1")}: ${repeatedTokenText}`,
-        `- 000002_${computeVisibleChecksum("assistant-1")}: ${repeatedTokenText}`,
-        `- 000003_${computeVisibleChecksum("tool-1")}: ${repeatedTokenText}`,
-        `- 000004_${computeVisibleChecksum("assistant-2")}: ${repeatedTokenText}`,
-        `- 000005_${computeVisibleChecksum("user-2")}: ${repeatedTokenText}`,
-        `Target=000001_${computeVisibleChecksum("user-1")} -> 000005_${computeVisibleChecksum("user-2")}`,
-        "Preserve=system instructions and other protected messages",
-      ].join("\n"),
+      text: "Hard reminder text.",
     });
     assert.equal(store.listHostMessages({ presentOnly: true }).length, 5);
   });
@@ -82,11 +88,17 @@ test("reminder service derives a stable hard reminder from canonical history wit
 
 test("reminder service returns no artifact before thresholds are crossed", async () => {
   await withTempStore(async (store) => {
-    const messages = [createEnvelope(createMessage("user-1", "user", 1, 5), [createTextPart("user-1", "tiny")])];
+    const messages = [
+      createEnvelope(createMessage("user-1", "user", 1, 5), [
+        createTextPart("user-1", "tiny"),
+      ]),
+    ];
     store.syncCanonicalHostMessages({
       revision: "rev-reminder-2",
       syncedAtMs: 1,
-      messages: [{ hostMessageID: "user-1", canonicalMessageID: "user-1", role: "user" }],
+      messages: [
+        { hostMessageID: "user-1", canonicalMessageID: "user-1", role: "user" },
+      ],
     });
 
     const policy = buildProjectionPolicy({ messages, store });
@@ -96,6 +108,7 @@ test("reminder service returns no artifact before thresholds are crossed", async
         hsoft: 50,
         hhard: 60,
       },
+      templates: { soft: "Soft.", hard: "Hard." },
       modelName: "gpt-5",
     });
 
@@ -107,9 +120,15 @@ test("reminder counter repeatEvery changes when soft reminders are due", async (
   await withTempStore(async (store) => {
     const repeatedTokenText = "token rich content ".repeat(8).trim();
     const messages = [
-      createEnvelope(createMessage("user-1", "user", 1, 4), [createTextPart("user-1", repeatedTokenText)]),
-      createEnvelope(createMessage("assistant-1", "assistant", 2, 3), [createTextPart("assistant-1", repeatedTokenText)]),
-      createEnvelope(createMessage("user-2", "user", 3, 5), [createTextPart("user-2", repeatedTokenText)]),
+      createEnvelope(createMessage("user-1", "user", 1, 4), [
+        createTextPart("user-1", repeatedTokenText),
+      ]),
+      createEnvelope(createMessage("assistant-1", "assistant", 2, 3), [
+        createTextPart("assistant-1", repeatedTokenText),
+      ]),
+      createEnvelope(createMessage("user-2", "user", 3, 5), [
+        createTextPart("user-2", repeatedTokenText),
+      ]),
     ];
 
     store.syncCanonicalHostMessages({
@@ -123,6 +142,7 @@ test("reminder counter repeatEvery changes when soft reminders are due", async (
     });
 
     const policy = buildProjectionPolicy({ messages, store });
+    const templates = { soft: "Soft.", hard: "Hard." };
     const dueReminder = deriveReminder({
       policy,
       cadence: {
@@ -134,6 +154,7 @@ test("reminder counter repeatEvery changes when soft reminders are due", async (
           hard: { repeatEvery: 1 },
         },
       },
+      templates,
       modelName: "gpt-5",
     });
     const skippedReminder = deriveReminder({
@@ -147,6 +168,7 @@ test("reminder counter repeatEvery changes when soft reminders are due", async (
           hard: { repeatEvery: 1 },
         },
       },
+      templates,
       modelName: "gpt-5",
     });
 
@@ -160,10 +182,18 @@ test("reminder counter source distinguishes assistant turns from eligible messag
   await withTempStore(async (store) => {
     const repeatedTokenText = "token rich content ".repeat(8).trim();
     const messages = [
-      createEnvelope(createMessage("user-1", "user", 1, 4), [createTextPart("user-1", repeatedTokenText)]),
-      createEnvelope(createMessage("assistant-1", "assistant", 2, 2), [createTextPart("assistant-1", repeatedTokenText)]),
-      createEnvelope(createMessage("user-2", "user", 3, 5), [createTextPart("user-2", repeatedTokenText)]),
-      createEnvelope(createMessage("user-3", "user", 4, 3), [createTextPart("user-3", repeatedTokenText)]),
+      createEnvelope(createMessage("user-1", "user", 1, 4), [
+        createTextPart("user-1", repeatedTokenText),
+      ]),
+      createEnvelope(createMessage("assistant-1", "assistant", 2, 2), [
+        createTextPart("assistant-1", repeatedTokenText),
+      ]),
+      createEnvelope(createMessage("user-2", "user", 3, 5), [
+        createTextPart("user-2", repeatedTokenText),
+      ]),
+      createEnvelope(createMessage("user-3", "user", 4, 3), [
+        createTextPart("user-3", repeatedTokenText),
+      ]),
     ];
 
     store.syncCanonicalHostMessages({
@@ -177,6 +207,7 @@ test("reminder counter source distinguishes assistant turns from eligible messag
     });
 
     const policy = buildProjectionPolicy({ messages, store });
+    const templates = { soft: "Soft.", hard: "Hard." };
     const eligibleReminder = deriveReminder({
       policy,
       cadence: {
@@ -188,6 +219,7 @@ test("reminder counter source distinguishes assistant turns from eligible messag
           hard: { repeatEvery: 1 },
         },
       },
+      templates,
       modelName: "gpt-5",
     });
     const assistantReminder = deriveReminder({
@@ -201,6 +233,7 @@ test("reminder counter source distinguishes assistant turns from eligible messag
           hard: { repeatEvery: 1 },
         },
       },
+      templates,
       modelName: "gpt-5",
     });
 
@@ -214,8 +247,12 @@ test("reminder thresholds ignore explicit tokenCount fields when tokenizer-based
   await withTempStore(async (store) => {
     const longText = "long tokenized content ".repeat(40).trim();
     const messages = [
-      createEnvelope(createMessage("user-1", "user", 1, 1), [createTextPart("user-1", longText)]),
-      createEnvelope(createMessage("assistant-1", "assistant", 2, 1), [createTextPart("assistant-1", longText)]),
+      createEnvelope(createMessage("user-1", "user", 1, 1), [
+        createTextPart("user-1", longText),
+      ]),
+      createEnvelope(createMessage("assistant-1", "assistant", 2, 1), [
+        createTextPart("assistant-1", longText),
+      ]),
     ];
 
     store.syncCanonicalHostMessages({
@@ -235,6 +272,7 @@ test("reminder thresholds ignore explicit tokenCount fields when tokenizer-based
         hsoft: 20,
         hhard: 999,
       },
+      templates: { soft: "Soft.", hard: "Hard." },
       modelName: "gpt-5",
     });
 
@@ -246,7 +284,9 @@ test("reminder thresholds ignore explicit tokenCount fields when tokenizer-based
 test("reminder threshold tokenization fails fast when tokenizer resolution fails", async () => {
   await withTempStore(async (store) => {
     const messages = [
-      createEnvelope(createMessage("user-1", "user", 1), [createTextPart("user-1", "token rich content")]),
+      createEnvelope(createMessage("user-1", "user", 1), [
+        createTextPart("user-1", "token rich content"),
+      ]),
     ];
 
     store.syncCanonicalHostMessages({
@@ -269,10 +309,13 @@ test("reminder threshold tokenization fails fast when tokenizer resolution fails
             hsoft: 1,
             hhard: 2,
           },
+          templates: { soft: "Soft.", hard: "Hard." },
           modelName: "unsupported-threshold-model",
         }),
       (error: unknown) => {
-        assert.ok(error instanceof OpencodeContextCompressionTokenEstimationError);
+        assert.ok(
+          error instanceof OpencodeContextCompressionTokenEstimationError,
+        );
         assert.match(String(error), /Unsupported tokenizer model/u);
         return true;
       },
@@ -280,11 +323,19 @@ test("reminder threshold tokenization fails fast when tokenizer resolution fails
   });
 });
 
-function createEnvelope(info: TransformMessage, parts: TransformPart[]): TransformEnvelope {
+function createEnvelope(
+  info: TransformMessage,
+  parts: TransformPart[],
+): TransformEnvelope {
   return { info, parts };
 }
 
-function createMessage(id: string, role: string, created: number, tokenCount?: number): TransformMessage {
+function createMessage(
+  id: string,
+  role: string,
+  created: number,
+  tokenCount?: number,
+): TransformMessage {
   return {
     id,
     sessionID: "session-1",
@@ -309,8 +360,12 @@ function createTextPart(messageID: string, text: string): TransformPart {
   } as TransformPart;
 }
 
-async function withTempStore(run: (store: SqliteSessionStateStore) => Promise<void>): Promise<void> {
-  const pluginDirectory = await mkdtemp(join(tmpdir(), "opencode-context-compression-reminder-"));
+async function withTempStore(
+  run: (store: SqliteSessionStateStore) => Promise<void>,
+): Promise<void> {
+  const pluginDirectory = await mkdtemp(
+    join(tmpdir(), "opencode-context-compression-reminder-"),
+  );
   const store = createSqliteSessionStateStore({
     pluginDirectory,
     sessionID: "session-1",

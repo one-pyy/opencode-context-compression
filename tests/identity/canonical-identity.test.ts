@@ -5,7 +5,11 @@ import {
   pickEarliestSourceCanonicalIdentity,
   resolveHostMessageCanonicalIdentity,
 } from "../../src/identity/canonical-identity.js";
-import type { TransformEnvelope, TransformMessage, TransformPart } from "../../src/seams/noop-observation.js";
+import type {
+  TransformEnvelope,
+  TransformMessage,
+  TransformPart,
+} from "../../src/seams/noop-observation.js";
 
 test("canonical host identity uses message.info.id and treats parts[*].messageID as corroboration", () => {
   const identity = resolveHostMessageCanonicalIdentity(
@@ -18,8 +22,16 @@ test("canonical host identity uses message.info.id and treats parts[*].messageID
         time: { created: 42 },
       }),
       parts: [
-        createPart({ id: "part-1", sessionID: "session-1", messageID: "msg-assistant-1" }),
-        createPart({ id: "part-2", sessionID: "session-1", messageID: "msg-assistant-1" }),
+        createPart({
+          id: "part-1",
+          sessionID: "session-1",
+          messageID: "msg-assistant-1",
+        }),
+        createPart({
+          id: "part-2",
+          sessionID: "session-1",
+          messageID: "msg-assistant-1",
+        }),
       ],
     }),
   );
@@ -40,8 +52,18 @@ test("canonical host identity rejects part messageID mismatches instead of using
     () =>
       resolveHostMessageCanonicalIdentity(
         createEnvelope({
-          info: createMessage({ id: "msg-user-1", sessionID: "session-1", role: "user" }),
-          parts: [createPart({ id: "part-1", sessionID: "session-1", messageID: "msg-other" })],
+          info: createMessage({
+            id: "msg-user-1",
+            sessionID: "session-1",
+            role: "user",
+          }),
+          parts: [
+            createPart({
+              id: "part-1",
+              sessionID: "session-1",
+              messageID: "msg-other",
+            }),
+          ],
         }),
       ),
     /Canonical identity mismatch/,

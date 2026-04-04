@@ -2,7 +2,10 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
 import type { RuntimeLogLevel } from "../config/runtime-config.js";
-import type { RecordRuntimeGateObservationInput, RuntimeGateObservationRecord } from "../state/store.js";
+import type {
+  RecordRuntimeGateObservationInput,
+  RuntimeGateObservationRecord,
+} from "../state/store.js";
 
 export interface RuntimeEventWriter {
   recordRuntimeGateObservation(
@@ -19,7 +22,12 @@ export function createRuntimeEventWriter(options: {
 
   return {
     recordRuntimeGateObservation(input, observed) {
-      if (!shouldPersistRuntimeGateObservation(options.level, observed.observedState)) {
+      if (
+        !shouldPersistRuntimeGateObservation(
+          options.level,
+          observed.observedState,
+        )
+      ) {
         return;
       }
 
@@ -46,7 +54,10 @@ export function createRuntimeEventWriter(options: {
   };
 }
 
-function shouldPersistRuntimeGateObservation(level: RuntimeLogLevel, observedState: RuntimeGateObservationRecord["observedState"]): boolean {
+function shouldPersistRuntimeGateObservation(
+  level: RuntimeLogLevel,
+  observedState: RuntimeGateObservationRecord["observedState"],
+): boolean {
   if (level === "off") {
     return false;
   }

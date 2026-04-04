@@ -11,7 +11,10 @@ import {
 } from "../../src/compaction/runner.js";
 import { persistMark } from "../../src/marks/mark-service.js";
 import { readSessionFileLock } from "../../src/runtime/file-lock.js";
-import { createSqliteSessionStateStore, type SqliteSessionStateStore } from "../../src/state/store.js";
+import {
+  createSqliteSessionStateStore,
+  type SqliteSessionStateStore,
+} from "../../src/state/store.js";
 
 test("runCompactionBatch falls back across the ordered model array and commits the successful delete result", async () => {
   await withTempEnvironment(async ({ store, clock, lockDirectory }) => {
@@ -57,16 +60,26 @@ test("runCompactionBatch falls back across the ordered model array and commits t
     assert.equal(result.jobs.length, 1);
     assert.equal(result.jobs[0]?.job.status, "succeeded");
     assert.equal(result.jobs[0]?.replacement?.route, "delete");
-    assert.equal(result.jobs[0]?.replacement?.contentText, "Deleted source span notice.");
+    assert.equal(
+      result.jobs[0]?.replacement?.contentText,
+      "Deleted source span notice.",
+    );
     assert.deepEqual(
-      result.jobs[0]?.attempts.map((attempt) => [attempt.modelName, attempt.status, attempt.errorCode ?? null]),
+      result.jobs[0]?.attempts.map((attempt) => [
+        attempt.modelName,
+        attempt.status,
+        attempt.errorCode ?? null,
+      ]),
       [
         ["model-primary", "failed", "transport-response-invalid"],
         ["model-fallback", "succeeded", null],
       ],
     );
     assert.equal(store.getMark("mark-delete-1")?.status, "consumed");
-    assert.equal(store.findFirstCommittedReplacementForMark("mark-delete-1")?.route, "delete");
+    assert.equal(
+      store.findFirstCommittedReplacementForMark("mark-delete-1")?.route,
+      "delete",
+    );
 
     const lockState = await readSessionFileLock({
       lockDirectory,
@@ -81,7 +94,10 @@ test("runCompactionBatch preserves marks and clears the lock when the full model
   await withTempEnvironment(async ({ store, clock, lockDirectory }) => {
     seedKeepMark(store, clock, "mark-keep-1");
     const transport = createSafeTransport(async () => {
-      throw new CompactionTransportInvocationError("unavailable", "provider unavailable");
+      throw new CompactionTransportInvocationError(
+        "unavailable",
+        "provider unavailable",
+      );
     });
 
     const result = await runCompactionBatch({
@@ -112,7 +128,10 @@ test("runCompactionBatch preserves marks and clears the lock when the full model
       ["transport-unavailable", "transport-unavailable"],
     );
     assert.equal(store.getMark("mark-keep-1")?.status, "active");
-    assert.equal(store.findFirstCommittedReplacementForMark("mark-keep-1"), undefined);
+    assert.equal(
+      store.findFirstCommittedReplacementForMark("mark-keep-1"),
+      undefined,
+    );
 
     const lockState = await readSessionFileLock({
       lockDirectory,
@@ -160,11 +179,20 @@ test("runCompactionBatch revalidates source identity before commit and refuses s
 
     assert.equal(result.finalStatus, "failed");
     assert.equal(result.jobs[0]?.job.status, "failed");
-    assert.equal(result.jobs[0]?.finalFailure?.code, "source-revalidation-failed");
+    assert.equal(
+      result.jobs[0]?.finalFailure?.code,
+      "source-revalidation-failed",
+    );
     assert.equal(result.jobs[0]?.attempts.length, 1);
-    assert.equal(result.jobs[0]?.attempts[0]?.errorCode, "source-revalidation-failed");
+    assert.equal(
+      result.jobs[0]?.attempts[0]?.errorCode,
+      "source-revalidation-failed",
+    );
     assert.equal(store.getMark("mark-keep-2")?.status, "active");
-    assert.equal(store.findFirstCommittedReplacementForMark("mark-keep-2"), undefined);
+    assert.equal(
+      store.findFirstCommittedReplacementForMark("mark-keep-2"),
+      undefined,
+    );
 
     const lockState = await readSessionFileLock({
       lockDirectory,
@@ -215,7 +243,10 @@ test("runCompactionBatch ignores late results from a job that already reached a 
     assert.equal(result.jobs[0]?.finalFailure?.code, "stale-attempt-result");
     assert.equal(result.jobs[0]?.attempts.length, 0);
     assert.equal(store.getMark("mark-keep-3")?.status, "active");
-    assert.equal(store.findFirstCommittedReplacementForMark("mark-keep-3"), undefined);
+    assert.equal(
+      store.findFirstCommittedReplacementForMark("mark-keep-3"),
+      undefined,
+    );
   });
 });
 
@@ -287,11 +318,21 @@ function createSafeTransport(
 }
 
 function createCanonicalLoader(contentByHostMessageID: Record<string, string>) {
-  return async ({ sourceMessages }: { sourceMessages: readonly { hostMessageID: string; canonicalMessageID: string; hostRole: string }[] }) =>
+  return async ({
+    sourceMessages,
+  }: {
+    sourceMessages: readonly {
+      hostMessageID: string;
+      canonicalMessageID: string;
+      hostRole: string;
+    }[];
+  }) =>
     sourceMessages.map((sourceMessage) => {
       const content = contentByHostMessageID[sourceMessage.hostMessageID];
       if (content === undefined) {
-        throw new Error(`Missing canonical content for '${sourceMessage.hostMessageID}'.`);
+        throw new Error(
+          `Missing canonical content for '${sourceMessage.hostMessageID}'.`,
+        );
       }
 
       return {
@@ -303,11 +344,19 @@ function createCanonicalLoader(contentByHostMessageID: Record<string, string>) {
     });
 }
 
-function seedKeepMark(store: SqliteSessionStateStore, clock: ReturnType<typeof createClock>, markID: string): void {
+function seedKeepMark(
+  store: SqliteSessionStateStore,
+  clock: ReturnType<typeof createClock>,
+  markID: string,
+): void {
   seedMark(store, clock, markID, "keep");
 }
 
-function seedDeleteMark(store: SqliteSessionStateStore, clock: ReturnType<typeof createClock>, markID: string): void {
+function seedDeleteMark(
+  store: SqliteSessionStateStore,
+  clock: ReturnType<typeof createClock>,
+  markID: string,
+): void {
   seedMark(store, clock, markID, "delete");
 }
 
@@ -337,7 +386,11 @@ function seedMark(
   });
 }
 
-function hostMessage(hostMessageID: string, canonicalMessageID: string, role: string) {
+function hostMessage(
+  hostMessageID: string,
+  canonicalMessageID: string,
+  role: string,
+) {
   return {
     hostMessageID,
     canonicalMessageID,
@@ -352,7 +405,9 @@ async function withTempEnvironment(
     lockDirectory: string;
   }) => Promise<void>,
 ): Promise<void> {
-  const pluginDirectory = await mkdtemp(join(tmpdir(), "opencode-context-compression-compaction-runner-"));
+  const pluginDirectory = await mkdtemp(
+    join(tmpdir(), "opencode-context-compression-compaction-runner-"),
+  );
   const lockDirectory = join(pluginDirectory, "locks");
   const clock = createClock();
   const store = createSqliteSessionStateStore({

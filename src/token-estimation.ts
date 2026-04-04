@@ -6,8 +6,6 @@ const DEFAULT_ENCODING = "cl100k_base";
 const MODEL_ENCODING_ALIASES = new Map<string, TiktokenModel>([
   ["gpt-5", "gpt-4o" as TiktokenModel],
   ["gpt-5.4-mini", "gpt-4o-mini" as TiktokenModel],
-  ["model-primary", "gpt-4o-mini" as TiktokenModel],
-  ["model-fallback", "gpt-4o-mini" as TiktokenModel],
 ]);
 
 type TokenEstimateSource = "tokenizer";
@@ -29,7 +27,9 @@ export interface EstimateEnvelopeTokensOptions {
   readonly modelName?: string;
 }
 
-export function estimateEnvelopeTokens(options: EstimateEnvelopeTokensOptions): TokenEstimate {
+export function estimateEnvelopeTokens(
+  options: EstimateEnvelopeTokensOptions,
+): TokenEstimate {
   const content = readEnvelopeText(options.envelope);
   if (content.length === 0) {
     return {
@@ -45,7 +45,10 @@ export function estimateEnvelopeTokens(options: EstimateEnvelopeTokensOptions): 
   };
 }
 
-function estimateWithTokenizer(content: string, modelName: string | undefined): number {
+function estimateWithTokenizer(
+  content: string,
+  modelName: string | undefined,
+): number {
   try {
     const encoding = resolveEncoding(modelName);
     try {
@@ -75,14 +78,21 @@ function resolveEncoding(modelName: string | undefined) {
 }
 
 function normalizeModelName(modelName: string): TiktokenModel {
-  const normalized = modelName.includes("/") ? modelName.split("/").at(-1) ?? modelName : modelName;
-  return MODEL_ENCODING_ALIASES.get(normalized) ?? (normalized as TiktokenModel);
+  const normalized = modelName.includes("/")
+    ? (modelName.split("/").at(-1) ?? modelName)
+    : modelName;
+  return (
+    MODEL_ENCODING_ALIASES.get(normalized) ?? (normalized as TiktokenModel)
+  );
 }
 
 function readEnvelopeText(envelope: TransformEnvelope): string {
   return envelope.parts
     .flatMap((part) => {
-      if (part.type === "text" && typeof (part as { text?: unknown }).text === "string") {
+      if (
+        part.type === "text" &&
+        typeof (part as { text?: unknown }).text === "string"
+      ) {
         return [(part as { text: string }).text];
       }
 
@@ -93,7 +103,9 @@ function readEnvelopeText(envelope: TransformEnvelope): string {
 }
 
 function describeModel(modelName: string | undefined): string {
-  return typeof modelName === "string" && modelName.trim().length > 0 ? `model '${modelName}'` : "default encoding";
+  return typeof modelName === "string" && modelName.trim().length > 0
+    ? `model '${modelName}'`
+    : "default encoding";
 }
 
 function describeError(error: unknown): string {

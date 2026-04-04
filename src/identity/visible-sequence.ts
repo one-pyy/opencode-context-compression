@@ -45,12 +45,17 @@ export function ensureReferableVisibleMessageIdentity(
   store: VisibleSequenceStore,
   sourceMessages: readonly CanonicalIdentityAnchor[],
 ): VisibleMessageIdentity {
-  return ensureVisibleMessageIdentity(store, pickEarliestSourceCanonicalIdentity(sourceMessages));
+  return ensureVisibleMessageIdentity(
+    store,
+    pickEarliestSourceCanonicalIdentity(sourceMessages),
+  );
 }
 
 export function computeVisibleChecksum(canonicalMessageID: string): string {
   if (canonicalMessageID.length === 0) {
-    throw new Error("Visible checksum requires a canonical message identifier.");
+    throw new Error(
+      "Visible checksum requires a canonical message identifier.",
+    );
   }
 
   const digest = createHash("sha256").update(canonicalMessageID).digest();
@@ -64,7 +69,9 @@ export function formatBareVisibleMessageID(input: {
   readonly visibleChecksum: string;
 }): string {
   if (!Number.isInteger(input.visibleSeq) || input.visibleSeq < 1) {
-    throw new Error(`Visible sequence must be a positive integer. Received: ${input.visibleSeq}`);
+    throw new Error(
+      `Visible sequence must be a positive integer. Received: ${input.visibleSeq}`,
+    );
   }
 
   if (!VISIBLE_CHECKSUM_PATTERN.test(input.visibleChecksum)) {
@@ -86,6 +93,9 @@ function buildVisibleMessageIdentity(
     canonicalMessageID: identity.canonicalMessageID,
     visibleSeq,
     visibleChecksum,
-    visibleMessageID: formatBareVisibleMessageID({ visibleSeq, visibleChecksum }),
+    visibleMessageID: formatBareVisibleMessageID({
+      visibleSeq,
+      visibleChecksum,
+    }),
   };
 }

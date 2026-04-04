@@ -1,7 +1,10 @@
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
-import type { SeamObservation, SeamObservationJournal } from "./noop-observation.js";
+import type {
+  SeamObservation,
+  SeamObservationJournal,
+} from "./noop-observation.js";
 
 function ensureParentDirectory(filePath: string): void {
   const parent = dirname(filePath);
@@ -31,7 +34,10 @@ export function createFileBackedSeamObservationJournal(
   };
 }
 
-function appendObservation(filePath: string, observation: SeamObservation): void {
+function appendObservation(
+  filePath: string,
+  observation: SeamObservation,
+): void {
   const line = JSON.stringify(observation);
   appendFileSync(filePath, `${line}\n`, "utf8");
 }

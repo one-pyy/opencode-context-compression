@@ -12,7 +12,9 @@ type ChatMessageHook = NonNullable<Hooks["chat.message"]>;
 type ToolExecuteBeforeHook = NonNullable<Hooks["tool.execute.before"]>;
 
 const DEFAULT_MARK_TOOL_NAMES = Object.freeze(["compression_mark"]);
-const DEFAULT_BLOCKED_INTERNAL_TOOL_NAMES = Object.freeze(["compression_run_internal"]);
+const DEFAULT_BLOCKED_INTERNAL_TOOL_NAMES = Object.freeze([
+  "compression_run_internal",
+]);
 
 export interface SendEntryGateSharedOptions {
   readonly pluginDirectory: string;
@@ -64,7 +66,9 @@ export class ActiveCompactionLockError extends Error {
   readonly toolName: string;
 
   constructor(sessionID: string, toolName: string) {
-    super(`Cannot run internal compaction tool '${toolName}' while compaction is active for session '${sessionID}'.`);
+    super(
+      `Cannot run internal compaction tool '${toolName}' while compaction is active for session '${sessionID}'.`,
+    );
     this.name = "ActiveCompactionLockError";
     this.sessionID = sessionID;
     this.toolName = toolName;
@@ -108,7 +112,9 @@ export function createSendEntryGateHooks(
 export async function waitForOrdinaryChatGateIfNeeded(
   options: WaitForOrdinaryChatGateOptions,
 ): Promise<OrdinaryChatGateWaitOutcome | undefined> {
-  const lockDirectory = options.lockDirectory ?? resolvePluginLockDirectory(options.pluginDirectory);
+  const lockDirectory =
+    options.lockDirectory ??
+    resolvePluginLockDirectory(options.pluginDirectory);
   const lockState = await readSessionFileLock({
     lockDirectory,
     sessionID: options.sessionID,
@@ -146,12 +152,17 @@ export async function waitForOrdinaryChatGateIfNeeded(
 export async function guardToolExecutionDuringLock(
   options: GuardToolExecutionDuringLockOptions,
 ): Promise<void> {
-  const markToolNames = normalizeToolNames(options.markToolNames, DEFAULT_MARK_TOOL_NAMES);
+  const markToolNames = normalizeToolNames(
+    options.markToolNames,
+    DEFAULT_MARK_TOOL_NAMES,
+  );
   if (markToolNames.has(options.toolName)) {
     return;
   }
 
-  const lockDirectory = options.lockDirectory ?? resolvePluginLockDirectory(options.pluginDirectory);
+  const lockDirectory =
+    options.lockDirectory ??
+    resolvePluginLockDirectory(options.pluginDirectory);
   const lockState = await readSessionFileLock({
     lockDirectory,
     sessionID: options.sessionID,
@@ -178,7 +189,8 @@ async function waitForOrdinaryChatGate(
     readonly initialLock: RunningSessionFileLockRecord;
   },
 ): Promise<OrdinaryChatGateWaitOutcome> {
-  const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_LOCK_POLL_INTERVAL_MS;
+  const pollIntervalMs =
+    options.pollIntervalMs ?? DEFAULT_LOCK_POLL_INTERVAL_MS;
   const sleep = options.sleep ?? defaultSleep;
   const store = createSqliteSessionStateStore({
     pluginDirectory: options.pluginDirectory,
@@ -230,7 +242,9 @@ function resolveUnlockedOutcome(
   store: ReturnType<typeof createSqliteSessionStateStore>,
   lastObservedLock: RunningSessionFileLockRecord,
 ): OrdinaryChatGateWaitOutcome {
-  const batch = store.findCompactionBatchByFrozenAtMs(lastObservedLock.startedAtMs);
+  const batch = store.findCompactionBatchByFrozenAtMs(
+    lastObservedLock.startedAtMs,
+  );
   if (batch === undefined) {
     return {
       outcome: "manually-cleared",
@@ -262,8 +276,15 @@ function resolveUnlockedOutcome(
   }
 }
 
-function normalizeToolNames(input: readonly string[] | undefined, fallback: readonly string[]): ReadonlySet<string> {
-  return new Set((input ?? fallback).map((name) => name.trim()).filter((name) => name.length > 0));
+function normalizeToolNames(
+  input: readonly string[] | undefined,
+  fallback: readonly string[],
+): ReadonlySet<string> {
+  return new Set(
+    (input ?? fallback)
+      .map((name) => name.trim())
+      .filter((name) => name.length > 0),
+  );
 }
 
 async function defaultSleep(ms: number): Promise<void> {

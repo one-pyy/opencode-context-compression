@@ -7,11 +7,17 @@ import {
 } from "../compaction/runner.js";
 import type { RuntimeConfig } from "../config/runtime-config.js";
 import { resolveHostMessageCanonicalIdentity } from "../identity/canonical-identity.js";
-import type { TransformEnvelope, TransformPart } from "../seams/noop-observation.js";
+import type {
+  TransformEnvelope,
+  TransformPart,
+} from "../seams/noop-observation.js";
 import { createSqliteSessionStateStore } from "../state/store.js";
 import { estimateEnvelopeTokens } from "../token-estimation.js";
 import { createDefaultRuntimeCompactionTransport } from "./default-compaction-transport.js";
-import { readSessionFileLock, resolvePluginLockDirectory } from "./file-lock.js";
+import {
+  readSessionFileLock,
+  resolvePluginLockDirectory,
+} from "./file-lock.js";
 import { createRuntimeEventWriter } from "./runtime-events.js";
 
 type ChatParamsHook = NonNullable<Hooks["chat.params"]>;
@@ -23,7 +29,11 @@ type SchedulerSessionMessage = {
 
 type SchedulerClient = PluginInput["client"] & {
   session?: {
-    messages?: (input: { sessionID: string; limit?: number; before?: string }) => Promise<unknown>;
+    messages?: (input: {
+      sessionID: string;
+      limit?: number;
+      before?: string;
+    }) => Promise<unknown>;
   };
 };
 
@@ -118,7 +128,8 @@ async function runSchedulerOnce(
     });
     if (
       activeMarks.length < options.runtimeConfig.schedulerMarkThreshold ||
-      activeMarkedTokenTotal < options.runtimeConfig.markedTokenAutoCompactionThreshold
+      activeMarkedTokenTotal <
+        options.runtimeConfig.markedTokenAutoCompactionThreshold
     ) {
       return;
     }
@@ -137,7 +148,8 @@ async function runSchedulerOnce(
       promptText: options.runtimeConfig.promptText,
       models: options.runtimeConfig.models,
       transport,
-      loadCanonicalSourceMessages: createCanonicalSourceLoader(canonicalMessages),
+      loadCanonicalSourceMessages:
+        createCanonicalSourceLoader(canonicalMessages),
       now: options.now,
       timeoutMs: options.timeoutMs,
       note: `chat.params scheduler triggered by ${triggerMessageID}`,
@@ -152,7 +164,8 @@ async function runSchedulerOnce(
           activeMarkCount: activeMarks.length,
           activeMarkedTokenTotal,
           schedulerMarkThreshold: options.runtimeConfig.schedulerMarkThreshold,
-          markedTokenAutoCompactionThreshold: options.runtimeConfig.markedTokenAutoCompactionThreshold,
+          markedTokenAutoCompactionThreshold:
+            options.runtimeConfig.markedTokenAutoCompactionThreshold,
           markedTokenThresholdEnforced: true,
           configuredModels: [...options.runtimeConfig.models],
         },
@@ -188,10 +201,15 @@ async function syncCanonicalSessionHistory(input: {
   return envelopes;
 }
 
-async function readSessionMessages(client: PluginInput["client"], sessionID: string): Promise<SchedulerSessionMessage[]> {
+async function readSessionMessages(
+  client: PluginInput["client"],
+  sessionID: string,
+): Promise<SchedulerSessionMessage[]> {
   const sessionClient = (client as SchedulerClient).session;
   if (typeof sessionClient?.messages !== "function") {
-    throw new Error("chat.params scheduler requires client.session.messages() to read canonical session history.");
+    throw new Error(
+      "chat.params scheduler requires client.session.messages() to read canonical session history.",
+    );
   }
 
   const response = await sessionClient.messages({ sessionID, limit: 500 });
@@ -202,12 +220,20 @@ async function readSessionMessages(client: PluginInput["client"], sessionID: str
       : undefined;
 
   if (!Array.isArray(data)) {
-    throw new Error("client.session.messages() did not return an array of session messages.");
+    throw new Error(
+      "client.session.messages() did not return an array of session messages.",
+    );
   }
 
   return data.map((message) => {
-    if (!isRecord(message) || !isRecord(message.info) || !Array.isArray(message.parts)) {
-      throw new Error("client.session.messages() returned an invalid session message envelope.");
+    if (
+      !isRecord(message) ||
+      !isRecord(message.info) ||
+      !Array.isArray(message.parts)
+    ) {
+      throw new Error(
+        "client.session.messages() returned an invalid session message envelope.",
+      );
     }
 
     return {
@@ -217,9 +243,14 @@ async function readSessionMessages(client: PluginInput["client"], sessionID: str
   });
 }
 
-function createCanonicalSourceLoader(canonicalMessages: readonly TransformEnvelope[]) {
+function createCanonicalSourceLoader(
+  canonicalMessages: readonly TransformEnvelope[],
+) {
   const messagesByHostID = new Map<string, TransformEnvelope>(
-    canonicalMessages.map((message) => [resolveHostMessageCanonicalIdentity(message).hostMessageID, message]),
+    canonicalMessages.map((message) => [
+      resolveHostMessageCanonicalIdentity(message).hostMessageID,
+      message,
+    ]),
   );
 
   return async ({
@@ -234,7 +265,9 @@ function createCanonicalSourceLoader(canonicalMessages: readonly TransformEnvelo
     sourceMessages.map((sourceMessage) => {
       const envelope = messagesByHostID.get(sourceMessage.hostMessageID);
       if (!envelope) {
-        throw new Error(`Missing canonical content for '${sourceMessage.hostMessageID}'.`);
+        throw new Error(
+          `Missing canonical content for '${sourceMessage.hostMessageID}'.`,
+        );
       }
 
       const identity = resolveHostMessageCanonicalIdentity(envelope);
@@ -249,7 +282,10 @@ function createCanonicalSourceLoader(canonicalMessages: readonly TransformEnvelo
 
 function renderCanonicalMessageText(parts: readonly TransformPart[]): string {
   const chunks = parts.flatMap((part) => {
-    if (part.type === "text" && typeof (part as TransformPart & { text?: unknown }).text === "string") {
+    if (
+      part.type === "text" &&
+      typeof (part as TransformPart & { text?: unknown }).text === "string"
+    ) {
       return [(part as TransformPart & { text: string }).text];
     }
 
@@ -260,13 +296,18 @@ function renderCanonicalMessageText(parts: readonly TransformPart[]): string {
 }
 
 function computeActiveMarkedTokenTotal(input: {
-  readonly activeMarks: readonly ReturnType<ReturnType<typeof createSqliteSessionStateStore>["listMarks"]>[number][];
+  readonly activeMarks: readonly ReturnType<
+    ReturnType<typeof createSqliteSessionStateStore>["listMarks"]
+  >[number][];
   readonly store: ReturnType<typeof createSqliteSessionStateStore>;
   readonly canonicalMessages: readonly TransformEnvelope[];
   readonly modelName?: string;
 }): number {
   const messagesByHostID = new Map(
-    input.canonicalMessages.map((message) => [resolveHostMessageCanonicalIdentity(message).hostMessageID, message]),
+    input.canonicalMessages.map((message) => [
+      resolveHostMessageCanonicalIdentity(message).hostMessageID,
+      message,
+    ]),
   );
 
   let total = 0;
@@ -278,14 +319,19 @@ function computeActiveMarkedTokenTotal(input: {
         continue;
       }
 
-      total += estimateEnvelopeTokens({ envelope, modelName: input.modelName }).tokenCount;
+      total += estimateEnvelopeTokens({
+        envelope,
+        modelName: input.modelName,
+      }).tokenCount;
     }
   }
 
   return total;
 }
 
-function toTransformEnvelope(message: SchedulerSessionMessage): TransformEnvelope {
+function toTransformEnvelope(
+  message: SchedulerSessionMessage,
+): TransformEnvelope {
   return {
     info: message.info as TransformEnvelope["info"],
     parts: message.parts as TransformEnvelope["parts"],

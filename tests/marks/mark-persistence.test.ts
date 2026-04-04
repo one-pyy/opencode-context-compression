@@ -4,8 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { captureMarkSourceSnapshot, persistMark } from "../../src/marks/mark-service.js";
-import { createSqliteSessionStateStore, type SqliteSessionStateStore } from "../../src/state/store.js";
+import {
+  captureMarkSourceSnapshot,
+  persistMark,
+} from "../../src/marks/mark-service.js";
+import {
+  createSqliteSessionStateStore,
+  type SqliteSessionStateStore,
+} from "../../src/state/store.js";
 
 test("persistMark captures an ordered canonical source snapshot and carries route with the durable mark", async () => {
   await withTempStore(async (store, clock) => {
@@ -35,7 +41,9 @@ test("persistMark captures an ordered canonical source snapshot and carries rout
       snapshotMetadata: { capturedBy: "mark-service" },
     });
 
-    const storedSnapshot = store.getSourceSnapshot(persisted.mark.sourceSnapshotID);
+    const storedSnapshot = store.getSourceSnapshot(
+      persisted.mark.sourceSnapshotID,
+    );
     assert.ok(storedSnapshot);
     assert.equal(persisted.mark.route, "delete");
     assert.equal(storedSnapshot?.route, "delete");
@@ -49,19 +57,33 @@ test("persistMark captures an ordered canonical source snapshot and carries rout
         role: message.role,
       })),
       [
-        { hostMessageID: "src-2", canonicalMessageID: "canon-src-2", role: "tool" },
-        { hostMessageID: "src-1", canonicalMessageID: "canon-src-1", role: "assistant" },
-        { hostMessageID: "src-3", canonicalMessageID: "canon-src-3", role: "tool" },
+        {
+          hostMessageID: "src-2",
+          canonicalMessageID: "canon-src-2",
+          role: "tool",
+        },
+        {
+          hostMessageID: "src-1",
+          canonicalMessageID: "canon-src-1",
+          role: "assistant",
+        },
+        {
+          hostMessageID: "src-3",
+          canonicalMessageID: "canon-src-3",
+          role: "tool",
+        },
       ],
     );
     assert.deepEqual(
-      store.listSourceSnapshotMessages(persisted.mark.sourceSnapshotID).map((message) => ({
-        hostMessageID: message.hostMessageID,
-        canonicalMessageID: message.canonicalMessageID,
-        hostRole: message.hostRole,
-        contentHash: message.contentHash,
-        metadata: message.metadata,
-      })),
+      store
+        .listSourceSnapshotMessages(persisted.mark.sourceSnapshotID)
+        .map((message) => ({
+          hostMessageID: message.hostMessageID,
+          canonicalMessageID: message.canonicalMessageID,
+          hostRole: message.hostRole,
+          contentHash: message.contentHash,
+          metadata: message.metadata,
+        })),
       [
         {
           hostMessageID: "src-2",
@@ -86,7 +108,10 @@ test("persistMark captures an ordered canonical source snapshot and carries rout
         },
       ],
     );
-    assert.equal(store.getMarkByToolCallMessageID("mark-tool-1")?.markID, persisted.mark.markID);
+    assert.equal(
+      store.getMarkByToolCallMessageID("mark-tool-1")?.markID,
+      persisted.mark.markID,
+    );
   });
 });
 
@@ -103,14 +128,23 @@ test("captureMarkSourceSnapshot rejects source ids that do not match synced cano
         captureMarkSourceSnapshot({
           store,
           route: "keep",
-          sourceMessages: [{ hostMessageID: "src-1", canonicalMessageID: "wrong-canonical-id" }],
+          sourceMessages: [
+            {
+              hostMessageID: "src-1",
+              canonicalMessageID: "wrong-canonical-id",
+            },
+          ],
         }),
       /Mark source canonical id mismatch/,
     );
   });
 });
 
-function hostMessage(hostMessageID: string, canonicalMessageID: string, role: string) {
+function hostMessage(
+  hostMessageID: string,
+  canonicalMessageID: string,
+  role: string,
+) {
   return {
     hostMessageID,
     canonicalMessageID,
@@ -119,9 +153,14 @@ function hostMessage(hostMessageID: string, canonicalMessageID: string, role: st
 }
 
 async function withTempStore(
-  run: (store: SqliteSessionStateStore, clock: ReturnType<typeof createClock>) => Promise<void>,
+  run: (
+    store: SqliteSessionStateStore,
+    clock: ReturnType<typeof createClock>,
+  ) => Promise<void>,
 ): Promise<void> {
-  const pluginDirectory = await mkdtemp(join(tmpdir(), "opencode-context-compression-mark-persistence-"));
+  const pluginDirectory = await mkdtemp(
+    join(tmpdir(), "opencode-context-compression-mark-persistence-"),
+  );
   const clock = createClock();
   const store = createSqliteSessionStateStore({
     pluginDirectory,

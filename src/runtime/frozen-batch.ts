@@ -12,7 +12,9 @@ export function freezeBatch<T>(
   now: () => number = Date.now,
 ): FrozenBatch<T> {
   const snapshot = Object.freeze([...members]);
-  const memberIDs = Object.freeze(snapshot.map((member) => identifyMember(member)));
+  const memberIDs = Object.freeze(
+    snapshot.map((member) => identifyMember(member)),
+  );
   const memberIDSet = new Set(memberIDs);
 
   return Object.freeze({

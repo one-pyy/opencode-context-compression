@@ -1,15 +1,24 @@
 import type { Hooks } from "@opencode-ai/plugin";
 
 import type { ReminderRuntimeConfig } from "../config/runtime-config.js";
-import type { MessagesTransformOutput, TransformEnvelope } from "../seams/noop-observation.js";
+import type {
+  MessagesTransformOutput,
+  TransformEnvelope,
+} from "../seams/noop-observation.js";
 import { createSqliteSessionStateStore } from "../state/store.js";
 import { resolveHostMessageCanonicalIdentity } from "../identity/canonical-identity.js";
 import { buildProjectedMessages } from "./projection-builder.js";
 
-const PROJECTED_ENVELOPE_MARKER = Symbol("opencode-context-compression.projected-envelope");
-const CANONICAL_SNAPSHOT_MARKER = Symbol("opencode-context-compression.canonical-snapshot");
+const PROJECTED_ENVELOPE_MARKER = Symbol(
+  "opencode-context-compression.projected-envelope",
+);
+const CANONICAL_SNAPSHOT_MARKER = Symbol(
+  "opencode-context-compression.canonical-snapshot",
+);
 
-type MessagesTransformHook = NonNullable<Hooks["experimental.chat.messages.transform"]>;
+type MessagesTransformHook = NonNullable<
+  Hooks["experimental.chat.messages.transform"]
+>;
 type ProjectionManagedMessages = MessagesTransformOutput["messages"] & {
   [CANONICAL_SNAPSHOT_MARKER]?: readonly TransformEnvelope[];
 };
@@ -47,7 +56,9 @@ export function createMessagesTransformHook(
         smallUserMessageThreshold: options.smallUserMessageThreshold,
         reminderModelName: options.reminderModelName,
       });
-      const projectedMessages = projection.projectedMessages.map(markProjectedEnvelope);
+      const projectedMessages = projection.projectedMessages.map(
+        markProjectedEnvelope,
+      );
 
       managedMessages.splice(0, managedMessages.length, ...projectedMessages);
       rememberCanonicalMessages(managedMessages, canonicalMessages);
@@ -57,7 +68,9 @@ export function createMessagesTransformHook(
   };
 }
 
-function readCanonicalMessages(messages: ProjectionManagedMessages): TransformEnvelope[] {
+function readCanonicalMessages(
+  messages: ProjectionManagedMessages,
+): TransformEnvelope[] {
   const remembered = messages[CANONICAL_SNAPSHOT_MARKER];
   if (remembered !== undefined && messages.every(isProjectedEnvelope)) {
     return cloneEnvelopes(remembered);
@@ -66,7 +79,10 @@ function readCanonicalMessages(messages: ProjectionManagedMessages): TransformEn
   return cloneEnvelopes(messages);
 }
 
-function rememberCanonicalMessages(messages: ProjectionManagedMessages, canonicalMessages: readonly TransformEnvelope[]): void {
+function rememberCanonicalMessages(
+  messages: ProjectionManagedMessages,
+  canonicalMessages: readonly TransformEnvelope[],
+): void {
   Object.defineProperty(messages, CANONICAL_SNAPSHOT_MARKER, {
     configurable: true,
     enumerable: false,
@@ -76,7 +92,11 @@ function rememberCanonicalMessages(messages: ProjectionManagedMessages, canonica
 }
 
 function isProjectedEnvelope(envelope: TransformEnvelope): boolean {
-  return Boolean((envelope as TransformEnvelope & { [PROJECTED_ENVELOPE_MARKER]?: true })[PROJECTED_ENVELOPE_MARKER]);
+  return Boolean(
+    (envelope as TransformEnvelope & { [PROJECTED_ENVELOPE_MARKER]?: true })[
+      PROJECTED_ENVELOPE_MARKER
+    ],
+  );
 }
 
 function markProjectedEnvelope(envelope: TransformEnvelope): TransformEnvelope {
@@ -90,13 +110,20 @@ function markProjectedEnvelope(envelope: TransformEnvelope): TransformEnvelope {
   return envelope;
 }
 
-function cloneEnvelopes(messages: readonly TransformEnvelope[]): TransformEnvelope[] {
+function cloneEnvelopes(
+  messages: readonly TransformEnvelope[],
+): TransformEnvelope[] {
   return messages.map((message) => structuredClone(message));
 }
 
-function resolveSessionID(messages: readonly TransformEnvelope[]): string | undefined {
+function resolveSessionID(
+  messages: readonly TransformEnvelope[],
+): string | undefined {
   for (const message of messages) {
-    if (typeof message.info.sessionID === "string" && message.info.sessionID.length > 0) {
+    if (
+      typeof message.info.sessionID === "string" &&
+      message.info.sessionID.length > 0
+    ) {
       return message.info.sessionID;
     }
 

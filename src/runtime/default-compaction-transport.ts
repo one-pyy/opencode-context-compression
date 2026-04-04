@@ -59,7 +59,9 @@ export function createDefaultRuntimeCompactionTransport(
 ): CompactionRunnerTransport {
   return {
     candidate: DEFAULT_RUNTIME_TRANSPORT_CANDIDATE,
-    async invoke(request: CompactionRunnerTransportRequest): Promise<RawCompactionOutput> {
+    async invoke(
+      request: CompactionRunnerTransportRequest,
+    ): Promise<RawCompactionOutput> {
       return invokeRuntimeCompactionTransport(options, request);
     },
   } satisfies CompactionRunnerTransport;
@@ -71,7 +73,10 @@ async function invokeRuntimeCompactionTransport(
 ): Promise<RawCompactionOutput> {
   const invocation = resolveInvocationContext(options, request.model);
   const bodyText = renderCompactionRequestBody(request.input);
-  const endpointOrder = resolveEndpointOrder(invocation.apiNpm, invocation.providerID);
+  const endpointOrder = resolveEndpointOrder(
+    invocation.apiNpm,
+    invocation.providerID,
+  );
   const signal =
     typeof options.timeoutMs === "number" && options.timeoutMs > 0
       ? AbortSignal.timeout(options.timeoutMs)
@@ -88,14 +93,28 @@ async function invokeRuntimeCompactionTransport(
     const response = await fetch(url, {
       method: "POST",
       headers: invocation.headers,
-      body: JSON.stringify(buildRequestPayload(endpoint, invocation.modelID, request.input, bodyText, invocation)),
+      body: JSON.stringify(
+        buildRequestPayload(
+          endpoint,
+          invocation.modelID,
+          request.input,
+          bodyText,
+          invocation,
+        ),
+      ),
       signal,
     }).catch((error: unknown) => {
       throw normalizeFetchFailure(error, endpoint, url);
     });
 
     if (!response.ok) {
-      if (shouldTryAlternateEndpoint(response.status, endpointIndex, endpointOrder.length)) {
+      if (
+        shouldTryAlternateEndpoint(
+          response.status,
+          endpointIndex,
+          endpointOrder.length,
+        )
+      ) {
         lastError = await createHttpFailure(response, endpoint, url);
         continue;
       }
@@ -168,7 +187,8 @@ function resolveInvocationContext(
   }
 
   return {
-    providerID: configured.providerID ?? modelContext.providerID ?? providerContext.id,
+    providerID:
+      configured.providerID ?? modelContext.providerID ?? providerContext.id,
     modelID,
     baseUrl,
     apiNpm: modelContext.apiNpm,
@@ -305,7 +325,10 @@ function normalizeFetchFailure(
   );
 }
 
-function resolveEndpointOrder(apiNpm: string | undefined, providerID: string | undefined): readonly EndpointKind[] {
+function resolveEndpointOrder(
+  apiNpm: string | undefined,
+  providerID: string | undefined,
+): readonly EndpointKind[] {
   if (
     apiNpm === "@ai-sdk/openai" ||
     providerID === "openai" ||
@@ -318,13 +341,20 @@ function resolveEndpointOrder(apiNpm: string | undefined, providerID: string | u
   return ["chat-completions", "responses"];
 }
 
-function shouldTryAlternateEndpoint(status: number, index: number, total: number): boolean {
+function shouldTryAlternateEndpoint(
+  status: number,
+  index: number,
+  total: number,
+): boolean {
   return index < total - 1 && [404, 405, 501].includes(status);
 }
 
 function buildEndpointUrl(baseUrl: string, endpoint: EndpointKind): string {
   const normalizedBaseUrl = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
-  return new URL(endpoint === "responses" ? "responses" : "chat/completions", normalizedBaseUrl).toString();
+  return new URL(
+    endpoint === "responses" ? "responses" : "chat/completions",
+    normalizedBaseUrl,
+  ).toString();
 }
 
 function renderCompactionRequestBody(input: CompactionInput): string {
@@ -339,7 +369,9 @@ function renderCompactionRequestBody(input: CompactionInput): string {
     `Route: ${input.route}`,
     `Source snapshot id: ${input.sourceSnapshotID}`,
     `Source fingerprint: ${input.sourceFingerprint}`,
-    input.canonicalRevision ? `Canonical revision: ${input.canonicalRevision}` : undefined,
+    input.canonicalRevision
+      ? `Canonical revision: ${input.canonicalRevision}`
+      : undefined,
     "",
     "Canonical source messages:",
     ...sourceSections,
@@ -359,7 +391,10 @@ function extractCompactionResponseText(payload: unknown): string | undefined {
     return undefined;
   }
 
-  if (typeof payloadRecord.output_text === "string" && payloadRecord.output_text.trim().length > 0) {
+  if (
+    typeof payloadRecord.output_text === "string" &&
+    payloadRecord.output_text.trim().length > 0
+  ) {
     return payloadRecord.output_text;
   }
 
@@ -368,7 +403,9 @@ function extractCompactionResponseText(payload: unknown): string | undefined {
     return directContent;
   }
 
-  const choices = Array.isArray(payloadRecord.choices) ? payloadRecord.choices : [];
+  const choices = Array.isArray(payloadRecord.choices)
+    ? payloadRecord.choices
+    : [];
   for (const choice of choices) {
     const choiceRecord = asRecord(choice);
     const messageRecord = asRecord(choiceRecord?.message);
@@ -378,7 +415,9 @@ function extractCompactionResponseText(payload: unknown): string | undefined {
     }
   }
 
-  const output = Array.isArray(payloadRecord.output) ? payloadRecord.output : [];
+  const output = Array.isArray(payloadRecord.output)
+    ? payloadRecord.output
+    : [];
   for (const item of output) {
     const itemRecord = asRecord(item);
     const content = extractTextContent(itemRecord?.content);
@@ -425,7 +464,10 @@ function extractTextContent(value: unknown): string | undefined {
   return chunks.length > 0 ? chunks.join("\n") : undefined;
 }
 
-function parseConfiguredModel(value: string): { readonly providerID?: string; readonly modelID?: string } {
+function parseConfiguredModel(value: string): {
+  readonly providerID?: string;
+  readonly modelID?: string;
+} {
   const trimmed = value.trim();
   if (trimmed.length === 0) {
     return {};
@@ -470,7 +512,10 @@ function resolveProviderContext(value: unknown): ResolvedProviderContext {
 
   return {
     id: readString(record, "id") ?? readString(info, "id"),
-    key: readString(record, "key") ?? readString(info, "key") ?? readString(options, "apiKey"),
+    key:
+      readString(record, "key") ??
+      readString(info, "key") ??
+      readString(options, "apiKey"),
     options,
     headers: {
       ...readStringMap(info?.headers),
@@ -480,19 +525,35 @@ function resolveProviderContext(value: unknown): ResolvedProviderContext {
   };
 }
 
-function resolveBaseUrl(options: Readonly<Record<string, unknown>>, fallbackUrl: string | undefined): string | undefined {
-  const configured = readString(options, "baseURL") ?? readString(options, "baseUrl") ?? fallbackUrl;
+function resolveBaseUrl(
+  options: Readonly<Record<string, unknown>>,
+  fallbackUrl: string | undefined,
+): string | undefined {
+  const configured =
+    readString(options, "baseURL") ??
+    readString(options, "baseUrl") ??
+    fallbackUrl;
   if (!configured) {
     return undefined;
   }
 
-  const resolved = configured.replace(/\$\{([^}]+)\}/g, (match, key: string) => process.env[key] ?? match).trim();
+  const resolved = configured
+    .replace(
+      /\$\{([^}]+)\}/g,
+      (match, key: string) => process.env[key] ?? match,
+    )
+    .trim();
   return resolved.length > 0 ? resolved : undefined;
 }
 
-function readString(record: Record<string, unknown> | undefined, key: string): string | undefined {
+function readString(
+  record: Record<string, unknown> | undefined,
+  key: string,
+): string | undefined {
   const value = record?.[key];
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : undefined;
 }
 
 function readStringMap(value: unknown): Readonly<Record<string, string>> {
@@ -500,15 +561,19 @@ function readStringMap(value: unknown): Readonly<Record<string, string>> {
     return {};
   }
 
-  const entries = Object.entries(value as Record<string, unknown>).flatMap(([key, entryValue]) => {
-    return typeof entryValue === "string" ? [[key, entryValue]] : [];
-  });
+  const entries = Object.entries(value as Record<string, unknown>).flatMap(
+    ([key, entryValue]) => {
+      return typeof entryValue === "string" ? [[key, entryValue]] : [];
+    },
+  );
 
   return Object.fromEntries(entries);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
 function isAbortError(error: unknown): boolean {

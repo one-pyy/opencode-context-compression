@@ -6,8 +6,14 @@ import test from "node:test";
 
 import { freezeCurrentCompactionBatch } from "../../src/marks/batch-freeze.js";
 import { persistMark } from "../../src/marks/mark-service.js";
-import { readSessionFileLock, releaseSessionFileLock } from "../../src/runtime/file-lock.js";
-import { createSqliteSessionStateStore, type SqliteSessionStateStore } from "../../src/state/store.js";
+import {
+  readSessionFileLock,
+  releaseSessionFileLock,
+} from "../../src/runtime/file-lock.js";
+import {
+  createSqliteSessionStateStore,
+  type SqliteSessionStateStore,
+} from "../../src/state/store.js";
 
 test("freezeCurrentCompactionBatch persists the exact current mark set and later marks stay outside that frozen batch", async () => {
   await withTempEnvironment(async ({ store, clock, lockDirectory }) => {
@@ -31,10 +37,7 @@ test("freezeCurrentCompactionBatch persists the exact current mark set and later
       toolCallMessageID: "mark-tool-1",
       route: "keep",
       createdAtMs: clock.tick(),
-      sourceMessages: [
-        { hostMessageID: "src-1" },
-        { hostMessageID: "src-2" },
-      ],
+      sourceMessages: [{ hostMessageID: "src-1" }, { hostMessageID: "src-2" }],
     });
     persistMark({
       store,
@@ -42,10 +45,7 @@ test("freezeCurrentCompactionBatch persists the exact current mark set and later
       toolCallMessageID: "mark-tool-2",
       route: "delete",
       createdAtMs: clock.tick(),
-      sourceMessages: [
-        { hostMessageID: "src-3" },
-        { hostMessageID: "src-4" },
-      ],
+      sourceMessages: [{ hostMessageID: "src-3" }, { hostMessageID: "src-4" }],
     });
 
     const frozen = await freezeCurrentCompactionBatch({
@@ -109,7 +109,10 @@ test("freezeCurrentCompactionBatch persists the exact current mark set and later
     });
     assert.equal(lockState.kind, "running");
     if (lockState.kind === "running") {
-      assert.equal(lockState.record.startedAtMs, frozen.runtimeBatch.frozenAtMs);
+      assert.equal(
+        lockState.record.startedAtMs,
+        frozen.runtimeBatch.frozenAtMs,
+      );
       assert.equal(lockState.record.note, "freeze-current-marks");
     }
 
@@ -151,7 +154,11 @@ test("freezeCurrentCompactionBatch returns no-active-marks without creating a lo
   });
 });
 
-function hostMessage(hostMessageID: string, canonicalMessageID: string, role: string) {
+function hostMessage(
+  hostMessageID: string,
+  canonicalMessageID: string,
+  role: string,
+) {
   return {
     hostMessageID,
     canonicalMessageID,
@@ -166,7 +173,9 @@ async function withTempEnvironment(
     lockDirectory: string;
   }) => Promise<void>,
 ): Promise<void> {
-  const pluginDirectory = await mkdtemp(join(tmpdir(), "opencode-context-compression-batch-freeze-"));
+  const pluginDirectory = await mkdtemp(
+    join(tmpdir(), "opencode-context-compression-batch-freeze-"),
+  );
   const lockDirectory = join(pluginDirectory, "locks");
   const clock = createClock();
   const store = createSqliteSessionStateStore({

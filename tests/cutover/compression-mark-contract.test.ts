@@ -7,8 +7,15 @@ import { freezeCurrentCompactionBatch } from "../../src/marks/batch-freeze.js";
 import { persistMark } from "../../src/marks/mark-service.js";
 import { releaseSessionFileLock } from "../../src/runtime/file-lock.js";
 import { createSqliteSessionStateStore } from "../../src/state/store.js";
-import type { TransformEnvelope, TransformMessage, TransformPart } from "../../src/seams/noop-observation.js";
-import { readInstalledPluginTypes, withLoadedPluginHooks } from "./cutover-test-helpers.js";
+import type {
+  TransformEnvelope,
+  TransformMessage,
+  TransformPart,
+} from "../../src/seams/noop-observation.js";
+import {
+  readInstalledPluginTypes,
+  withLoadedPluginHooks,
+} from "./cutover-test-helpers.js";
 
 test("plugin entrypoint exposes repo-local compression_mark through Hooks.tool", async () => {
   const installedPluginTypes = await readInstalledPluginTypes();
@@ -20,10 +27,24 @@ test("plugin entrypoint exposes repo-local compression_mark through Hooks.tool",
 
   await withLoadedPluginHooks(async ({ hooks }) => {
     const hookKeys = Object.keys(hooks).sort();
-    const toolRegistry = (hooks as { tool?: Record<string, { execute(args: unknown, context: unknown): Promise<string> }> }).tool;
-    const toolKeys = toolRegistry && typeof toolRegistry === "object" ? Object.keys(toolRegistry).sort() : [];
+    const toolRegistry = (
+      hooks as {
+        tool?: Record<
+          string,
+          { execute(args: unknown, context: unknown): Promise<string> }
+        >;
+      }
+    ).tool;
+    const toolKeys =
+      toolRegistry && typeof toolRegistry === "object"
+        ? Object.keys(toolRegistry).sort()
+        : [];
 
-    if (!toolRegistry || typeof toolRegistry !== "object" || !("compression_mark" in toolRegistry)) {
+    if (
+      !toolRegistry ||
+      typeof toolRegistry !== "object" ||
+      !("compression_mark" in toolRegistry)
+    ) {
       assert.fail(
         [
           "Cutover gap: plugin entrypoint must expose a repo-local public `compression_mark` tool via `Hooks.tool`.",
@@ -48,9 +69,18 @@ test("compression_mark v1 resolves visible ids, persists durable source snapshot
 
     try {
       const canonicalMessages = [
-        createEnvelope(createMessage({ id: "user-1", role: "user", created: 1 }), [createTextPart("user-1", "hello")]),
-        createEnvelope(createMessage({ id: "assistant-1", role: "assistant", created: 2 }), [createTextPart("assistant-1", "draft")]),
-        createEnvelope(createMessage({ id: "user-2", role: "user", created: 3 }), [createTextPart("user-2", "next")]),
+        createEnvelope(
+          createMessage({ id: "user-1", role: "user", created: 1 }),
+          [createTextPart("user-1", "hello")],
+        ),
+        createEnvelope(
+          createMessage({ id: "assistant-1", role: "assistant", created: 2 }),
+          [createTextPart("assistant-1", "draft")],
+        ),
+        createEnvelope(
+          createMessage({ id: "user-2", role: "user", created: 3 }),
+          [createTextPart("user-2", "next")],
+        ),
       ];
 
       store.syncCanonicalHostMessages({
@@ -99,8 +129,10 @@ test("compression_mark v1 resolves visible ids, persists durable source snapshot
         role: "assistant",
         hostCreatedAtMs: undefined,
         canonicalPresent: true,
-        firstSeenAtMs: store.getHostMessage("assistant-mark-call-1")?.firstSeenAtMs,
-        lastSeenAtMs: store.getHostMessage("assistant-mark-call-1")?.lastSeenAtMs,
+        firstSeenAtMs: store.getHostMessage("assistant-mark-call-1")
+          ?.firstSeenAtMs,
+        lastSeenAtMs: store.getHostMessage("assistant-mark-call-1")
+          ?.lastSeenAtMs,
         lastSeenRevision: "rev-cutover-1",
         visibleSeq: undefined,
         visibleChecksum: undefined,
@@ -114,8 +146,16 @@ test("compression_mark v1 resolves visible ids, persists durable source snapshot
           hostRole: message.hostRole,
         })),
         [
-          { hostMessageID: "assistant-1", canonicalMessageID: "assistant-1", hostRole: "assistant" },
-          { hostMessageID: "user-2", canonicalMessageID: "user-2", hostRole: "user" },
+          {
+            hostMessageID: "assistant-1",
+            canonicalMessageID: "assistant-1",
+            hostRole: "assistant",
+          },
+          {
+            hostMessageID: "user-2",
+            canonicalMessageID: "user-2",
+            hostRole: "user",
+          },
         ],
       );
       assert.deepEqual(mark?.metadata, {
@@ -152,9 +192,18 @@ test("compression_mark remains callable during lock and late marks stay out of t
 
     try {
       const canonicalMessages = [
-        createEnvelope(createMessage({ id: "user-1", role: "user", created: 1 }), [createTextPart("user-1", "hello")]),
-        createEnvelope(createMessage({ id: "assistant-1", role: "assistant", created: 2 }), [createTextPart("assistant-1", "draft")]),
-        createEnvelope(createMessage({ id: "mark-tool-1", role: "assistant", created: 3 }), [createTextPart("mark-tool-1", "existing mark")]),
+        createEnvelope(
+          createMessage({ id: "user-1", role: "user", created: 1 }),
+          [createTextPart("user-1", "hello")],
+        ),
+        createEnvelope(
+          createMessage({ id: "assistant-1", role: "assistant", created: 2 }),
+          [createTextPart("assistant-1", "draft")],
+        ),
+        createEnvelope(
+          createMessage({ id: "mark-tool-1", role: "assistant", created: 3 }),
+          [createTextPart("mark-tool-1", "existing mark")],
+        ),
       ];
 
       store.syncCanonicalHostMessages({
@@ -191,7 +240,10 @@ test("compression_mark remains callable during lock and late marks stay out of t
         store,
       }).projectedMessages;
       const toolExecuteBefore = hooks["tool.execute.before"] as
-        | ((input: { tool: string; sessionID: string; callID: string }, output: { args: unknown }) => Promise<void>)
+        | ((
+            input: { tool: string; sessionID: string; callID: string },
+            output: { args: unknown },
+          ) => Promise<void>)
         | undefined;
       await toolExecuteBefore?.(
         {
@@ -221,12 +273,17 @@ test("compression_mark remains callable during lock and late marks stay out of t
 
       assert.match(output, /Persisted compression_mark/u);
       assert.deepEqual(
-        store.listCompactionBatchMarks(frozen.persistedBatch.batchID).map((member) => member.markID),
+        store
+          .listCompactionBatchMarks(frozen.persistedBatch.batchID)
+          .map((member) => member.markID),
         ["existing-mark-1"],
       );
       assert.deepEqual(
         store.listMarks({ status: "active" }).map((mark) => mark.markID),
-        ["existing-mark-1", "test-session:compression-mark:assistant-mark-call-2"],
+        [
+          "existing-mark-1",
+          "test-session:compression-mark:assistant-mark-call-2",
+        ],
       );
     } finally {
       await releaseSessionFileLock({
@@ -239,7 +296,14 @@ test("compression_mark remains callable during lock and late marks stay out of t
 });
 
 function readCompressionMarkTool(hooks: Record<string, unknown>) {
-  const toolRegistry = (hooks as { tool?: Record<string, { execute(args: unknown, context: unknown): Promise<string> }> }).tool;
+  const toolRegistry = (
+    hooks as {
+      tool?: Record<
+        string,
+        { execute(args: unknown, context: unknown): Promise<string> }
+      >;
+    }
+  ).tool;
   const compressionMark = toolRegistry?.compression_mark;
   if (compressionMark === undefined) {
     throw new Error("compression_mark tool missing from plugin hooks");
@@ -252,7 +316,9 @@ function createToolContext(input: {
   readonly tempDirectory: string;
   readonly sessionID: string;
   readonly messageID: string;
-  readonly messages: ReturnType<typeof buildProjectedMessages>["projectedMessages"];
+  readonly messages: ReturnType<
+    typeof buildProjectedMessages
+  >["projectedMessages"];
 }) {
   return {
     sessionID: input.sessionID,
@@ -267,14 +333,21 @@ function createToolContext(input: {
   };
 }
 
-function createEnvelope(info: TransformMessage, parts: TransformPart[]): TransformEnvelope {
+function createEnvelope(
+  info: TransformMessage,
+  parts: TransformPart[],
+): TransformEnvelope {
   return {
     info,
     parts,
   };
 }
 
-function createMessage(input: { readonly id: string; readonly role: string; readonly created: number }): TransformMessage {
+function createMessage(input: {
+  readonly id: string;
+  readonly role: string;
+  readonly created: number;
+}): TransformMessage {
   return {
     id: input.id,
     sessionID: "test-session",
@@ -298,13 +371,22 @@ function createTextPart(messageID: string, text: string): TransformPart {
   } as TransformPart;
 }
 
-function readVisibleMessageID(message: { parts: Array<Record<string, unknown>> } | undefined): string {
-  const textPart = message?.parts.find((part) => part.type === "text" && typeof part.text === "string");
+function readVisibleMessageID(
+  message: { parts: Array<Record<string, unknown>> } | undefined,
+): string {
+  const textPart = message?.parts.find(
+    (part) => part.type === "text" && typeof part.text === "string",
+  );
   const text = typeof textPart?.text === "string" ? textPart.text : undefined;
-  const match = typeof text === "string" ? /^\[(?:protected|referable|compressible)_([^\]]+)\]/u.exec(text) : null;
+  const match =
+    typeof text === "string"
+      ? /^\[(?:protected|referable|compressible)_([^\]]+)\]/u.exec(text)
+      : null;
   const visibleMessageID = match?.[1];
   if (typeof visibleMessageID !== "string" || visibleMessageID.length === 0) {
-    throw new Error(`Unable to read visible message id from projected text '${String(text)}'.`);
+    throw new Error(
+      `Unable to read visible message id from projected text '${String(text)}'.`,
+    );
   }
 
   return visibleMessageID;

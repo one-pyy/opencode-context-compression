@@ -8,7 +8,10 @@ import { pathToFileURL } from "node:url";
 import type { Hooks, PluginInput } from "@opencode-ai/plugin";
 
 import type { CompactionRunnerTransport } from "../../src/compaction/runner.js";
-import { loadRuntimeConfig, RUNTIME_CONFIG_ENV } from "../../src/config/runtime-config.js";
+import {
+  loadRuntimeConfig,
+  RUNTIME_CONFIG_ENV,
+} from "../../src/config/runtime-config.js";
 import { createChatParamsSchedulerHook } from "../../src/runtime/chat-params-scheduler.js";
 import { createSqliteSessionStateStore } from "../../src/state/store.js";
 import type {
@@ -40,19 +43,23 @@ test("canonical plugin contract is free of legacy DCP tool names and old runtime
   const hits = await collectAuditHits(CANONICAL_CONTRACT_FILES, [
     {
       pattern: /\bdcp_execute_compaction\b/u,
-      reason: "old public executor tool name remains in the canonical plugin contract",
+      reason:
+        "old public executor tool name remains in the canonical plugin contract",
     },
     {
       pattern: /\bdcp_mark_for_compaction\b/u,
-      reason: "old public mark tool name remains in the canonical plugin contract",
+      reason:
+        "old public mark tool name remains in the canonical plugin contract",
     },
     {
       pattern: /\bdcp_mark\b/u,
-      reason: "legacy public mark alias remains in the canonical plugin contract",
+      reason:
+        "legacy public mark alias remains in the canonical plugin contract",
     },
     {
       pattern: /config\/dcp-runtime\.json/u,
-      reason: "old runtime config path remains in the canonical plugin contract",
+      reason:
+        "old runtime config path remains in the canonical plugin contract",
     },
   ]);
 
@@ -67,7 +74,9 @@ test("canonical plugin contract is free of legacy DCP tool names and old runtime
 });
 
 test("production plugin source does not depend on legacy provider DCP field names", async () => {
-  const productionSourceFiles = (await listRepoFiles("src")).filter((filePath) => filePath.endsWith(".ts"));
+  const productionSourceFiles = (await listRepoFiles("src")).filter(
+    (filePath) => filePath.endsWith(".ts"),
+  );
   const hits = await collectAuditHits(
     productionSourceFiles,
     LEGACY_PROVIDER_DCP_FIELDS.map((fieldName) => ({
@@ -87,7 +96,9 @@ test("production plugin source does not depend on legacy provider DCP field name
 });
 
 test("canonical execution does not require old provider DCP fields", async () => {
-  const pluginDirectory = await mkdtemp(join(tmpdir(), "opencode-context-compression-provider-independence-"));
+  const pluginDirectory = await mkdtemp(
+    join(tmpdir(), "opencode-context-compression-provider-independence-"),
+  );
   const sessionID = "test-session";
   const richAssistantText = "assistant token rich content ".repeat(3000).trim();
   const richToolText = "tool token rich output ".repeat(3000).trim();
@@ -95,26 +106,52 @@ test("canonical execution does not require old provider DCP fields", async () =>
     createEnvelope(createMessage({ id: "user-1", role: "user", created: 1 }), [
       createTextPart("user-1", "hello"),
     ]),
-    createEnvelope(createMessage({ id: "assistant-1", role: "assistant", created: 2 }), [
-      createTextPart("assistant-1", richAssistantText),
-    ]),
+    createEnvelope(
+      createMessage({ id: "assistant-1", role: "assistant", created: 2 }),
+      [createTextPart("assistant-1", richAssistantText)],
+    ),
     createEnvelope(createMessage({ id: "tool-1", role: "tool", created: 3 }), [
       createTextPart("tool-1", richToolText),
     ]),
   ] as const;
   const sessionHistory = [
     ...canonicalMessages,
-    createEnvelope(createMessage({ id: "assistant-mark-call-1", role: "assistant", created: 4 }), [
-      createTextPart("assistant-mark-call-1", "Persisted compression_mark test-session:compression-mark:assistant-mark-call-1."),
-    ]),
-    createEnvelope(createMessage({ id: "user-trigger-1", role: "user", created: 5 }), [
-      createTextPart("user-trigger-1", "please continue"),
-    ]),
+    createEnvelope(
+      createMessage({
+        id: "assistant-mark-call-1",
+        role: "assistant",
+        created: 4,
+      }),
+      [
+        createTextPart(
+          "assistant-mark-call-1",
+          "Persisted compression_mark test-session:compression-mark:assistant-mark-call-1.",
+        ),
+      ],
+    ),
+    createEnvelope(
+      createMessage({ id: "user-trigger-1", role: "user", created: 5 }),
+      [createTextPart("user-trigger-1", "please continue")],
+    ),
   ] as const;
-  const legacyRuntimeConfigPath = join(pluginDirectory, "config", "dcp-runtime.json");
-  const legacyPromptPath = join(pluginDirectory, "prompts", "dcp-compaction.md");
-  const legacyRuntimeLogPath = join(pluginDirectory, "logs", "dcp-runtime-events.jsonl");
-  const pluginModule = (await import(pathToFileURL(PLUGIN_ENTRY_PATH).href)) as {
+  const legacyRuntimeConfigPath = join(
+    pluginDirectory,
+    "config",
+    "dcp-runtime.json",
+  );
+  const legacyPromptPath = join(
+    pluginDirectory,
+    "prompts",
+    "dcp-compaction.md",
+  );
+  const legacyRuntimeLogPath = join(
+    pluginDirectory,
+    "logs",
+    "dcp-runtime-events.jsonl",
+  );
+  const pluginModule = (await import(
+    pathToFileURL(PLUGIN_ENTRY_PATH).href
+  )) as {
     default: (ctx: {
       directory: string;
       worktree: string;
@@ -123,8 +160,14 @@ test("canonical execution does not require old provider DCP fields", async () =>
   };
   const runtimeConfig = loadRuntimeConfig({
     ...process.env,
-    [RUNTIME_CONFIG_ENV.runtimeLogPath]: join(pluginDirectory, "runtime-events.jsonl"),
-    [RUNTIME_CONFIG_ENV.seamLogPath]: join(pluginDirectory, "seam-observation.jsonl"),
+    [RUNTIME_CONFIG_ENV.runtimeLogPath]: join(
+      pluginDirectory,
+      "runtime-events.jsonl",
+    ),
+    [RUNTIME_CONFIG_ENV.seamLogPath]: join(
+      pluginDirectory,
+      "seam-observation.jsonl",
+    ),
   });
   const hooks = await pluginModule.default({
     directory: pluginDirectory,
@@ -147,10 +190,15 @@ test("canonical execution does not require old provider DCP fields", async () =>
     assert.equal(existsSync(legacyRuntimeConfigPath), false);
     assert.equal(existsSync(legacyPromptPath), false);
     assert.equal(existsSync(legacyRuntimeLogPath), false);
-    assert.deepEqual(Object.keys(readToolRegistry(hooks)).sort(), ["compression_mark"]);
+    assert.deepEqual(Object.keys(readToolRegistry(hooks)).sort(), [
+      "compression_mark",
+    ]);
     assert.doesNotMatch(runtimeConfig.configPath, /config\/dcp-runtime\.json/u);
     assert.doesNotMatch(runtimeConfig.promptPath, /dcp-compaction\.md/u);
-    assert.doesNotMatch(runtimeConfig.runtimeLogPath, /dcp-runtime-events\.jsonl/u);
+    assert.doesNotMatch(
+      runtimeConfig.runtimeLogPath,
+      /dcp-runtime-events\.jsonl/u,
+    );
 
     const initialProjection = {
       messages: canonicalMessages.map((message) => structuredClone(message)),
@@ -180,7 +228,10 @@ test("canonical execution does not require old provider DCP fields", async () =>
     assert.match(toolOutput, /Persisted compression_mark/u);
 
     const chatParamsOutput = createChatParamsOutput();
-    await scheduler(createChatParamsInput(sessionID, "user-trigger-1"), chatParamsOutput);
+    await scheduler(
+      createChatParamsInput(sessionID, "user-trigger-1"),
+      chatParamsOutput,
+    );
     assertNoLegacyProviderFields(chatParamsOutput.options);
 
     const store = createSqliteSessionStateStore({
@@ -193,7 +244,10 @@ test("canonical execution does not require old provider DCP fields", async () =>
         "test-session:compression-mark:assistant-mark-call-1",
       );
       assert.equal(replacement?.contentText, "Compressed summary.");
-      assert.equal(store.getMarkByToolCallMessageID("assistant-mark-call-1")?.status, "consumed");
+      assert.equal(
+        store.getMarkByToolCallMessageID("assistant-mark-call-1")?.status,
+        "consumed",
+      );
     } finally {
       store.close();
     }
@@ -205,7 +259,9 @@ test("canonical execution does not require old provider DCP fields", async () =>
 
     const projectedTexts = finalProjection.messages.map(readText);
     assert.ok(
-      projectedTexts.some((text) => /^\[referable_[^\]]+\] Compressed summary\.$/u.test(text)),
+      projectedTexts.some((text) =>
+        /^\[referable_[^\]]+\] Compressed summary\.$/u.test(text),
+      ),
       `expected projected messages to include the committed replacement, received: ${projectedTexts.join(" | ")}`,
     );
   } finally {
@@ -229,16 +285,23 @@ function readMessagesTransformHook(hooks: Record<string, unknown>) {
     | ((input: unknown, output: MessagesTransformOutput) => Promise<void>)
     | undefined;
   if (transform === undefined) {
-    throw new Error("experimental.chat.messages.transform hook missing from plugin entrypoint");
+    throw new Error(
+      "experimental.chat.messages.transform hook missing from plugin entrypoint",
+    );
   }
 
   return transform;
 }
 
 function readToolRegistry(hooks: Record<string, unknown>) {
-  const toolRegistry = (hooks as {
-    tool?: Record<string, { execute(args: unknown, context: unknown): Promise<string> }>;
-  }).tool;
+  const toolRegistry = (
+    hooks as {
+      tool?: Record<
+        string,
+        { execute(args: unknown, context: unknown): Promise<string> }
+      >;
+    }
+  ).tool;
   if (!toolRegistry || typeof toolRegistry !== "object") {
     throw new Error("tool registry missing from plugin entrypoint");
   }
@@ -276,7 +339,9 @@ function createSafeTransport(
   };
 }
 
-function createClientFixture(sessionMessages: readonly TransformEnvelope[]): PluginInput["client"] {
+function createClientFixture(
+  sessionMessages: readonly TransformEnvelope[],
+): PluginInput["client"] {
   return {
     session: {
       async messages() {
@@ -286,7 +351,10 @@ function createClientFixture(sessionMessages: readonly TransformEnvelope[]): Plu
   } as unknown as PluginInput["client"];
 }
 
-function createChatParamsInput(sessionID: string, messageID: string): ChatParamsInput {
+function createChatParamsInput(
+  sessionID: string,
+  messageID: string,
+): ChatParamsInput {
   return {
     sessionID,
     agent: "main",
@@ -376,14 +444,21 @@ function createToolContext(input: {
   };
 }
 
-function createEnvelope(info: TransformMessage, parts: TransformPart[]): TransformEnvelope {
+function createEnvelope(
+  info: TransformMessage,
+  parts: TransformPart[],
+): TransformEnvelope {
   return {
     info,
     parts,
   };
 }
 
-function createMessage(input: { readonly id: string; readonly role: string; readonly created: number }): TransformMessage {
+function createMessage(input: {
+  readonly id: string;
+  readonly role: string;
+  readonly created: number;
+}): TransformMessage {
   return {
     id: input.id,
     sessionID: "test-session",
@@ -398,7 +473,11 @@ function createMessage(input: { readonly id: string; readonly role: string; read
 }
 
 function createUserMessage(messageID: string): ChatParamsInput["message"] {
-  return createMessage({ id: messageID, role: "user", created: 6 }) as ChatParamsInput["message"];
+  return createMessage({
+    id: messageID,
+    role: "user",
+    created: 6,
+  }) as ChatParamsInput["message"];
 }
 
 function createTextPart(messageID: string, text: string): TransformPart {
@@ -413,19 +492,27 @@ function createTextPart(messageID: string, text: string): TransformPart {
 
 function readText(message: TransformEnvelope): string {
   const textPart = message.parts.find(
-    (part) => part.type === "text" && typeof (part as TransformPart & { text?: unknown }).text === "string",
+    (part) =>
+      part.type === "text" &&
+      typeof (part as TransformPart & { text?: unknown }).text === "string",
   );
-  return typeof (textPart as (TransformPart & { text?: unknown }) | undefined)?.text === "string"
+  return typeof (textPart as (TransformPart & { text?: unknown }) | undefined)
+    ?.text === "string"
     ? ((textPart as TransformPart & { text: string }).text ?? "")
     : "";
 }
 
 function readVisibleMessageID(message: TransformEnvelope | undefined): string {
   const text = message ? readText(message) : undefined;
-  const match = typeof text === "string" ? /^\[(?:protected|referable|compressible)_([^\]]+)\]/u.exec(text) : null;
+  const match =
+    typeof text === "string"
+      ? /^\[(?:protected|referable|compressible)_([^\]]+)\]/u.exec(text)
+      : null;
   const visibleMessageID = match?.[1];
   if (typeof visibleMessageID !== "string" || visibleMessageID.length === 0) {
-    throw new Error(`Unable to read visible message id from projected text '${String(text)}'.`);
+    throw new Error(
+      `Unable to read visible message id from projected text '${String(text)}'.`,
+    );
   }
 
   return visibleMessageID;

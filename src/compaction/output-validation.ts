@@ -27,7 +27,9 @@ export function validateCompactionOutput(options: {
   readonly candidate: RawCompactionOutput;
 }): ValidatedCompactionOutput {
   const issues: string[] = [];
-  const hasText = typeof options.candidate.contentText === "string" && options.candidate.contentText.trim().length > 0;
+  const hasText =
+    typeof options.candidate.contentText === "string" &&
+    options.candidate.contentText.trim().length > 0;
   const hasJSON = options.candidate.contentJSON !== undefined;
 
   if (!hasText && !hasJSON) {

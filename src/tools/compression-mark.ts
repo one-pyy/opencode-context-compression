@@ -1,11 +1,22 @@
 import { tool, type ToolContext } from "@opencode-ai/plugin";
 
 import { persistMark } from "../marks/mark-service.js";
-import { createSqliteSessionStateStore, type CompactionRoute, type HostMessageRecord, type JsonValue } from "../state/store.js";
-import type { TransformEnvelope, TransformMessage, TransformPart } from "../seams/noop-observation.js";
+import {
+  createSqliteSessionStateStore,
+  type CompactionRoute,
+  type HostMessageRecord,
+  type JsonValue,
+} from "../state/store.js";
+import type {
+  TransformEnvelope,
+  TransformMessage,
+  TransformPart,
+} from "../seams/noop-observation.js";
 
-const VISIBLE_PREFIX_PATTERN = /^\[(protected|referable|compressible)_([^\]]+)\](?:\s|$)/u;
-const VISIBLE_STATE_PREFIX_PATTERN = /^(?:protected|referable|compressible)_(.+)$/u;
+const VISIBLE_PREFIX_PATTERN =
+  /^\[(protected|referable|compressible)_([^\]]+)\](?:\s|$)/u;
+const VISIBLE_STATE_PREFIX_PATTERN =
+  /^(?:protected|referable|compressible)_(.+)$/u;
 const REMINDER_MESSAGE_ID_FRAGMENT = ":dcp-reminder:";
 
 export interface CreateCompressionMarkToolOptions {
@@ -34,41 +45,60 @@ interface VisibleProjectedMessage {
   readonly role: string;
 }
 
-export function createCompressionMarkTool(options: CreateCompressionMarkToolOptions) {
+export function createCompressionMarkTool(
+  options: CreateCompressionMarkToolOptions,
+) {
   return tool({
-    description: "Persist a compaction mark for the current visible transcript.",
+    description:
+      "Persist a compaction mark for the current visible transcript.",
     args: {
       contractVersion: tool.schema
         .literal("v1")
-        .describe("Frozen compression_mark argument contract version. Use 'v1'."),
+        .describe(
+          "Frozen compression_mark argument contract version. Use 'v1'.",
+        ),
       route: tool.schema
         .enum(["keep", "delete"])
-        .describe("Compaction route to apply to the selected canonical visible span."),
+        .describe(
+          "Compaction route to apply to the selected canonical visible span.",
+        ),
       target: tool.schema
         .object({
           startVisibleMessageID: tool.schema
             .string()
             .trim()
             .min(1)
-            .describe("Start visible message id from the current projected transcript, for example '000002_ab'."),
+            .describe(
+              "Start visible message id from the current projected transcript, for example '000002_ab'.",
+            ),
           endVisibleMessageID: tool.schema
             .string()
             .trim()
             .min(1)
             .optional()
-            .describe("Optional inclusive end visible message id from the current projected transcript."),
+            .describe(
+              "Optional inclusive end visible message id from the current projected transcript.",
+            ),
         })
-        .describe("Inclusive visible source span to persist as the durable mark source snapshot."),
+        .describe(
+          "Inclusive visible source span to persist as the durable mark source snapshot.",
+        ),
       label: tool.schema
         .string()
         .trim()
         .min(1)
         .max(200)
         .optional()
-        .describe("Optional human label for lookup convenience only; it is not the durable source of truth."),
+        .describe(
+          "Optional human label for lookup convenience only; it is not the durable source of truth.",
+        ),
     },
     async execute(args, context) {
-      return executeCompressionMark(options, args as CompressionMarkArguments, context as LiveCompressionMarkToolContext);
+      return executeCompressionMark(
+        options,
+        args as CompressionMarkArguments,
+        context as LiveCompressionMarkToolContext,
+      );
     },
   });
 }
@@ -89,13 +119,27 @@ async function executeCompressionMark(
 
     const existing = store.getMarkByToolCallMessageID(context.messageID);
     if (existing !== undefined) {
-      return renderExistingMark(existing.markID, store.listMarkSourceMessages(existing.markID).map((message) => message.hostMessageID));
+      return renderExistingMark(
+        existing.markID,
+        store
+          .listMarkSourceMessages(existing.markID)
+          .map((message) => message.hostMessageID),
+      );
     }
 
-    const resolvedRange = resolveVisibleTargetRange(collectVisibleProjectedMessages(liveMessages), args.target);
-    const resolvedVisibleMessageIDs = resolvedRange.map((message) => message.visibleMessageID);
-    const resolvedHostMessageIDs = resolvedRange.map((message) => message.hostMessageID);
-    const normalizedStartVisibleMessageID = normalizeVisibleSelector(args.target.startVisibleMessageID);
+    const resolvedRange = resolveVisibleTargetRange(
+      collectVisibleProjectedMessages(liveMessages),
+      args.target,
+    );
+    const resolvedVisibleMessageIDs = resolvedRange.map(
+      (message) => message.visibleMessageID,
+    );
+    const resolvedHostMessageIDs = resolvedRange.map(
+      (message) => message.hostMessageID,
+    );
+    const normalizedStartVisibleMessageID = normalizeVisibleSelector(
+      args.target.startVisibleMessageID,
+    );
     const normalizedEndVisibleMessageID = normalizeVisibleSelector(
       args.target.endVisibleMessageID ?? args.target.startVisibleMessageID,
     );
@@ -105,7 +149,8 @@ async function executeCompressionMark(
       contractVersion: args.contractVersion,
       target: {
         startVisibleMessageID: resolvedVisibleMessageIDs[0],
-        endVisibleMessageID: resolvedVisibleMessageIDs[resolvedVisibleMessageIDs.length - 1],
+        endVisibleMessageID:
+          resolvedVisibleMessageIDs[resolvedVisibleMessageIDs.length - 1],
       },
       selectors: {
         startVisibleMessageID: normalizedStartVisibleMessageID,
@@ -139,7 +184,9 @@ async function executeCompressionMark(
   }
 }
 
-function readLiveMessages(context: LiveCompressionMarkToolContext): readonly TransformEnvelope[] {
+function readLiveMessages(
+  context: LiveCompressionMarkToolContext,
+): readonly TransformEnvelope[] {
   if (!Array.isArray(context.messages) || context.messages.length === 0) {
     throw new Error(
       "compression_mark requires the current projected transcript in tool context.messages before resolving visible targets.",
@@ -164,7 +211,9 @@ function ensureCanonicalHostHistory(
       ? existingPresentMessages.map(toCanonicalHostMessageInput)
       : seedCanonicalMessagesFromVisibleTranscript(liveMessages);
 
-  const byHostMessageID = new Map(canonicalMessages.map((message) => [message.hostMessageID, message]));
+  const byHostMessageID = new Map(
+    canonicalMessages.map((message) => [message.hostMessageID, message]),
+  );
   byHostMessageID.set(toolCallMessageID, {
     hostMessageID: toolCallMessageID,
     canonicalMessageID: toolCallMessageID,
@@ -187,8 +236,13 @@ function toCanonicalHostMessageInput(message: HostMessageRecord) {
   };
 }
 
-function seedCanonicalMessagesFromVisibleTranscript(liveMessages: readonly TransformEnvelope[]) {
-  const canonicalMessages = new Map<string, ReturnType<typeof toSeedCanonicalHostMessageInput>>();
+function seedCanonicalMessagesFromVisibleTranscript(
+  liveMessages: readonly TransformEnvelope[],
+) {
+  const canonicalMessages = new Map<
+    string,
+    ReturnType<typeof toSeedCanonicalHostMessageInput>
+  >();
 
   for (const message of liveMessages) {
     const visiblePrefix = parseVisiblePrefix(readPrimaryText(message.parts));
@@ -196,27 +250,40 @@ function seedCanonicalMessagesFromVisibleTranscript(liveMessages: readonly Trans
       continue;
     }
 
-    const hostMessageID = readNonEmptyString(message.info.id, "message.info.id");
+    const hostMessageID = readNonEmptyString(
+      message.info.id,
+      "message.info.id",
+    );
     if (hostMessageID.includes(REMINDER_MESSAGE_ID_FRAGMENT)) {
       continue;
     }
 
-    canonicalMessages.set(hostMessageID, toSeedCanonicalHostMessageInput(message.info, hostMessageID));
+    canonicalMessages.set(
+      hostMessageID,
+      toSeedCanonicalHostMessageInput(message.info, hostMessageID),
+    );
   }
 
   return [...canonicalMessages.values()];
 }
 
-function toSeedCanonicalHostMessageInput(message: TransformMessage, hostMessageID: string) {
+function toSeedCanonicalHostMessageInput(
+  message: TransformMessage,
+  hostMessageID: string,
+) {
   return {
     hostMessageID,
     canonicalMessageID: hostMessageID,
     role: readNonEmptyString(message.role, "message.info.role"),
-    ...(typeof message.time?.created === "number" ? { hostCreatedAtMs: message.time.created } : {}),
+    ...(typeof message.time?.created === "number"
+      ? { hostCreatedAtMs: message.time.created }
+      : {}),
   };
 }
 
-function collectVisibleProjectedMessages(liveMessages: readonly TransformEnvelope[]): VisibleProjectedMessage[] {
+function collectVisibleProjectedMessages(
+  liveMessages: readonly TransformEnvelope[],
+): VisibleProjectedMessage[] {
   return liveMessages.flatMap((message, order) => {
     const visiblePrefix = parseVisiblePrefix(readPrimaryText(message.parts));
     if (visiblePrefix === undefined) {
@@ -239,9 +306,15 @@ function resolveVisibleTargetRange(
   visibleMessages: readonly VisibleProjectedMessage[],
   target: CompressionMarkArguments["target"],
 ): VisibleProjectedMessage[] {
-  const startVisibleMessageID = normalizeVisibleSelector(target.startVisibleMessageID);
-  const endVisibleMessageID = normalizeVisibleSelector(target.endVisibleMessageID ?? target.startVisibleMessageID);
-  const byVisibleMessageID = new Map(visibleMessages.map((message) => [message.visibleMessageID, message]));
+  const startVisibleMessageID = normalizeVisibleSelector(
+    target.startVisibleMessageID,
+  );
+  const endVisibleMessageID = normalizeVisibleSelector(
+    target.endVisibleMessageID ?? target.startVisibleMessageID,
+  );
+  const byVisibleMessageID = new Map(
+    visibleMessages.map((message) => [message.visibleMessageID, message]),
+  );
   const start = byVisibleMessageID.get(startVisibleMessageID);
   const end = byVisibleMessageID.get(endVisibleMessageID);
 
@@ -288,7 +361,11 @@ function parseVisiblePrefix(text: string | undefined):
 
   const state = match[1];
   const visibleMessageID = match[2];
-  if (state !== "protected" && state !== "referable" && state !== "compressible") {
+  if (
+    state !== "protected" &&
+    state !== "referable" &&
+    state !== "compressible"
+  ) {
     return undefined;
   }
   if (typeof visibleMessageID !== "string" || visibleMessageID.length === 0) {
@@ -316,7 +393,9 @@ function normalizeVisibleSelector(value: string): string {
   }
 
   if (normalized.length === 0) {
-    throw new Error("compression_mark requires a non-empty visible message selector.");
+    throw new Error(
+      "compression_mark requires a non-empty visible message selector.",
+    );
   }
 
   return normalized;
@@ -332,7 +411,10 @@ function buildDefaultLabel(visibleMessageIDs: readonly string[]): string {
   return first === last ? first : `${first}~${last}`;
 }
 
-function renderExistingMark(markID: string, hostMessageIDs: readonly string[]): string {
+function renderExistingMark(
+  markID: string,
+  hostMessageIDs: readonly string[],
+): string {
   return [
     `compression_mark already persisted ${markID} for this tool-call host message.`,
     `Host messages: ${hostMessageIDs.join(", ")}.`,
@@ -341,8 +423,14 @@ function renderExistingMark(markID: string, hostMessageIDs: readonly string[]): 
 
 function readPrimaryText(parts: readonly TransformPart[]): string | undefined {
   const textPart = parts.find(
-    (part): part is TransformPart & { readonly type: "text"; readonly text: string } =>
-      part.type === "text" && typeof (part as Record<string, unknown>).text === "string",
+    (
+      part,
+    ): part is TransformPart & {
+      readonly type: "text";
+      readonly text: string;
+    } =>
+      part.type === "text" &&
+      typeof (part as Record<string, unknown>).text === "string",
   );
   return textPart?.text;
 }

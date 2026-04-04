@@ -1,4 +1,8 @@
-export type CompactionTransportOwner = "plugin" | "session" | "server" | "external";
+export type CompactionTransportOwner =
+  | "plugin"
+  | "session"
+  | "server"
+  | "external";
 
 export type CompactionTransportEntrypoint =
   | "independent-model-call"
@@ -11,7 +15,10 @@ export type CompactionPromptContext =
   | "session-prompt-input"
   | "unknown";
 
-export type FailureClassificationMode = "deterministic" | "ambient-session-errors" | "unknown";
+export type FailureClassificationMode =
+  | "deterministic"
+  | "ambient-session-errors"
+  | "unknown";
 
 export interface CompactionTransportEvidence {
   readonly filePath: string;
@@ -75,7 +82,11 @@ export type CompactionTransportFailureSignal =
     }
   | {
       readonly kind: "invocation";
-      readonly issue: "aborted" | "unavailable" | "invalid-response" | "execution-error";
+      readonly issue:
+        | "aborted"
+        | "unavailable"
+        | "invalid-response"
+        | "execution-error";
     };
 
 export type CompactionTransportFailureCode =
@@ -97,18 +108,19 @@ const UPSTREAM_SESSION_ROUTE =
 const UPSTREAM_PROMPT_MODULE =
   "/root/_/projects/opencode-upstream/packages/opencode/src/session/prompt.ts";
 
-export const COMPACTION_TRANSPORT_CONTRACT: CompactionTransportContract = Object.freeze({
-  owner: "plugin",
-  entrypoint: "independent-model-call",
-  promptContext: "dedicated-compaction-prompt",
-  sessionEffects: Object.freeze({
-    createsUserMessage: false,
-    reusesSharedLoop: false,
-    dependsOnBusyState: false,
-    mutatesPermissions: false,
-  }),
-  failureClassification: "deterministic",
-});
+export const COMPACTION_TRANSPORT_CONTRACT: CompactionTransportContract =
+  Object.freeze({
+    owner: "plugin",
+    entrypoint: "independent-model-call",
+    promptContext: "dedicated-compaction-prompt",
+    sessionEffects: Object.freeze({
+      createsUserMessage: false,
+      reusesSharedLoop: false,
+      dependsOnBusyState: false,
+      mutatesPermissions: false,
+    }),
+    failureClassification: "deterministic",
+  });
 
 export const ORDINARY_SESSION_PROMPT_EVIDENCE = Object.freeze({
   sessionPromptRoute: Object.freeze({
@@ -164,18 +176,26 @@ export const ORDINARY_SESSION_PROMPT_EVIDENCE = Object.freeze({
     filePath: UPSTREAM_PROMPT_MODULE,
     startLine: 90,
     endLine: 93,
-    summary: "SessionPrompt.assertNotBusy rejects work when the session already has prompt state attached.",
+    summary:
+      "SessionPrompt.assertNotBusy rejects work when the session already has prompt state attached.",
   }),
 });
 
-const PROMPT_ROUTE_EVIDENCE: Record<CompactionTransportEntrypoint, readonly CompactionTransportEvidence[]> = {
+const PROMPT_ROUTE_EVIDENCE: Record<
+  CompactionTransportEntrypoint,
+  readonly CompactionTransportEvidence[]
+> = {
   "independent-model-call": [],
   "session.prompt": [ORDINARY_SESSION_PROMPT_EVIDENCE.sessionPromptRoute],
-  "session.prompt_async": [ORDINARY_SESSION_PROMPT_EVIDENCE.sessionPromptAsyncRoute],
+  "session.prompt_async": [
+    ORDINARY_SESSION_PROMPT_EVIDENCE.sessionPromptAsyncRoute,
+  ],
   custom: [],
 };
 
-function uniqueSortedIssues(issues: readonly UnsafeDefaultReasonCode[]): readonly UnsafeDefaultReasonCode[] {
+function uniqueSortedIssues(
+  issues: readonly UnsafeDefaultReasonCode[],
+): readonly UnsafeDefaultReasonCode[] {
   return [...new Set(issues)].sort();
 }
 
@@ -186,7 +206,9 @@ function withRouteEvidence(
   return [...PROMPT_ROUTE_EVIDENCE[candidate.entrypoint], ...evidence];
 }
 
-export function assessCompactionTransport(candidate: CompactionTransportCandidate): CompactionTransportAssessment {
+export function assessCompactionTransport(
+  candidate: CompactionTransportCandidate,
+): CompactionTransportAssessment {
   const reasons: UnsafeDefaultReason[] = [];
 
   if (candidate.owner !== COMPACTION_TRANSPORT_CONTRACT.owner) {
@@ -203,7 +225,10 @@ export function assessCompactionTransport(candidate: CompactionTransportCandidat
       code: "missing-dedicated-compaction-context",
       message:
         "Default compaction transport must carry its own compaction prompt/context instead of reusing the ordinary session prompt payload.",
-      evidence: withRouteEvidence(candidate, ORDINARY_SESSION_PROMPT_EVIDENCE.promptInputSchema),
+      evidence: withRouteEvidence(
+        candidate,
+        ORDINARY_SESSION_PROMPT_EVIDENCE.promptInputSchema,
+      ),
     });
   }
 
@@ -225,7 +250,10 @@ export function assessCompactionTransport(candidate: CompactionTransportCandidat
       code: "reuses-shared-session-loop",
       message:
         "Default compaction transport must not run inside the ordinary session loop that consumes shared session history and callbacks.",
-      evidence: withRouteEvidence(candidate, ORDINARY_SESSION_PROMPT_EVIDENCE.promptSharedLoop),
+      evidence: withRouteEvidence(
+        candidate,
+        ORDINARY_SESSION_PROMPT_EVIDENCE.promptSharedLoop,
+      ),
     });
   }
 
@@ -247,11 +275,17 @@ export function assessCompactionTransport(candidate: CompactionTransportCandidat
       code: "mutates-session-permissions",
       message:
         "Default compaction transport cannot rely on the ordinary prompt path because it can persist session permission changes before invocation.",
-      evidence: withRouteEvidence(candidate, ORDINARY_SESSION_PROMPT_EVIDENCE.promptMutatesPermissions),
+      evidence: withRouteEvidence(
+        candidate,
+        ORDINARY_SESSION_PROMPT_EVIDENCE.promptMutatesPermissions,
+      ),
     });
   }
 
-  if (candidate.failureClassification !== COMPACTION_TRANSPORT_CONTRACT.failureClassification) {
+  if (
+    candidate.failureClassification !==
+    COMPACTION_TRANSPORT_CONTRACT.failureClassification
+  ) {
     reasons.push({
       code: "failure-classification-not-deterministic",
       message:
@@ -290,7 +324,8 @@ export function classifyCompactionTransportFailure(
       return {
         code: "transport-aborted",
         phase: "invocation",
-        detail: "Compaction transport invocation was aborted before a result was produced.",
+        detail:
+          "Compaction transport invocation was aborted before a result was produced.",
         normalizedIssues: [],
       };
     case "unavailable":
@@ -304,14 +339,16 @@ export function classifyCompactionTransportFailure(
       return {
         code: "transport-response-invalid",
         phase: "invocation",
-        detail: "Compaction transport returned data that does not satisfy the transport contract.",
+        detail:
+          "Compaction transport returned data that does not satisfy the transport contract.",
         normalizedIssues: [],
       };
     case "execution-error":
       return {
         code: "transport-execution-failed",
         phase: "invocation",
-        detail: "Compaction transport failed after selection but before producing a valid compaction result.",
+        detail:
+          "Compaction transport failed after selection but before producing a valid compaction result.",
         normalizedIssues: [],
       };
   }

@@ -142,14 +142,20 @@ export function resolvePluginLockDirectory(
   return join(pluginDirectory, lockDirectoryName);
 }
 
-export function resolveSessionFileLockPath(lockDirectory: string, sessionID: string): string {
+export function resolveSessionFileLockPath(
+  lockDirectory: string,
+  sessionID: string,
+): string {
   return join(lockDirectory, `${sessionID}.lock`);
 }
 
 export async function acquireSessionFileLock(
   options: AcquireSessionFileLockOptions,
 ): Promise<AcquireSessionFileLockResult> {
-  const lockPath = resolveSessionFileLockPath(options.lockDirectory, options.sessionID);
+  const lockPath = resolveSessionFileLockPath(
+    options.lockDirectory,
+    options.sessionID,
+  );
   const now = options.now ?? Date.now;
   const startedAtMs = options.startedAtMs ?? now();
   const record: RunningSessionFileLockRecord = {
@@ -206,13 +212,24 @@ export async function acquireSessionFileLock(
     };
   }
 
-  throw new Error(`Failed to acquire lock for session '${options.sessionID}' at '${lockPath}'.`);
+  throw new Error(
+    `Failed to acquire lock for session '${options.sessionID}' at '${lockPath}'.`,
+  );
 }
 
-export async function readSessionFileLock(options: SessionFileLockOptions): Promise<SessionFileLockState> {
-  const lockPath = resolveSessionFileLockPath(options.lockDirectory, options.sessionID);
+export async function readSessionFileLock(
+  options: SessionFileLockOptions,
+): Promise<SessionFileLockState> {
+  const lockPath = resolveSessionFileLockPath(
+    options.lockDirectory,
+    options.sessionID,
+  );
 
-  for (let attempt = 0; attempt <= TRANSIENT_LOCK_READ_RETRY_COUNT; attempt += 1) {
+  for (
+    let attempt = 0;
+    attempt <= TRANSIENT_LOCK_READ_RETRY_COUNT;
+    attempt += 1
+  ) {
     let serialized: string;
     try {
       serialized = await readFile(lockPath, "utf8");
@@ -237,7 +254,10 @@ export async function readSessionFileLock(options: SessionFileLockOptions): Prom
         serialized,
       });
     } catch (error) {
-      if (attempt < TRANSIENT_LOCK_READ_RETRY_COUNT && isTransientLockReadError(error, serialized)) {
+      if (
+        attempt < TRANSIENT_LOCK_READ_RETRY_COUNT &&
+        isTransientLockReadError(error, serialized)
+      ) {
         await defaultSleep(TRANSIENT_LOCK_READ_RETRY_DELAY_MS);
         continue;
       }
@@ -246,7 +266,9 @@ export async function readSessionFileLock(options: SessionFileLockOptions): Prom
     }
   }
 
-  throw new Error(`Failed to read lock for session '${options.sessionID}' at '${lockPath}'.`);
+  throw new Error(
+    `Failed to read lock for session '${options.sessionID}' at '${lockPath}'.`,
+  );
 }
 
 export async function settleSessionFileLock(
@@ -257,14 +279,21 @@ export async function settleSessionFileLock(
     return undefined;
   }
 
-  const lockPath = resolveSessionFileLockPath(options.lockDirectory, options.sessionID);
+  const lockPath = resolveSessionFileLockPath(
+    options.lockDirectory,
+    options.sessionID,
+  );
   const settledAtMs = options.settledAtMs ?? (options.now ?? Date.now)();
   const record: SessionFileLockRecord = {
     ...state.record,
     status: options.status,
     updatedAtMs: settledAtMs,
     settledAtMs,
-    ...(options.note ? { note: options.note } : state.record.note ? { note: state.record.note } : {}),
+    ...(options.note
+      ? { note: options.note }
+      : state.record.note
+        ? { note: state.record.note }
+        : {}),
   };
 
   try {
@@ -286,8 +315,13 @@ export async function settleSessionFileLock(
   return record;
 }
 
-export async function releaseSessionFileLock(options: SessionFileLockOptions): Promise<void> {
-  const lockPath = resolveSessionFileLockPath(options.lockDirectory, options.sessionID);
+export async function releaseSessionFileLock(
+  options: SessionFileLockOptions,
+): Promise<void> {
+  const lockPath = resolveSessionFileLockPath(
+    options.lockDirectory,
+    options.sessionID,
+  );
   await rm(lockPath, { force: true });
 }
 
@@ -295,7 +329,8 @@ export async function waitForSessionFileLock(
   options: WaitForSessionFileLockOptions,
 ): Promise<SessionFileLockWaitOutcome> {
   const sleep = options.sleep ?? defaultSleep;
-  const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_LOCK_POLL_INTERVAL_MS;
+  const pollIntervalMs =
+    options.pollIntervalMs ?? DEFAULT_LOCK_POLL_INTERVAL_MS;
   let lastObservedLock: RunningSessionFileLockRecord | undefined;
 
   while (true) {
@@ -348,10 +383,17 @@ function classifySessionFileLockState(options: {
   readonly now?: () => number;
   readonly serialized: string;
 }): SessionFileLockState {
-  const record = parseSessionFileLockRecord(options.serialized, options.sessionID, options.lockPath);
+  const record = parseSessionFileLockRecord(
+    options.serialized,
+    options.sessionID,
+    options.lockPath,
+  );
   const ageMs = Math.max(0, (options.now ?? Date.now)() - record.startedAtMs);
 
-  if (record.status === "running" && ageMs > (options.timeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS)) {
+  if (
+    record.status === "running" &&
+    ageMs > (options.timeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS)
+  ) {
     return {
       kind: "stale",
       lockPath: options.lockPath,
@@ -389,9 +431,17 @@ function classifySessionFileLockState(options: {
   }
 }
 
-function parseSessionFileLockRecord(serialized: string, sessionID: string, lockPath: string): SessionFileLockRecord {
+function parseSessionFileLockRecord(
+  serialized: string,
+  sessionID: string,
+  lockPath: string,
+): SessionFileLockRecord {
   const candidate = JSON.parse(serialized) as Record<string, unknown>;
-  const parsedSessionID = expectString(candidate.sessionID, "sessionID", lockPath);
+  const parsedSessionID = expectString(
+    candidate.sessionID,
+    "sessionID",
+    lockPath,
+  );
   if (parsedSessionID !== sessionID) {
     throw new Error(
       `Lock file '${lockPath}' belongs to session '${parsedSessionID}', not requested session '${sessionID}'.`,
@@ -407,8 +457,16 @@ function parseSessionFileLockRecord(serialized: string, sessionID: string, lockP
     updatedAtMs: expectNumber(candidate.updatedAtMs, "updatedAtMs", lockPath),
     ...(candidate.settledAtMs === undefined
       ? {}
-      : { settledAtMs: expectNumber(candidate.settledAtMs, "settledAtMs", lockPath) }),
-    ...(candidate.note === undefined ? {} : { note: expectString(candidate.note, "note", lockPath) }),
+      : {
+          settledAtMs: expectNumber(
+            candidate.settledAtMs,
+            "settledAtMs",
+            lockPath,
+          ),
+        }),
+    ...(candidate.note === undefined
+      ? {}
+      : { note: expectString(candidate.note, "note", lockPath) }),
   } satisfies SessionFileLockRecordBase;
 
   switch (status) {
@@ -430,9 +488,14 @@ function parseSessionFileLockRecord(serialized: string, sessionID: string, lockP
   }
 }
 
-function expectVersion(value: unknown, lockPath: string): typeof SESSION_FILE_LOCK_VERSION {
+function expectVersion(
+  value: unknown,
+  lockPath: string,
+): typeof SESSION_FILE_LOCK_VERSION {
   if (value !== SESSION_FILE_LOCK_VERSION) {
-    throw new Error(`Lock file '${lockPath}' has unsupported version '${String(value)}'.`);
+    throw new Error(
+      `Lock file '${lockPath}' has unsupported version '${String(value)}'.`,
+    );
   }
 
   return SESSION_FILE_LOCK_VERSION;
@@ -443,23 +506,37 @@ function expectStatus(value: unknown, lockPath: string): SessionFileLockStatus {
     return value;
   }
 
-  throw new Error(`Lock file '${lockPath}' has unsupported status '${String(value)}'.`);
+  throw new Error(
+    `Lock file '${lockPath}' has unsupported status '${String(value)}'.`,
+  );
 }
 
-function expectString(value: unknown, fieldName: string, lockPath: string): string {
+function expectString(
+  value: unknown,
+  fieldName: string,
+  lockPath: string,
+): string {
   if (typeof value === "string" && value.length > 0) {
     return value;
   }
 
-  throw new Error(`Lock file '${lockPath}' is missing a non-empty string '${fieldName}'.`);
+  throw new Error(
+    `Lock file '${lockPath}' is missing a non-empty string '${fieldName}'.`,
+  );
 }
 
-function expectNumber(value: unknown, fieldName: string, lockPath: string): number {
+function expectNumber(
+  value: unknown,
+  fieldName: string,
+  lockPath: string,
+): number {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
   }
 
-  throw new Error(`Lock file '${lockPath}' is missing a finite numeric '${fieldName}'.`);
+  throw new Error(
+    `Lock file '${lockPath}' is missing a finite numeric '${fieldName}'.`,
+  );
 }
 
 function isAlreadyExistsError(error: unknown): boolean {

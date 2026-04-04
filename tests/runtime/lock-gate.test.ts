@@ -12,7 +12,10 @@ import {
   settleSessionFileLock,
   waitForSessionFileLock,
 } from "../../src/runtime/file-lock.js";
-import { evaluateLockGate, startFrozenCompactionBatch } from "../../src/runtime/lock-gate.js";
+import {
+  evaluateLockGate,
+  startFrozenCompactionBatch,
+} from "../../src/runtime/lock-gate.js";
 
 test("ordinary chat waits while DCP mark and non-DCP tools remain allowed, then resumes on success", async () => {
   await withTempLockDirectory(async (lockDirectory) => {
@@ -125,7 +128,10 @@ test("ordinary chat wait exits immediately on terminal failure", async () => {
 
     assert.equal(waitOutcome.outcome, "failed");
     if (waitOutcome.outcome === "failed") {
-      assert.equal(waitOutcome.finalState.record.note, "transport-execution-failed");
+      assert.equal(
+        waitOutcome.finalState.record.note,
+        "transport-execution-failed",
+      );
     }
 
     await releaseSessionFileLock({
@@ -219,7 +225,11 @@ test("readSessionFileLock tolerates a transient partial lock rewrite but still r
     const sessionID = "session-partial-rewrite";
     const lockPath = resolveSessionFileLockPath(lockDirectory, sessionID);
 
-    await writeFile(lockPath, '{\n  "version": 1,\n  "sessionID": "session-partial-rewrite",\n', "utf8");
+    await writeFile(
+      lockPath,
+      '{\n  "version": 1,\n  "sessionID": "session-partial-rewrite",\n',
+      "utf8",
+    );
 
     const publishFinalRecord = delay(1).then(async () => {
       await writeFile(
@@ -300,8 +310,12 @@ test("frozen batch membership stays fixed even when later marks are persisted", 
   });
 });
 
-async function withTempLockDirectory(run: (lockDirectory: string) => Promise<void>): Promise<void> {
-  const root = await mkdtemp(join(tmpdir(), "opencode-context-compression-lock-gate-"));
+async function withTempLockDirectory(
+  run: (lockDirectory: string) => Promise<void>,
+): Promise<void> {
+  const root = await mkdtemp(
+    join(tmpdir(), "opencode-context-compression-lock-gate-"),
+  );
   const lockDirectory = join(root, "locks");
 
   try {

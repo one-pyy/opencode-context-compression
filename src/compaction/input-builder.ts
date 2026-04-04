@@ -85,7 +85,11 @@ export class CanonicalSourceMismatchError extends Error {
   readonly code: CanonicalSourceMismatchCode;
   readonly hostMessageID?: string;
 
-  constructor(code: CanonicalSourceMismatchCode, message: string, hostMessageID?: string) {
+  constructor(
+    code: CanonicalSourceMismatchCode,
+    message: string,
+    hostMessageID?: string,
+  ) {
     super(message);
     this.name = "CanonicalSourceMismatchError";
     this.code = code;
@@ -94,17 +98,24 @@ export class CanonicalSourceMismatchError extends Error {
 }
 
 export function resolveCompactionSourceSnapshot(
-  store: Pick<CompactionSourceSnapshotStore, "getSourceSnapshot" | "listSourceSnapshotMessages">,
+  store: Pick<
+    CompactionSourceSnapshotStore,
+    "getSourceSnapshot" | "listSourceSnapshotMessages"
+  >,
   sourceSnapshotID: string,
 ): ResolvedCompactionSourceSnapshot {
   const sourceSnapshot = store.getSourceSnapshot(sourceSnapshotID);
   if (sourceSnapshot === undefined) {
-    throw new Error(`Unknown compaction source snapshot '${sourceSnapshotID}'.`);
+    throw new Error(
+      `Unknown compaction source snapshot '${sourceSnapshotID}'.`,
+    );
   }
 
   const messages = store.listSourceSnapshotMessages(sourceSnapshotID);
   if (messages.length === 0) {
-    throw new Error(`Compaction source snapshot '${sourceSnapshotID}' has no source messages.`);
+    throw new Error(
+      `Compaction source snapshot '${sourceSnapshotID}' has no source messages.`,
+    );
   }
 
   return {
@@ -116,7 +127,9 @@ export function resolveCompactionSourceSnapshot(
   };
 }
 
-export function buildCompactionInput(options: BuildCompactionInputOptions): CompactionInput {
+export function buildCompactionInput(
+  options: BuildCompactionInputOptions,
+): CompactionInput {
   const promptText = normalizePromptText(options.promptText);
   const sourceMessages = resolveCanonicalSourceMessages(
     options.sourceSnapshot.messages,
@@ -138,10 +151,16 @@ export function buildCompactionInput(options: BuildCompactionInputOptions): Comp
 }
 
 export function revalidateCompactionSourceIdentity(
-  store: Pick<CompactionSourceSnapshotStore, "getHostMessage" | "getSourceSnapshot" | "listSourceSnapshotMessages">,
+  store: Pick<
+    CompactionSourceSnapshotStore,
+    "getHostMessage" | "getSourceSnapshot" | "listSourceSnapshotMessages"
+  >,
   sourceSnapshotID: string,
 ): SourceIdentityValidationResult {
-  const sourceSnapshot = resolveCompactionSourceSnapshot(store, sourceSnapshotID);
+  const sourceSnapshot = resolveCompactionSourceSnapshot(
+    store,
+    sourceSnapshotID,
+  );
 
   for (const sourceMessage of sourceSnapshot.messages) {
     const liveHostMessage = store.getHostMessage(sourceMessage.hostMessageID);
@@ -169,7 +188,9 @@ export function revalidateCompactionSourceIdentity(
       };
     }
 
-    if (liveHostMessage.canonicalMessageID !== sourceMessage.canonicalMessageID) {
+    if (
+      liveHostMessage.canonicalMessageID !== sourceMessage.canonicalMessageID
+    ) {
       return {
         matches: false,
         sourceSnapshot,
@@ -208,12 +229,11 @@ export function renderCanonicalCompactionTranscript(
   sourceMessages: readonly CanonicalCompactionMessage[],
 ): string {
   return sourceMessages
-    .map(
-      (message, index) =>
-        [
-          `### ${index + 1}. ${message.role} ${message.hostMessageID} (${message.canonicalMessageID})`,
-          message.content,
-        ].join("\n"),
+    .map((message, index) =>
+      [
+        `### ${index + 1}. ${message.role} ${message.hostMessageID} (${message.canonicalMessageID})`,
+        message.content,
+      ].join("\n"),
     )
     .join("\n\n");
 }
@@ -222,10 +242,15 @@ function resolveCanonicalSourceMessages(
   sourceMessages: readonly SourceSnapshotMessageRecord[],
   canonicalMessages: readonly CanonicalCompactionMessage[],
 ): readonly CompactionInputMessage[] {
-  const canonicalMessageByHostID = new Map<string, CanonicalCompactionMessage>();
+  const canonicalMessageByHostID = new Map<
+    string,
+    CanonicalCompactionMessage
+  >();
 
   for (const canonicalMessage of canonicalMessages) {
-    const existing = canonicalMessageByHostID.get(canonicalMessage.hostMessageID);
+    const existing = canonicalMessageByHostID.get(
+      canonicalMessage.hostMessageID,
+    );
     if (existing !== undefined) {
       throw new CanonicalSourceMismatchError(
         "duplicate-canonical-message",
@@ -234,11 +259,16 @@ function resolveCanonicalSourceMessages(
       );
     }
 
-    canonicalMessageByHostID.set(canonicalMessage.hostMessageID, canonicalMessage);
+    canonicalMessageByHostID.set(
+      canonicalMessage.hostMessageID,
+      canonicalMessage,
+    );
   }
 
   return sourceMessages.map((sourceMessage) => {
-    const canonicalMessage = canonicalMessageByHostID.get(sourceMessage.hostMessageID);
+    const canonicalMessage = canonicalMessageByHostID.get(
+      sourceMessage.hostMessageID,
+    );
     if (canonicalMessage === undefined) {
       throw new CanonicalSourceMismatchError(
         "missing-source-message",
@@ -247,7 +277,9 @@ function resolveCanonicalSourceMessages(
       );
     }
 
-    if (canonicalMessage.canonicalMessageID !== sourceMessage.canonicalMessageID) {
+    if (
+      canonicalMessage.canonicalMessageID !== sourceMessage.canonicalMessageID
+    ) {
       throw new CanonicalSourceMismatchError(
         "canonical-id-mismatch",
         `Canonical id mismatch for source host message '${sourceMessage.hostMessageID}': ` +

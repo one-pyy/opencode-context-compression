@@ -7,10 +7,17 @@ import test from "node:test";
 import { persistMark } from "../../src/marks/mark-service.js";
 import { createMessagesTransformHook } from "../../src/projection/messages-transform.js";
 import { createSqliteSessionStateStore } from "../../src/state/store.js";
-import type { MessagesTransformOutput, TransformEnvelope, TransformMessage, TransformPart } from "../../src/seams/noop-observation.js";
+import type {
+  MessagesTransformOutput,
+  TransformEnvelope,
+  TransformMessage,
+  TransformPart,
+} from "../../src/seams/noop-observation.js";
 
 test("messages.transform mutates output.messages in place and preserves metadata across reprocessing", async () => {
-  const pluginDirectory = await mkdtemp(join(tmpdir(), "opencode-context-compression-transform-"));
+  const pluginDirectory = await mkdtemp(
+    join(tmpdir(), "opencode-context-compression-transform-"),
+  );
   const store = createSqliteSessionStateStore({
     pluginDirectory,
     sessionID: "session-1",
@@ -20,12 +27,26 @@ test("messages.transform mutates output.messages in place and preserves metadata
   try {
     const canonicalMessages = [
       createEnvelope(
-        createMessage({ id: "user-1", role: "user", created: 1, extra: { custom: "keep-me" } }),
+        createMessage({
+          id: "user-1",
+          role: "user",
+          created: 1,
+          extra: { custom: "keep-me" },
+        }),
         [createTextPart("user-1", "hello", { source: "user" })],
       ),
-      createEnvelope(createMessage({ id: "assistant-1", role: "assistant", created: 2 }), [createTextPart("assistant-1", "draft")]),
-      createEnvelope(createMessage({ id: "tool-1", role: "tool", created: 3 }), [createTextPart("tool-1", "tool output")]),
-      createEnvelope(createMessage({ id: "mark-tool-1", role: "tool", created: 4 }), [createTextPart("mark-tool-1", "mark: a~b")]),
+      createEnvelope(
+        createMessage({ id: "assistant-1", role: "assistant", created: 2 }),
+        [createTextPart("assistant-1", "draft")],
+      ),
+      createEnvelope(
+        createMessage({ id: "tool-1", role: "tool", created: 3 }),
+        [createTextPart("tool-1", "tool output")],
+      ),
+      createEnvelope(
+        createMessage({ id: "mark-tool-1", role: "tool", created: 4 }),
+        [createTextPart("mark-tool-1", "mark: a~b")],
+      ),
     ];
 
     store.syncCanonicalHostMessages({
@@ -43,7 +64,10 @@ test("messages.transform mutates output.messages in place and preserves metadata
       toolCallMessageID: "mark-tool-1",
       route: "keep",
       createdAtMs: 2,
-      sourceMessages: [{ hostMessageID: "assistant-1" }, { hostMessageID: "tool-1" }],
+      sourceMessages: [
+        { hostMessageID: "assistant-1" },
+        { hostMessageID: "tool-1" },
+      ],
     });
     store.commitReplacement({
       replacementID: "replacement-1",
@@ -71,9 +95,11 @@ test("messages.transform mutates output.messages in place and preserves metadata
         },
         prompts: {
           softPath: "/tmp/reminder-soft.md",
-          softText: "Soft reminder\n{{compressible_content}}\n{{compaction_target}}\n{{preserved_fields}}",
+          softText:
+            "Soft reminder\n{{compressible_content}}\n{{compaction_target}}\n{{preserved_fields}}",
           hardPath: "/tmp/reminder-hard.md",
-          hardText: "Hard reminder\n{{compressible_content}}\n{{compaction_target}}\n{{preserved_fields}}",
+          hardText:
+            "Hard reminder\n{{compressible_content}}\n{{compaction_target}}\n{{preserved_fields}}",
         },
       },
       reminderModelName: "gpt-5",
@@ -90,20 +116,32 @@ test("messages.transform mutates output.messages in place and preserves metadata
     assert.equal(output.messages.length, 2);
     assert.match(readText(output.messages[0]!), /^\[compressible_000001_/);
     assert.match(readText(output.messages[1]!), /^\[referable_000002_/);
-    assert.equal((output.messages[0]!.info as Record<string, unknown>).custom, "keep-me");
-    assert.deepEqual((output.messages[0]!.parts[0] as Record<string, unknown>).metadata, { source: "user" });
+    assert.equal(
+      (output.messages[0]!.info as Record<string, unknown>).custom,
+      "keep-me",
+    );
+    assert.deepEqual(
+      (output.messages[0]!.parts[0] as Record<string, unknown>).metadata,
+      { source: "user" },
+    );
 
     await transform({}, output);
 
     assert.equal(JSON.stringify(output.messages), firstProjection);
-    assert.equal(store.getMarkByToolCallMessageID("mark-tool-1")?.toolCallMessageID, "mark-tool-1");
+    assert.equal(
+      store.getMarkByToolCallMessageID("mark-tool-1")?.toolCallMessageID,
+      "mark-tool-1",
+    );
   } finally {
     store.close();
     await rm(pluginDirectory, { recursive: true, force: true });
   }
 });
 
-function createEnvelope(info: TransformMessage, parts: TransformPart[]): TransformEnvelope {
+function createEnvelope(
+  info: TransformMessage,
+  parts: TransformPart[],
+): TransformEnvelope {
   return { info, parts };
 }
 
@@ -127,7 +165,11 @@ function createMessage(input: {
   } as TransformMessage;
 }
 
-function createTextPart(messageID: string, text: string, metadata?: Record<string, unknown>): TransformPart {
+function createTextPart(
+  messageID: string,
+  text: string,
+  metadata?: Record<string, unknown>,
+): TransformPart {
   return {
     id: `${messageID}:part`,
     sessionID: "session-1",
@@ -139,6 +181,8 @@ function createTextPart(messageID: string, text: string, metadata?: Record<strin
 }
 
 function readText(message: TransformEnvelope): string {
-  const textPart = message.parts.find((part) => part.type === "text") as (TransformPart & { text: string }) | undefined;
+  const textPart = message.parts.find((part) => part.type === "text") as
+    | (TransformPart & { text: string })
+    | undefined;
   return textPart?.text ?? "";
 }

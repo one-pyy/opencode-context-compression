@@ -10,7 +10,10 @@ import {
   resolveCompactionSourceSnapshot,
 } from "../../src/compaction/input-builder.js";
 import { persistMark } from "../../src/marks/mark-service.js";
-import { createSqliteSessionStateStore, type SqliteSessionStateStore } from "../../src/state/store.js";
+import {
+  createSqliteSessionStateStore,
+  type SqliteSessionStateStore,
+} from "../../src/state/store.js";
 
 test("buildCompactionInput follows canonical source snapshot ordering and ignores unrelated prompt artifacts", async () => {
   await withTempStore(async ({ store, clock }) => {
@@ -34,7 +37,10 @@ test("buildCompactionInput follows canonical source snapshot ordering and ignore
       sourceMessages: [{ hostMessageID: "src-b" }, { hostMessageID: "src-a" }],
     });
 
-    const sourceSnapshot = resolveCompactionSourceSnapshot(store, "mark-1:snapshot");
+    const sourceSnapshot = resolveCompactionSourceSnapshot(
+      store,
+      "mark-1:snapshot",
+    );
     const input = buildCompactionInput({
       sourceSnapshot,
       promptText: "Summarize this canonical source span.",
@@ -49,7 +55,8 @@ test("buildCompactionInput follows canonical source snapshot ordering and ignore
           hostMessageID: "src-c",
           canonicalMessageID: "canon-c",
           role: "assistant",
-          content: "Projected reminder artifact that must not enter compaction.",
+          content:
+            "Projected reminder artifact that must not enter compaction.",
         },
         {
           hostMessageID: "src-b",
@@ -105,7 +112,10 @@ test("revalidateCompactionSourceIdentity fails when the live canonical source no
       ],
     });
 
-    const validation = revalidateCompactionSourceIdentity(store, "mark-2:snapshot");
+    const validation = revalidateCompactionSourceIdentity(
+      store,
+      "mark-2:snapshot",
+    );
     assert.equal(validation.matches, false);
     if (validation.matches) {
       assert.fail("expected the live canonical source to fail revalidation");
@@ -116,7 +126,11 @@ test("revalidateCompactionSourceIdentity fails when the live canonical source no
   });
 });
 
-function hostMessage(hostMessageID: string, canonicalMessageID: string, role: string) {
+function hostMessage(
+  hostMessageID: string,
+  canonicalMessageID: string,
+  role: string,
+) {
   return {
     hostMessageID,
     canonicalMessageID,
@@ -130,7 +144,9 @@ async function withTempStore(
     clock: ReturnType<typeof createClock>;
   }) => Promise<void>,
 ): Promise<void> {
-  const pluginDirectory = await mkdtemp(join(tmpdir(), "opencode-context-compression-compaction-input-"));
+  const pluginDirectory = await mkdtemp(
+    join(tmpdir(), "opencode-context-compression-compaction-input-"),
+  );
   const clock = createClock();
   const store = createSqliteSessionStateStore({
     pluginDirectory,

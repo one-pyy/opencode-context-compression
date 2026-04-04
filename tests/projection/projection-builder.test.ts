@@ -8,18 +8,43 @@ import type { ReminderRuntimeConfig } from "../../src/config/runtime-config.js";
 import { computeVisibleChecksum } from "../../src/identity/visible-sequence.js";
 import { persistMark } from "../../src/marks/mark-service.js";
 import { buildProjectedMessages } from "../../src/projection/projection-builder.js";
-import { createSqliteSessionStateStore, type SqliteSessionStateStore } from "../../src/state/store.js";
-import type { TransformEnvelope, TransformMessage, TransformPart } from "../../src/seams/noop-observation.js";
+import {
+  createSqliteSessionStateStore,
+  type SqliteSessionStateStore,
+} from "../../src/state/store.js";
+import type {
+  TransformEnvelope,
+  TransformMessage,
+  TransformPart,
+} from "../../src/seams/noop-observation.js";
 
 test("projection builder deterministically applies committed replacements and hides consumed mark tool calls only in the view", async () => {
   await withTempStore(async (store, clock) => {
     const messages = [
-      createEnvelope(createMessage({ id: "system-1", role: "system", created: 1 }), [createTextPart("system-1", "system")]),
-      createEnvelope(createMessage({ id: "user-1", role: "user", created: 2 }), [createTextPart("user-1", "hello")]),
-      createEnvelope(createMessage({ id: "assistant-1", role: "assistant", created: 3 }), [createTextPart("assistant-1", "draft")]),
-      createEnvelope(createMessage({ id: "tool-1", role: "tool", created: 4 }), [createTextPart("tool-1", "tool output")]),
-      createEnvelope(createMessage({ id: "mark-tool-1", role: "tool", created: 5 }), [createTextPart("mark-tool-1", "mark: a~b")]),
-      createEnvelope(createMessage({ id: "user-2", role: "user", created: 6 }), [createTextPart("user-2", "next")]),
+      createEnvelope(
+        createMessage({ id: "system-1", role: "system", created: 1 }),
+        [createTextPart("system-1", "system")],
+      ),
+      createEnvelope(
+        createMessage({ id: "user-1", role: "user", created: 2 }),
+        [createTextPart("user-1", "hello")],
+      ),
+      createEnvelope(
+        createMessage({ id: "assistant-1", role: "assistant", created: 3 }),
+        [createTextPart("assistant-1", "draft")],
+      ),
+      createEnvelope(
+        createMessage({ id: "tool-1", role: "tool", created: 4 }),
+        [createTextPart("tool-1", "tool output")],
+      ),
+      createEnvelope(
+        createMessage({ id: "mark-tool-1", role: "tool", created: 5 }),
+        [createTextPart("mark-tool-1", "mark: a~b")],
+      ),
+      createEnvelope(
+        createMessage({ id: "user-2", role: "user", created: 6 }),
+        [createTextPart("user-2", "next")],
+      ),
     ];
 
     syncMessages(store, clock, messages);
@@ -29,7 +54,10 @@ test("projection builder deterministically applies committed replacements and hi
       toolCallMessageID: "mark-tool-1",
       route: "keep",
       createdAtMs: clock.tick(),
-      sourceMessages: [{ hostMessageID: "assistant-1" }, { hostMessageID: "tool-1" }],
+      sourceMessages: [
+        { hostMessageID: "assistant-1" },
+        { hostMessageID: "tool-1" },
+      ],
     });
     store.commitReplacement({
       replacementID: "replacement-1",
@@ -45,8 +73,16 @@ test("projection builder deterministically applies committed replacements and hi
       },
     });
 
-    const firstProjection = buildProjectedMessages({ messages, store, reminder: undefined });
-    const secondProjection = buildProjectedMessages({ messages, store, reminder: undefined });
+    const firstProjection = buildProjectedMessages({
+      messages,
+      store,
+      reminder: undefined,
+    });
+    const secondProjection = buildProjectedMessages({
+      messages,
+      store,
+      reminder: undefined,
+    });
 
     assert.equal(firstProjection.projectedMessages.length, 4);
     assert.deepEqual(
@@ -60,7 +96,10 @@ test("projection builder deterministically applies committed replacements and hi
     );
     assert.deepEqual(firstProjection.hiddenToolCallMessageIDs, ["mark-tool-1"]);
     assert.deepEqual(firstProjection.appliedReplacementIDs, ["replacement-1"]);
-    assert.equal(store.getMarkByToolCallMessageID("mark-tool-1")?.status, "consumed");
+    assert.equal(
+      store.getMarkByToolCallMessageID("mark-tool-1")?.status,
+      "consumed",
+    );
     assert.equal(
       JSON.stringify(firstProjection.projectedMessages),
       JSON.stringify(secondProjection.projectedMessages),
@@ -71,10 +110,22 @@ test("projection builder deterministically applies committed replacements and hi
 test("projection builder renders committed delete replacements as minimal referable notices", async () => {
   await withTempStore(async (store, clock) => {
     const messages = [
-      createEnvelope(createMessage({ id: "user-1", role: "user", created: 1 }), [createTextPart("user-1", "alpha")]),
-      createEnvelope(createMessage({ id: "assistant-1", role: "assistant", created: 2 }), [createTextPart("assistant-1", "beta")]),
-      createEnvelope(createMessage({ id: "mark-tool-1", role: "tool", created: 3 }), [createTextPart("mark-tool-1", "mark: delete")]),
-      createEnvelope(createMessage({ id: "assistant-2", role: "assistant", created: 4 }), [createTextPart("assistant-2", "omega")]),
+      createEnvelope(
+        createMessage({ id: "user-1", role: "user", created: 1 }),
+        [createTextPart("user-1", "alpha")],
+      ),
+      createEnvelope(
+        createMessage({ id: "assistant-1", role: "assistant", created: 2 }),
+        [createTextPart("assistant-1", "beta")],
+      ),
+      createEnvelope(
+        createMessage({ id: "mark-tool-1", role: "tool", created: 3 }),
+        [createTextPart("mark-tool-1", "mark: delete")],
+      ),
+      createEnvelope(
+        createMessage({ id: "assistant-2", role: "assistant", created: 4 }),
+        [createTextPart("assistant-2", "omega")],
+      ),
     ];
 
     syncMessages(store, clock, messages);
@@ -84,7 +135,10 @@ test("projection builder renders committed delete replacements as minimal refera
       toolCallMessageID: "mark-tool-1",
       route: "delete",
       createdAtMs: clock.tick(),
-      sourceMessages: [{ hostMessageID: "user-1" }, { hostMessageID: "assistant-1" }],
+      sourceMessages: [
+        { hostMessageID: "user-1" },
+        { hostMessageID: "assistant-1" },
+      ],
     });
     store.commitReplacement({
       replacementID: "replacement-delete-1",
@@ -99,7 +153,11 @@ test("projection builder renders committed delete replacements as minimal refera
       },
     });
 
-    const projection = buildProjectedMessages({ messages, store, reminder: undefined });
+    const projection = buildProjectedMessages({
+      messages,
+      store,
+      reminder: undefined,
+    });
 
     assert.deepEqual(
       projection.projectedMessages.map((message) => readText(message)),
@@ -114,9 +172,18 @@ test("projection builder renders committed delete replacements as minimal refera
 test("projection builder renders reminder artifacts from template config", async () => {
   await withTempStore(async (store, clock) => {
     const messages = [
-      createEnvelope(createMessage({ id: "system-1", role: "system", created: 1 }), [createTextPart("system-1", "policy")]),
-      createEnvelope(createMessage({ id: "user-1", role: "user", created: 2 }), [createTextPart("user-1", "alpha")]),
-      createEnvelope(createMessage({ id: "assistant-1", role: "assistant", created: 3 }), [createTextPart("assistant-1", "beta")]),
+      createEnvelope(
+        createMessage({ id: "system-1", role: "system", created: 1 }),
+        [createTextPart("system-1", "policy")],
+      ),
+      createEnvelope(
+        createMessage({ id: "user-1", role: "user", created: 2 }),
+        [createTextPart("user-1", "alpha")],
+      ),
+      createEnvelope(
+        createMessage({ id: "assistant-1", role: "assistant", created: 3 }),
+        [createTextPart("assistant-1", "beta")],
+      ),
     ];
 
     syncMessages(store, clock, messages);
@@ -135,13 +202,7 @@ test("projection builder renders reminder artifacts from template config", async
         `[protected_000001_${computeVisibleChecksum("system-1")}] policy`,
         `[compressible_000002_${computeVisibleChecksum("user-1")}] alpha`,
         `[compressible_000003_${computeVisibleChecksum("assistant-1")}] beta`,
-        [
-          `[protected_000003_${computeVisibleChecksum("assistant-1")}.soft] Soft reminder`,
-          `- 000002_${computeVisibleChecksum("user-1")}: alpha`,
-          `- 000003_${computeVisibleChecksum("assistant-1")}: beta`,
-          `Target=000002_${computeVisibleChecksum("user-1")} -> 000003_${computeVisibleChecksum("assistant-1")}`,
-          `Preserve=system:000001_${computeVisibleChecksum("system-1")}`,
-        ].join("\n"),
+        `[protected_000003_${computeVisibleChecksum("assistant-1")}.soft] Soft reminder text.`,
       ],
     );
   });
@@ -150,9 +211,18 @@ test("projection builder renders reminder artifacts from template config", async
 test("projection builder protects short user messages via smallUserMessageThreshold", async () => {
   await withTempStore(async (store, clock) => {
     const messages = [
-      createEnvelope(createMessage({ id: "user-short", role: "user", created: 1 }), [createTextPart("user-short", "tiny")]),
-      createEnvelope(createMessage({ id: "user-long", role: "user", created: 2 }), [createTextPart("user-long", "this is a much longer user message")]),
-      createEnvelope(createMessage({ id: "assistant-1", role: "assistant", created: 3 }), [createTextPart("assistant-1", "reply")]),
+      createEnvelope(
+        createMessage({ id: "user-short", role: "user", created: 1 }),
+        [createTextPart("user-short", "tiny")],
+      ),
+      createEnvelope(
+        createMessage({ id: "user-long", role: "user", created: 2 }),
+        [createTextPart("user-long", "this is a much longer user message")],
+      ),
+      createEnvelope(
+        createMessage({ id: "assistant-1", role: "assistant", created: 3 }),
+        [createTextPart("assistant-1", "reply")],
+      ),
     ];
 
     syncMessages(store, clock, messages);
@@ -179,7 +249,9 @@ test("projection builder protects short user messages via smallUserMessageThresh
       ],
     );
     assert.deepEqual(
-      unprotectedProjection.projectedMessages.map((message) => readText(message)),
+      unprotectedProjection.projectedMessages.map((message) =>
+        readText(message),
+      ),
       [
         `[compressible_000001_${computeVisibleChecksum("user-short")}] tiny`,
         `[compressible_000002_${computeVisibleChecksum("user-long")}] this is a much longer user message`,
@@ -189,7 +261,10 @@ test("projection builder protects short user messages via smallUserMessageThresh
   });
 });
 
-function createEnvelope(info: TransformMessage, parts: TransformPart[]): TransformEnvelope {
+function createEnvelope(
+  info: TransformMessage,
+  parts: TransformPart[],
+): TransformEnvelope {
   return { info, parts };
 }
 
@@ -222,7 +297,9 @@ function createTextPart(messageID: string, text: string): TransformPart {
 }
 
 function readText(message: TransformEnvelope): string {
-  const textPart = message.parts.find((part) => part.type === "text") as (TransformPart & { text: string }) | undefined;
+  const textPart = message.parts.find((part) => part.type === "text") as
+    | (TransformPart & { text: string })
+    | undefined;
   return textPart?.text ?? "";
 }
 
@@ -238,15 +315,23 @@ function syncMessages(
       hostMessageID: message.info.id,
       canonicalMessageID: message.info.id,
       role: message.info.role,
-      hostCreatedAtMs: typeof message.info.time?.created === "number" ? message.info.time.created : undefined,
+      hostCreatedAtMs:
+        typeof message.info.time?.created === "number"
+          ? message.info.time.created
+          : undefined,
     })),
   });
 }
 
 async function withTempStore(
-  run: (store: SqliteSessionStateStore, clock: ReturnType<typeof createClock>) => Promise<void>,
+  run: (
+    store: SqliteSessionStateStore,
+    clock: ReturnType<typeof createClock>,
+  ) => Promise<void>,
 ): Promise<void> {
-  const pluginDirectory = await mkdtemp(join(tmpdir(), "opencode-context-compression-projection-"));
+  const pluginDirectory = await mkdtemp(
+    join(tmpdir(), "opencode-context-compression-projection-"),
+  );
   const clock = createClock();
   const store = createSqliteSessionStateStore({
     pluginDirectory,
@@ -287,9 +372,9 @@ function createReminderConfigFixture(): ReminderRuntimeConfig {
     },
     prompts: {
       softPath: "/tmp/reminder-soft.md",
-      softText: "Soft reminder\n{{compressible_content}}\nTarget={{compaction_target}}\nPreserve={{preserved_fields}}",
+      softText: "Soft reminder text.",
       hardPath: "/tmp/reminder-hard.md",
-      hardText: "Hard reminder\n{{compressible_content}}\nTarget={{compaction_target}}\nPreserve={{preserved_fields}}",
+      hardText: "Hard reminder text.",
     },
   };
 }
