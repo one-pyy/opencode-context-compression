@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { tool, type ToolContext } from "@opencode-ai/plugin";
 
 import { persistMark } from "../marks/mark-service.js";
@@ -18,22 +20,26 @@ const VISIBLE_STATE_PREFIX_PATTERN =
   /^(?:protected|referable|compressible)_(.+)$/u;
 const REMINDER_MESSAGE_ID_FRAGMENT = ":dcp-reminder:";
 
+interface LiveCompressionMarkToolContext extends ToolContext {
+  readonly messages?: readonly TransformEnvelope[];
+}
+
 export interface CreateCompressionMarkToolOptions {
   readonly pluginDirectory: string;
+  readonly isDeleteModeAllowed?: (input: {
+    readonly context: LiveCompressionMarkToolContext;
+    readonly messages: readonly TransformEnvelope[];
+  }) => boolean;
+  readonly generateMarkID?: () => string;
 }
 
 interface CompressionMarkArguments {
   readonly contractVersion: "v1";
-  readonly allowDelete: boolean;
+  readonly mode: "compact" | "delete";
   readonly target: {
     readonly startVisibleMessageID: string;
     readonly endVisibleMessageID?: string;
   };
-  readonly label?: string;
-}
-
-interface LiveCompressionMarkToolContext extends ToolContext {
-  readonly messages?: readonly TransformEnvelope[];
 }
 
 interface VisibleProjectedMessage {
@@ -56,10 +62,10 @@ export function createCompressionMarkTool(
         .describe(
           "Frozen compression_mark argument contract version. Use 'v1'.",
         ),
-      allowDelete: tool.schema
-        .boolean()
+      mode: tool.schema
+        .enum(["compact", "delete"])
         .describe(
-          "Whether the selected canonical visible span is allowed to enter the delete path later.",
+          "Requested action for the selected visible span. Use 'compact' or 'delete'.",
         ),
       target: tool.schema
         .object({
@@ -81,15 +87,6 @@ export function createCompressionMarkTool(
         })
         .describe(
           "Inclusive visible source span to persist as the durable mark source snapshot.",
-        ),
-      label: tool.schema
-        .string()
-        .trim()
-        .min(1)
-        .max(200)
-        .optional()
-        .describe(
-          "Optional human label for lookup convenience only; it is not the durable source of truth.",
         ),
     },
     async execute(args, context) {
@@ -118,18 +115,30 @@ async function executeCompressionMark(
 
     const existing = store.getMarkByToolCallMessageID(context.messageID);
     if (existing !== undefined) {
-      return renderExistingMark(
-        existing.markID,
-        store
-          .listMarkSourceMessages(existing.markID)
-          .map((message) => message.hostMessageID),
-      );
+      return existing.markID;
     }
 
     const resolvedRange = resolveVisibleTargetRange(
       collectVisibleProjectedMessages(liveMessages),
       args.target,
     );
+    const deleteModeAllowed = resolveDeleteModeAllowed({
+      options,
+      context,
+      liveMessages,
+    });
+    if (args.mode === "delete" && !deleteModeAllowed) {
+      throw new Error(
+        "compression_mark mode=delete is not allowed by the current policy.",
+      );
+    }
+    const compatibilityAllowDelete = resolveCompatibilityAllowDelete({
+      options,
+      context,
+      liveMessages,
+      mode: args.mode,
+      deleteModeAllowed,
+    });
     const resolvedVisibleMessageIDs = resolvedRange.map(
       (message) => message.visibleMessageID,
     );
@@ -146,6 +155,7 @@ async function executeCompressionMark(
     const metadata = {
       toolName: "compression_mark",
       contractVersion: args.contractVersion,
+      mode: args.mode,
       target: {
         startVisibleMessageID: resolvedVisibleMessageIDs[0],
         endVisibleMessageID:
@@ -161,10 +171,10 @@ async function executeCompressionMark(
 
     const mark = persistMark({
       store,
-      markID: `${context.sessionID}:compression-mark:${context.messageID}`,
+      markID: options.generateMarkID?.() ?? createGeneratedMarkID(),
       toolCallMessageID: context.messageID,
-      allowDelete: args.allowDelete,
-      markLabel: args.label ?? defaultLabel,
+      allowDelete: compatibilityAllowDelete,
+      markLabel: defaultLabel,
       metadata,
       snapshotMetadata: metadata,
       sourceMessages: resolvedRange.map((message) => ({
@@ -172,15 +182,42 @@ async function executeCompressionMark(
       })),
     }).mark;
 
-    return [
-      `Persisted compression_mark ${mark.markID}.`,
-      `allowDelete: ${mark.allowDelete}.`,
-      `Visible span: ${resolvedVisibleMessageIDs.join(" -> ")}.`,
-      `Host messages: ${resolvedHostMessageIDs.join(", ")}.`,
-    ].join(" ");
+    return mark.markID;
   } finally {
     store.close();
   }
+}
+
+function resolveDeleteModeAllowed(input: {
+  readonly options: CreateCompressionMarkToolOptions;
+  readonly context: LiveCompressionMarkToolContext;
+  readonly liveMessages: readonly TransformEnvelope[];
+}): boolean {
+  return (
+    input.options.isDeleteModeAllowed?.({
+      context: input.context,
+      messages: input.liveMessages,
+    }) ?? true
+  );
+}
+
+function resolveCompatibilityAllowDelete(input: {
+  readonly options: CreateCompressionMarkToolOptions;
+  readonly context: LiveCompressionMarkToolContext;
+  readonly liveMessages: readonly TransformEnvelope[];
+  readonly mode: CompressionMarkArguments["mode"];
+  readonly deleteModeAllowed: boolean;
+}): boolean {
+  if (input.mode === "delete") {
+    return input.deleteModeAllowed;
+  }
+
+  return (
+    input.options.isDeleteModeAllowed?.({
+      context: input.context,
+      messages: input.liveMessages,
+    }) ?? false
+  );
 }
 
 function readLiveMessages(
@@ -410,14 +447,8 @@ function buildDefaultLabel(visibleMessageIDs: readonly string[]): string {
   return first === last ? first : `${first}~${last}`;
 }
 
-function renderExistingMark(
-  markID: string,
-  hostMessageIDs: readonly string[],
-): string {
-  return [
-    `compression_mark already persisted ${markID} for this tool-call host message.`,
-    `Host messages: ${hostMessageIDs.join(", ")}.`,
-  ].join(" ");
+function createGeneratedMarkID(): string {
+  return `m_${randomUUID().replaceAll("-", "")}`;
 }
 
 function readPrimaryText(parts: readonly TransformPart[]): string | undefined {

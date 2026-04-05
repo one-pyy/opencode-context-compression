@@ -33,7 +33,7 @@ const PLUGIN_ENTRY =
 type ChatParamsInput = Parameters<NonNullable<Hooks["chat.params"]>>[0];
 type ChatParamsOutput = Parameters<NonNullable<Hooks["chat.params"]>>[1];
 
-test("explicit plugin loading plus compression_mark drives the repo-owned keep route through scheduler and runner", async () => {
+test("explicit plugin loading plus compression_mark drives the repo-owned compact mode through scheduler and runner", async () => {
   await withLoadedPluginFixture(
     async ({ tempDirectory, seamLogPath, hooks }) => {
       const sessionID = "test-session";
@@ -84,7 +84,7 @@ test("explicit plugin loading plus compression_mark drives the repo-owned keep r
       const toolOutput = await compressionMark.execute(
         {
           contractVersion: "v1",
-          route: "keep",
+          mode: "compact",
           target: {
             startVisibleMessageID: readVisibleMessageID(
               initialProjection.messages[1],
@@ -102,7 +102,7 @@ test("explicit plugin loading plus compression_mark drives the repo-owned keep r
         }),
       );
 
-      assert.match(toolOutput, /Persisted compression_mark/u);
+      assert.match(toolOutput, /^m_[0-9a-f]{32}$/u);
       sessionHistory.push(
         createEnvelope(
           createMessage({
@@ -213,7 +213,7 @@ test("explicit plugin loading plus compression_mark drives the repo-owned keep r
           databasePath,
           "SELECT mark_id || '|' || status FROM marks ORDER BY mark_id;",
         ),
-        ["test-session:compression-mark:assistant-mark-call-1|consumed"],
+        [`${toolOutput}|consumed`],
       );
       assert.deepEqual(
         querySqlite(
@@ -259,7 +259,7 @@ test("explicit plugin loading plus compression_mark drives the repo-owned keep r
       );
       assert.match(
         keepRequestBody?.messages?.[1]?.content ?? "",
-        /Source snapshot id: test-session:compression-mark:assistant-mark-call-1:snapshot/u,
+        new RegExp(`Source snapshot id: ${toolOutput}:snapshot`, "u"),
       );
       assert.match(
         keepRequestBody?.messages?.[1]?.content ?? "",
@@ -304,7 +304,7 @@ test("explicit plugin loading plus compression_mark drives the repo-owned keep r
   );
 });
 
-test("explicit plugin loading plus compression_mark commits the delete route through the same repo-owned scheduler path", async () => {
+test("explicit plugin loading plus compression_mark commits delete mode through the same repo-owned scheduler path", async () => {
   await withLoadedPluginFixture(
     async ({ tempDirectory, seamLogPath, hooks }) => {
       const sessionID = "test-session";
@@ -348,7 +348,7 @@ test("explicit plugin loading plus compression_mark commits the delete route thr
       const toolOutput = await readToolRegistry(hooks).compression_mark.execute(
         {
           contractVersion: "v1",
-          allowDelete: true,
+          mode: "delete",
           target: {
             startVisibleMessageID: readVisibleMessageID(
               initialProjection.messages[1],
@@ -365,6 +365,7 @@ test("explicit plugin loading plus compression_mark commits the delete route thr
           messages: initialProjection.messages,
         }),
       );
+      assert.match(toolOutput, /^m_[0-9a-f]{32}$/u);
 
       sessionHistory.push(
         createEnvelope(
@@ -472,7 +473,7 @@ test("explicit plugin loading plus compression_mark commits the delete route thr
           databasePath,
           "SELECT mark_id || '|' || status FROM marks ORDER BY mark_id;",
         ),
-        ["test-session:compression-mark:assistant-mark-call-1|consumed"],
+        [`${toolOutput}|consumed`],
       );
       assert.equal(requests.length, 1);
       assert.equal(
@@ -511,7 +512,7 @@ test("explicit plugin loading plus compression_mark commits the delete route thr
       );
       assert.match(
         deleteRequestBody?.messages?.[1]?.content ?? "",
-        /Source snapshot id: test-session:compression-mark:assistant-mark-call-1:snapshot/u,
+        new RegExp(`Source snapshot id: ${toolOutput}:snapshot`, "u"),
       );
       assert.match(
         deleteRequestBody?.messages?.[1]?.content ?? "",
@@ -602,7 +603,7 @@ test("ordinary chat waits during the running lock, unrelated tools continue, and
       const firstToolOutput = await toolRegistry.compression_mark.execute(
         {
           contractVersion: "v1",
-          allowDelete: false,
+          mode: "compact",
           target: {
             startVisibleMessageID: readVisibleMessageID(projected.messages[1]),
             endVisibleMessageID: readVisibleMessageID(projected.messages[2]),
@@ -615,6 +616,7 @@ test("ordinary chat waits during the running lock, unrelated tools continue, and
           messages: projected.messages,
         }),
       );
+      assert.match(firstToolOutput, /^m_[0-9a-f]{32}$/u);
 
       sessionHistory.push(
         createEnvelope(
@@ -691,7 +693,7 @@ test("ordinary chat waits during the running lock, unrelated tools continue, and
       const secondToolOutput = await toolRegistry.compression_mark.execute(
         {
           contractVersion: "v1",
-          allowDelete: false,
+          mode: "compact",
           target: {
             startVisibleMessageID: readVisibleMessageID(projected.messages[3]),
             endVisibleMessageID: readVisibleMessageID(projected.messages[4]),
@@ -704,6 +706,7 @@ test("ordinary chat waits during the running lock, unrelated tools continue, and
           messages: projected.messages,
         }),
       );
+      assert.match(secondToolOutput, /^m_[0-9a-f]{32}$/u);
 
       sessionHistory.push(
         createEnvelope(
@@ -729,17 +732,14 @@ test("ordinary chat waits during the running lock, unrelated tools continue, and
           databasePath,
           `SELECT mark_id FROM compaction_batch_marks WHERE batch_id = '${firstBatchID}' ORDER BY member_index;`,
         ),
-        ["test-session:compression-mark:assistant-mark-call-1"],
+        [firstToolOutput],
       );
       assert.deepEqual(
         querySqlite(
           databasePath,
           "SELECT mark_id || '|' || status FROM marks ORDER BY mark_id;",
-        ),
-        [
-          "test-session:compression-mark:assistant-mark-call-1|active",
-          "test-session:compression-mark:assistant-mark-call-2|active",
-        ],
+        ).sort(),
+        [`${firstToolOutput}|active`, `${secondToolOutput}|active`].sort(),
       );
 
       releaseFirstTransport?.();
@@ -752,11 +752,8 @@ test("ordinary chat waits during the running lock, unrelated tools continue, and
         querySqlite(
           databasePath,
           "SELECT mark_id || '|' || status FROM marks ORDER BY mark_id;",
-        ),
-        [
-          "test-session:compression-mark:assistant-mark-call-1|consumed",
-          "test-session:compression-mark:assistant-mark-call-2|active",
-        ],
+        ).sort(),
+        [`${firstToolOutput}|consumed`, `${secondToolOutput}|active`].sort(),
       );
 
       sessionHistory.push(
@@ -798,17 +795,14 @@ test("ordinary chat waits during the running lock, unrelated tools continue, and
           databasePath,
           `SELECT mark_id FROM compaction_batch_marks WHERE batch_id = '${batchIDs[1]}' ORDER BY member_index;`,
         ),
-        ["test-session:compression-mark:assistant-mark-call-2"],
+        [secondToolOutput],
       );
       assert.deepEqual(
         querySqlite(
           databasePath,
           "SELECT mark_id || '|' || status FROM marks ORDER BY mark_id;",
-        ),
-        [
-          "test-session:compression-mark:assistant-mark-call-1|consumed",
-          "test-session:compression-mark:assistant-mark-call-2|consumed",
-        ],
+        ).sort(),
+        [`${firstToolOutput}|consumed`, `${secondToolOutput}|consumed`].sort(),
       );
       assert.deepEqual(
         querySqlite(

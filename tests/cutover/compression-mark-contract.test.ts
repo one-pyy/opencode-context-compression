@@ -102,12 +102,11 @@ test("compression_mark v1 resolves visible ids, persists durable source snapshot
       const output = await compressionMark.execute(
         {
           contractVersion: "v1",
-          allowDelete: false,
+          mode: "compact",
           target: {
             startVisibleMessageID: readVisibleMessageID(projectedMessages[1]),
             endVisibleMessageID: readVisibleMessageID(projectedMessages[2]),
           },
-          label: "keep-window",
         },
         createToolContext({
           tempDirectory,
@@ -117,12 +116,15 @@ test("compression_mark v1 resolves visible ids, persists durable source snapshot
         }),
       );
 
-      assert.match(output, /Persisted compression_mark/u);
-
       const mark = store.getMarkByToolCallMessageID("assistant-mark-call-1");
       assert.ok(mark);
+      assert.equal(output, mark?.markID);
+      assert.match(output, /^m_[0-9a-f]{32}$/u);
       assert.equal(mark?.allowDelete, false);
-      assert.equal(mark?.markLabel, "keep-window");
+      assert.equal(
+        mark?.markLabel,
+        `${readVisibleMessageID(projectedMessages[1])}~${readVisibleMessageID(projectedMessages[2])}`,
+      );
       assert.deepEqual(store.getHostMessage("assistant-mark-call-1"), {
         hostMessageID: "assistant-mark-call-1",
         canonicalMessageID: "assistant-mark-call-1",
@@ -161,6 +163,7 @@ test("compression_mark v1 resolves visible ids, persists durable source snapshot
       assert.deepEqual(mark?.metadata, {
         toolName: "compression_mark",
         contractVersion: "v1",
+        mode: "compact",
         target: {
           startVisibleMessageID: readVisibleMessageID(projectedMessages[1]),
           endVisibleMessageID: readVisibleMessageID(projectedMessages[2]),
@@ -174,6 +177,180 @@ test("compression_mark v1 resolves visible ids, persists durable source snapshot
           readVisibleMessageID(projectedMessages[2]),
         ],
         resolvedHostMessageIDs: ["assistant-1", "user-2"],
+      });
+
+      const repeatedOutput = await compressionMark.execute(
+        {
+          contractVersion: "v1",
+          mode: "compact",
+          target: {
+            startVisibleMessageID: readVisibleMessageID(projectedMessages[1]),
+            endVisibleMessageID: readVisibleMessageID(projectedMessages[2]),
+          },
+        },
+        createToolContext({
+          tempDirectory,
+          sessionID,
+          messageID: "assistant-mark-call-1",
+          messages: projectedMessages,
+        }),
+      );
+      assert.equal(repeatedOutput, output);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+test("compression_mark v1 rejects mode=delete when current policy does not allow delete", async () => {
+  const policyDenied = false;
+  await withLoadedPluginHooks(async ({ tempDirectory }) => {
+    const sessionID = "test-session";
+    const store = createSqliteSessionStateStore({
+      pluginDirectory: tempDirectory,
+      sessionID,
+    });
+
+    try {
+      const canonicalMessages = [
+        createEnvelope(
+          createMessage({ id: "user-1", role: "user", created: 1 }),
+          [createTextPart("user-1", "hello")],
+        ),
+        createEnvelope(
+          createMessage({ id: "assistant-1", role: "assistant", created: 2 }),
+          [createTextPart("assistant-1", "draft")],
+        ),
+      ];
+
+      store.syncCanonicalHostMessages({
+        revision: "rev-cutover-deny",
+        syncedAtMs: 2,
+        messages: canonicalMessages.map((message) => ({
+          hostMessageID: message.info.id,
+          canonicalMessageID: message.info.id,
+          role: message.info.role,
+          hostCreatedAtMs: message.info.time.created,
+        })),
+      });
+
+      const projectedMessages = buildProjectedMessages({
+        messages: canonicalMessages,
+        store,
+      }).projectedMessages;
+      const deniedCompressionMark = await createCompressionMarkForTest({
+        tempDirectory,
+        isDeleteModeAllowed: () => policyDenied,
+      });
+
+      await assert.rejects(
+        deniedCompressionMark.execute(
+          {
+            contractVersion: "v1",
+            mode: "delete",
+            target: {
+              startVisibleMessageID: readVisibleMessageID(projectedMessages[0]),
+              endVisibleMessageID: readVisibleMessageID(projectedMessages[1]),
+            },
+          },
+          createToolContext({
+            tempDirectory,
+            sessionID,
+            messageID: "assistant-mark-call-denied",
+            messages: projectedMessages,
+          }),
+        ),
+        /compression_mark mode=delete is not allowed by the current policy\./u,
+      );
+      assert.equal(
+        store.getMarkByToolCallMessageID("assistant-mark-call-denied"),
+        undefined,
+      );
+    } finally {
+      store.close();
+    }
+  });
+});
+
+test("compression_mark v1 preserves current delete admission capability for compact marks without binding persistence to mode alone", async () => {
+  await withLoadedPluginHooks(async ({ tempDirectory }) => {
+    const sessionID = "test-session";
+    const store = createSqliteSessionStateStore({
+      pluginDirectory: tempDirectory,
+      sessionID,
+    });
+
+    try {
+      const canonicalMessages = [
+        createEnvelope(
+          createMessage({ id: "assistant-1", role: "assistant", created: 1 }),
+          [createTextPart("assistant-1", "draft")],
+        ),
+        createEnvelope(
+          createMessage({ id: "user-1", role: "user", created: 2 }),
+          [createTextPart("user-1", "follow-up")],
+        ),
+      ];
+
+      store.syncCanonicalHostMessages({
+        revision: "rev-cutover-policy-allowed",
+        syncedAtMs: 2,
+        messages: canonicalMessages.map((message) => ({
+          hostMessageID: message.info.id,
+          canonicalMessageID: message.info.id,
+          role: message.info.role,
+          hostCreatedAtMs: message.info.time.created,
+        })),
+      });
+
+      const projectedMessages = buildProjectedMessages({
+        messages: canonicalMessages,
+        store,
+      }).projectedMessages;
+      const policyAllowedCompressionMark = await createCompressionMarkForTest({
+        tempDirectory,
+        isDeleteModeAllowed: () => true,
+      });
+
+      const output = await policyAllowedCompressionMark.execute(
+        {
+          contractVersion: "v1",
+          mode: "compact",
+          target: {
+            startVisibleMessageID: readVisibleMessageID(projectedMessages[0]),
+            endVisibleMessageID: readVisibleMessageID(projectedMessages[1]),
+          },
+        },
+        createToolContext({
+          tempDirectory,
+          sessionID,
+          messageID: "assistant-mark-call-policy-allowed",
+          messages: projectedMessages,
+        }),
+      );
+
+      const mark = store.getMarkByToolCallMessageID(
+        "assistant-mark-call-policy-allowed",
+      );
+      assert.equal(output, mark?.markID);
+      assert.equal(mark?.allowDelete, true);
+      assert.deepEqual(mark?.metadata, {
+        toolName: "compression_mark",
+        contractVersion: "v1",
+        mode: "compact",
+        target: {
+          startVisibleMessageID: readVisibleMessageID(projectedMessages[0]),
+          endVisibleMessageID: readVisibleMessageID(projectedMessages[1]),
+        },
+        selectors: {
+          startVisibleMessageID: readVisibleMessageID(projectedMessages[0]),
+          endVisibleMessageID: readVisibleMessageID(projectedMessages[1]),
+        },
+        resolvedVisibleMessageIDs: [
+          readVisibleMessageID(projectedMessages[0]),
+          readVisibleMessageID(projectedMessages[1]),
+        ],
+        resolvedHostMessageIDs: ["assistant-1", "user-1"],
       });
     } finally {
       store.close();
@@ -257,7 +434,7 @@ test("compression_mark remains callable during lock and late marks stay out of t
       const output = await readCompressionMarkTool(hooks).execute(
         {
           contractVersion: "v1",
-          allowDelete: true,
+          mode: "delete",
           target: {
             startVisibleMessageID: readVisibleMessageID(projectedMessages[0]),
             endVisibleMessageID: readVisibleMessageID(projectedMessages[1]),
@@ -271,7 +448,7 @@ test("compression_mark remains callable during lock and late marks stay out of t
         }),
       );
 
-      assert.match(output, /Persisted compression_mark/u);
+      assert.match(output, /^m_[0-9a-f]{32}$/u);
       assert.deepEqual(
         store
           .listCompactionBatchMarks(frozen.persistedBatch.batchID)
@@ -282,7 +459,7 @@ test("compression_mark remains callable during lock and late marks stay out of t
         store.listMarks({ status: "active" }).map((mark) => mark.markID),
         [
           "existing-mark-1",
-          "test-session:compression-mark:assistant-mark-call-2",
+          output,
         ],
       );
     } finally {
@@ -310,6 +487,26 @@ function readCompressionMarkTool(hooks: Record<string, unknown>) {
   }
 
   return compressionMark;
+}
+
+async function createCompressionMarkForTest(input: {
+  readonly tempDirectory: string;
+  readonly isDeleteModeAllowed?: (input: {
+    readonly context: {
+      readonly sessionID: string;
+      readonly messageID: string;
+      readonly messages?: readonly TransformEnvelope[];
+    };
+    readonly messages: readonly TransformEnvelope[];
+  }) => boolean;
+}) {
+  const { createCompressionMarkTool } = await import(
+    "../../src/tools/compression-mark.js"
+  );
+  return createCompressionMarkTool({
+    pluginDirectory: input.tempDirectory,
+    isDeleteModeAllowed: input.isDeleteModeAllowed,
+  });
 }
 
 function createToolContext(input: {

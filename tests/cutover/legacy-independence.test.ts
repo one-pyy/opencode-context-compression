@@ -125,7 +125,7 @@ test("canonical execution does not require old provider DCP fields", async () =>
       [
         createTextPart(
           "assistant-mark-call-1",
-          "Persisted compression_mark test-session:compression-mark:assistant-mark-call-1.",
+          "m_history_seed_1",
         ),
       ],
     ),
@@ -212,7 +212,7 @@ test("canonical execution does not require old provider DCP fields", async () =>
     const toolOutput = await compressionMark.execute(
       {
         contractVersion: "v1",
-        route: "keep",
+        mode: "compact",
         target: {
           startVisibleMessageID,
           endVisibleMessageID,
@@ -225,7 +225,7 @@ test("canonical execution does not require old provider DCP fields", async () =>
         messages: projectedMessages,
       }),
     );
-    assert.match(toolOutput, /Persisted compression_mark/u);
+    assert.match(toolOutput, /^m_[0-9a-f]{32}$/u);
 
     const chatParamsOutput = createChatParamsOutput();
     await scheduler(
@@ -240,8 +240,12 @@ test("canonical execution does not require old provider DCP fields", async () =>
     });
 
     try {
+      assert.equal(
+        store.getMarkByToolCallMessageID("assistant-mark-call-1")?.markID,
+        toolOutput,
+      );
       const replacement = store.findLatestCommittedReplacementForMark(
-        "test-session:compression-mark:assistant-mark-call-1",
+        toolOutput,
       );
       assert.equal(replacement?.contentText, "Compressed summary.");
       assert.equal(
