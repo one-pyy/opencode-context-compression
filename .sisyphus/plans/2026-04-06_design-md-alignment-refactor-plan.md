@@ -122,15 +122,15 @@
 > 实现前必须逐项核对，不应把文档直接当成“现状说明书”
 ### 0.3 建议重构顺序（总顺序）
 本稿按下列顺序执行：
-1. **T0 文档引用冻结与冲突审计**
-2. **T1 配置 / Prompt / 资产契约对齐**
-3. **T2 公共工具契约切换：`compression_mark`**
-4. **T3 Sidecar 数据模型与 Schema 重构**
-5. **T4 历史重放 / 覆盖树 / replacement 结果组主链路**
-6. **T5 Projection / Visible ID / Reminder / 清理规则重构**
-7. **T6 Compaction 输入、Runner、Transport、失败语义重构**
-8. **T7 Scheduler / Gate / Batch Freeze / 运行时门闩对齐**
-9. **T8 测试、文档、遗留资产统一收口**
+- [x] **T0 文档引用冻结与冲突审计**
+- [ ] **T1 配置 / Prompt / 资产契约对齐**
+- [ ] **T2 公共工具契约切换：`compression_mark`**
+- [ ] **T3 Sidecar 数据模型与 Schema 重构**
+- [ ] **T4 历史重放 / 覆盖树 / replacement 结果组主链路**
+- [ ] **T5 Projection / Visible ID / Reminder / 清理规则重构**
+- [ ] **T6 Compaction 输入、Runner、Transport、失败语义重构**
+- [ ] **T7 Scheduler / Gate / Batch Freeze / 运行时门闩对齐**
+- [ ] **T8 测试、文档、遗留资产统一收口**
 依赖关系：
 - `T0` 是所有任务前置
 - `T1` 与 `T2` 可以并行准备，但 `T2` 合并前要读取 `T0`
