@@ -15,7 +15,10 @@ import type {
   TransformMessage,
   TransformPart,
 } from "../../src/seams/noop-observation.js";
-import { computeVisibleChecksum } from "../../src/identity/visible-sequence.js";
+import {
+  computeVisibleChecksum,
+  formatReminderVisibleMessageID,
+} from "../../src/identity/visible-sequence.js";
 import { OpencodeContextCompressionTokenEstimationError } from "../../src/token-estimation.js";
 
 test("reminder service derives a stable hard reminder from canonical history without persisting artifacts", async () => {
@@ -78,7 +81,10 @@ test("reminder service derives a stable hard reminder from canonical history wit
       severity: "hard",
       anchorHostMessageID: "assistant-2",
       anchorVisibleMessageID: `000004_${computeVisibleChecksum("assistant-2")}`,
-      visibleMessageID: `000004_${computeVisibleChecksum("assistant-2")}.hard`,
+      visibleMessageID: formatReminderVisibleMessageID({
+        severity: "hard",
+        anchorVisibleChecksum: computeVisibleChecksum("assistant-2"),
+      }),
       anchorIndex: 3,
       text: "Hard reminder text.",
     });

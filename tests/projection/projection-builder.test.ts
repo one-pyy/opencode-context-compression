@@ -8,6 +8,7 @@ import type { ReminderRuntimeConfig } from "../../src/config/runtime-config.js";
 import { computeVisibleChecksum } from "../../src/identity/visible-sequence.js";
 import { persistMark } from "../../src/marks/mark-service.js";
 import { buildProjectedMessages } from "../../src/projection/projection-builder.js";
+import { materializeProjectedMessages } from "../../src/projection/messages-transform.js";
 import {
   createSqliteSessionStateStore,
   type SqliteSessionStateStore,
@@ -96,9 +97,10 @@ test("projection builder replays history marks and uses the current best availab
       store,
       reminder: undefined,
     });
+    const renderedMessages = materializeProjectedMessages(projection.projectedMessages);
 
     assert.deepEqual(
-      projection.projectedMessages.map((message) => readText(message)),
+      renderedMessages.map((message) => readText(message)),
       [
         `[compressible_000001_${computeVisibleChecksum("user-1")}] hello`,
         `[referable_000002_${computeVisibleChecksum("assistant-1")}] Compressed summary.`,
@@ -212,9 +214,10 @@ test("projection builder lets a covering ancestor take over once its own result 
       store,
       reminder: undefined,
     });
+    const renderedMessages = materializeProjectedMessages(projection.projectedMessages);
 
     assert.deepEqual(
-      projection.projectedMessages.map((message) => readText(message)),
+      renderedMessages.map((message) => readText(message)),
       [`[referable_000001_${computeVisibleChecksum("user-1")}] Big summary.`],
     );
     assert.deepEqual(
@@ -299,9 +302,10 @@ test("projection builder treats an equal-range later mark as the new parent whil
       store,
       reminder: undefined,
     });
+    const renderedMessages = materializeProjectedMessages(projection.projectedMessages);
 
     assert.deepEqual(
-      projection.projectedMessages.map((message) => readText(message)),
+      renderedMessages.map((message) => readText(message)),
       [
         `[compressible_000001_${computeVisibleChecksum("user-1")}] hello`,
         `[referable_000002_${computeVisibleChecksum("assistant-1")}] Old summary.`,
@@ -416,7 +420,9 @@ test("projection builder rewrites intersecting later marks into visible error to
       reminder: undefined,
     });
 
-    const texts = projection.projectedMessages.map((message) => readText(message));
+    const texts = materializeProjectedMessages(projection.projectedMessages).map((message) =>
+      readText(message),
+    );
     assert.match(texts[0] ?? "", /^\[compressible_[^\]]+\] alpha$/u);
     assert.match(
       texts[1] ?? "",
@@ -494,9 +500,10 @@ test("projection builder renders committed delete replacements as minimal refera
       store,
       reminder: undefined,
     });
+    const renderedMessages = materializeProjectedMessages(projection.projectedMessages);
 
     assert.deepEqual(
-      projection.projectedMessages.map((message) => readText(message)),
+      renderedMessages.map((message) => readText(message)),
       [
         `[referable_000001_${computeVisibleChecksum("user-1")}] Deleted source span notice.`,
         `[compressible_000004_${computeVisibleChecksum("assistant-2")}] omega`,
@@ -530,15 +537,16 @@ test("projection builder renders reminder artifacts from plain-text reminder con
       reminder: createReminderConfigFixture(),
       reminderModelName: "gpt-5",
     });
+    const renderedMessages = materializeProjectedMessages(projection.projectedMessages);
 
     assert.equal(projection.reminder?.severity, "soft");
     assert.deepEqual(
-      projection.projectedMessages.map((message) => readText(message)),
+      renderedMessages.map((message) => readText(message)),
       [
         `[protected_000001_${computeVisibleChecksum("system-1")}] policy`,
         `[compressible_000002_${computeVisibleChecksum("user-1")}] alpha`,
         `[compressible_000003_${computeVisibleChecksum("assistant-1")}] beta`,
-        `[protected_000003_${computeVisibleChecksum("assistant-1")}.soft] Soft reminder text.`,
+        `[protected_reminder_soft_${computeVisibleChecksum("assistant-1")}] Soft reminder text.`,
       ],
     );
   });
@@ -575,9 +583,15 @@ test("projection builder protects short user messages via smallUserMessageThresh
       reminder: undefined,
       smallUserMessageThreshold: 3,
     });
+    const renderedProtected = materializeProjectedMessages(
+      protectedProjection.projectedMessages,
+    );
+    const renderedUnprotected = materializeProjectedMessages(
+      unprotectedProjection.projectedMessages,
+    );
 
     assert.deepEqual(
-      protectedProjection.projectedMessages.map((message) => readText(message)),
+      renderedProtected.map((message) => readText(message)),
       [
         `[protected_000001_${computeVisibleChecksum("user-short")}] tiny`,
         `[compressible_000002_${computeVisibleChecksum("user-long")}] this is a much longer user message`,
@@ -585,7 +599,7 @@ test("projection builder protects short user messages via smallUserMessageThresh
       ],
     );
     assert.deepEqual(
-      unprotectedProjection.projectedMessages.map((message) => readText(message)),
+      renderedUnprotected.map((message) => readText(message)),
       [
         `[compressible_000001_${computeVisibleChecksum("user-short")}] tiny`,
         `[compressible_000002_${computeVisibleChecksum("user-long")}] this is a much longer user message`,

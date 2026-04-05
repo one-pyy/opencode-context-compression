@@ -4,9 +4,15 @@ import type { ReminderRuntimeConfig } from "../config/runtime-config.js";
 import type {
   MessagesTransformOutput,
   TransformEnvelope,
+  TransformMessage,
+  TransformPart,
 } from "../seams/noop-observation.js";
 import { createSqliteSessionStateStore } from "../state/store.js";
-import { resolveHostMessageCanonicalIdentity } from "../identity/canonical-identity.js";
+import {
+  readPromptVisibleIdentityMetadata,
+  resolveHostMessageCanonicalIdentity,
+} from "../identity/canonical-identity.js";
+import { renderVisibleIdentityToken } from "../identity/visible-sequence.js";
 import { buildProjectedMessages } from "./projection-builder.js";
 
 const PROJECTED_ENVELOPE_MARKER = Symbol(
@@ -65,9 +71,9 @@ export function createMessagesTransformHook(
         smallUserMessageThreshold: options.smallUserMessageThreshold,
         reminderModelName: options.reminderModelName,
       });
-      const projectedMessages = projection.projectedMessages.map(
-        markProjectedEnvelope,
-      );
+      const projectedMessages = materializeProjectedMessages(
+        projection.projectedMessages,
+      ).map(markProjectedEnvelope);
 
       managedMessages.splice(0, managedMessages.length, ...projectedMessages);
       rememberCanonicalMessages(managedMessages, canonicalMessages);
@@ -75,6 +81,12 @@ export function createMessagesTransformHook(
       effectiveStore.close();
     }
   };
+}
+
+export function materializeProjectedMessages(
+  messages: readonly TransformEnvelope[],
+): TransformEnvelope[] {
+  return messages.map((message) => materializeProjectedEnvelope(structuredClone(message)));
 }
 
 function readCanonicalMessages(
@@ -161,4 +173,164 @@ function syncCanonicalMessages(
       };
     }),
   });
+}
+
+function materializeProjectedEnvelope(envelope: TransformEnvelope): TransformEnvelope {
+  const promptVisible = readPromptVisibleIdentityMetadata(envelope.info);
+  if (promptVisible === undefined) {
+    return envelope;
+  }
+
+  const identityToken = renderVisibleIdentityToken(
+    promptVisible.visibleState,
+    promptVisible.visibleMessageID,
+  );
+  const role = readMessageRole(envelope.info);
+
+  if (role === "assistant") {
+    materializeAssistantEnvelope(envelope, identityToken);
+    return envelope;
+  }
+
+  if (role === "tool") {
+    materializeToolEnvelope(envelope, identityToken);
+    return envelope;
+  }
+
+  materializeCanonicalEnvelope(envelope, identityToken);
+  return envelope;
+}
+
+function materializeAssistantEnvelope(
+  envelope: TransformEnvelope,
+  identityToken: string,
+): void {
+  const firstTextPart = envelope.parts.find(isTextPart);
+  if (firstTextPart !== undefined) {
+    firstTextPart.text = prependIdentityToken(firstTextPart.text, identityToken);
+    return;
+  }
+
+  const firstInputTextPart = envelope.parts.find(isInputTextPart);
+  if (firstInputTextPart !== undefined) {
+    (firstInputTextPart as TransformPart & { text: string }).text =
+      prependIdentityToken(
+        (firstInputTextPart as TransformPart & { text: string }).text,
+        identityToken,
+      );
+    return;
+  }
+
+  envelope.parts.unshift(
+    createTextPart(envelope.info, `${envelope.info.id}:dcp-assistant-shell`, identityToken),
+  );
+}
+
+function materializeToolEnvelope(
+  envelope: TransformEnvelope,
+  identityToken: string,
+): void {
+  const firstTextPart = envelope.parts.find(isTextPart);
+  if (firstTextPart !== undefined) {
+    firstTextPart.text = prependIdentityToken(firstTextPart.text, identityToken);
+    return;
+  }
+
+  const firstInputTextIndex = envelope.parts.findIndex(isInputTextPart);
+  if (firstInputTextIndex >= 0) {
+    envelope.parts.splice(
+      firstInputTextIndex,
+      0,
+      createInputTextPart(
+        envelope.info,
+        `${envelope.info.id}:dcp-input-prefix`,
+        identityToken,
+      ),
+    );
+    return;
+  }
+
+  envelope.parts.unshift(
+    createTextPart(envelope.info, `${envelope.info.id}:dcp-prefix`, identityToken),
+  );
+}
+
+function materializeCanonicalEnvelope(
+  envelope: TransformEnvelope,
+  identityToken: string,
+): void {
+  const firstTextPart = envelope.parts.find(isTextPart);
+  if (firstTextPart !== undefined) {
+    firstTextPart.text = prependIdentityToken(firstTextPart.text, identityToken);
+    return;
+  }
+
+  const firstInputTextPart = envelope.parts.find(isInputTextPart);
+  if (firstInputTextPart !== undefined) {
+    (firstInputTextPart as TransformPart & { text: string }).text =
+      prependIdentityToken(
+        (firstInputTextPart as TransformPart & { text: string }).text,
+        identityToken,
+      );
+    return;
+  }
+
+  envelope.parts.unshift(
+    createTextPart(envelope.info, `${envelope.info.id}:dcp-prefix`, identityToken),
+  );
+}
+
+function prependIdentityToken(text: string | undefined, identityToken: string): string {
+  return text && text.length > 0 ? `${identityToken} ${text}` : identityToken;
+}
+
+function readMessageRole(message: TransformMessage): string | undefined {
+  const role = (message as Record<string, unknown>).role;
+  return typeof role === "string" ? role : undefined;
+}
+
+function isTextPart(
+  part: TransformPart,
+): part is TransformPart & { type: "text"; text: string } {
+  return (
+    part.type === "text" &&
+    typeof (part as Record<string, unknown>).text === "string"
+  );
+}
+
+function isInputTextPart(
+  part: TransformPart,
+): part is TransformPart & { type: "input_text"; text: string } {
+  return (
+    (part as Record<string, unknown>).type === "input_text" &&
+    typeof (part as Record<string, unknown>).text === "string"
+  );
+}
+
+function createTextPart(
+  info: TransformMessage,
+  id: string,
+  text: string,
+): TransformPart {
+  return {
+    id,
+    sessionID: info.sessionID,
+    messageID: info.id,
+    type: "text",
+    text,
+  } as TransformPart;
+}
+
+function createInputTextPart(
+  info: TransformMessage,
+  id: string,
+  text: string,
+): TransformPart {
+  return {
+    id,
+    sessionID: info.sessionID,
+    messageID: info.id,
+    type: "input_text",
+    text,
+  } as unknown as TransformPart;
 }

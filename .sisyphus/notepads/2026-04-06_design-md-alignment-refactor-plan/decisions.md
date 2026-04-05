@@ -38,3 +38,11 @@
 - 本次裁决：coverage 判断严格基于 mark 的原始 source span（即 replay 的原消息坐标），不按投影视图块表面重新做几何判断；因此 compact 结果块仍可被更大范围 mark 包含或被 delete 覆盖，避免把张力 3 错误实现成“压缩块以后完全不能进入更大范围”。
 - 本次裁决：intersecting later mark 的最终视图语义按 `DESIGN.md:1316-1323` 执行——保留该 tool 调用为普通当前可见消息，改写其返回值为错误文本，同时把该 mark id 排除出 coverage tree、token 统计和 replacement lookup。它不是“合法但暂无结果”的树节点。
 - 明确保留给 T5/T6/T7 的边界：single-exit/显示层统一格式化、scheduler marked-token 直接消费 replay tree、runner 对 replay 节点的更深输入构造、以及 gate/lock 与 replay 状态的统一收口，本次都没有重写。
+
+## 2026-04-06 T5 Projection / Visible ID / Reminder / 清理规则重构
+- 本次裁决：`messages-transform` 是最终 prompt-visible 文本的 single-exit renderer；`projection-builder` 不再直接把 `[protected|compressible|referable_*]` 写进中间结构文本，而是只写 bare visible metadata 和必要的 synthetic 文本内容。这样 assistant/tool/replacement/reminder 的最终前缀规则只在一个出口生效，符合 `DESIGN.md:479-500` / `900-931`。
+- 本次裁决：assistant 正文优先于 shell。只要 assistant turn 已经有可见正文（`text` 或 `input_text`），visible id 就直接前置到该正文最前；只有没有任何 assistant 正文、且需要为纯 tool-only turn 暴露 assistant 侧 id 时，才补一个只含 id 的 assistant shell，不写 `Calling <tool>` 等额外说明。
+- 本次裁决：每个 tool return 继续持有各自独立 msg id，且都前插到该工具自己的可见 payload 开头；字符串输出直接前缀，Responses API content array 在最前插入 `input_text` id item，不允许尾插。
+- 本次裁决：reminder artifact 不再消费永久消息层 visible seq。当前实现使用 projection-owned bare id（`reminder_<severity>_<anchor-checksum>`）承载 reminder 身份，再由 single-exit 渲染成 `protected_*` 可见 token；数据库若需要 reminder 相关编号，仍应留在 sidecar/runtme state，而不是回写消息层序号。
+- 本次裁决：artifact cleanup 只做“当前成功 replacement 窗口直接接管的过期 artifact”清理，包括被 replacement 覆盖的 mark tool 调用与窗口内部已失效 reminder；不把 compact 块错误扩义成“以后完全不可再进入更大范围”，继续满足 `conflict-audit.md` 张力 3。
+- 明确保留给 T6/T7/T8 的边界：compaction input/runner 是否直接消费 replay tree、scheduler/gate 是否继续向 single-exit materialized view 收口、以及 reminder 样式示例/文档是否需要更细冻结，都不在本次 T5 实现内。

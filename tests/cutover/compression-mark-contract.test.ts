@@ -3,6 +3,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { buildProjectedMessages } from "../../src/projection/projection-builder.js";
+import { materializeProjectedMessages } from "../../src/projection/messages-transform.js";
 import { freezeCurrentCompactionBatch } from "../../src/marks/batch-freeze.js";
 import { persistMark } from "../../src/marks/mark-service.js";
 import { releaseSessionFileLock } from "../../src/runtime/file-lock.js";
@@ -94,10 +95,12 @@ test("compression_mark v1 resolves visible ids, persists durable source snapshot
         })),
       });
 
-      const projectedMessages = buildProjectedMessages({
-        messages: canonicalMessages,
-        store,
-      }).projectedMessages;
+      const projectedMessages = materializeProjectedMessages(
+        buildProjectedMessages({
+          messages: canonicalMessages,
+          store,
+        }).projectedMessages,
+      );
       const compressionMark = readCompressionMarkTool(hooks);
       const output = await compressionMark.execute(
         {
@@ -234,10 +237,12 @@ test("compression_mark v1 rejects mode=delete when current policy does not allow
         })),
       });
 
-      const projectedMessages = buildProjectedMessages({
-        messages: canonicalMessages,
-        store,
-      }).projectedMessages;
+      const projectedMessages = materializeProjectedMessages(
+        buildProjectedMessages({
+          messages: canonicalMessages,
+          store,
+        }).projectedMessages,
+      );
       const deniedCompressionMark = await createCompressionMarkForTest({
         tempDirectory,
         isDeleteModeAllowed: () => policyDenied,
@@ -303,10 +308,12 @@ test("compression_mark v1 preserves current delete admission capability for comp
         })),
       });
 
-      const projectedMessages = buildProjectedMessages({
-        messages: canonicalMessages,
-        store,
-      }).projectedMessages;
+      const projectedMessages = materializeProjectedMessages(
+        buildProjectedMessages({
+          messages: canonicalMessages,
+          store,
+        }).projectedMessages,
+      );
       const policyAllowedCompressionMark = await createCompressionMarkForTest({
         tempDirectory,
         isDeleteModeAllowed: () => true,
@@ -412,10 +419,12 @@ test("compression_mark remains callable during lock and late marks stay out of t
         assert.fail("expected lock-time batch freeze to start");
       }
 
-      const projectedMessages = buildProjectedMessages({
-        messages: canonicalMessages,
-        store,
-      }).projectedMessages;
+      const projectedMessages = materializeProjectedMessages(
+        buildProjectedMessages({
+          messages: canonicalMessages,
+          store,
+        }).projectedMessages,
+      );
       const toolExecuteBefore = hooks["tool.execute.before"] as
         | ((
             input: { tool: string; sessionID: string; callID: string },

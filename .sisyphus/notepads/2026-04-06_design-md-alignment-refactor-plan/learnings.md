@@ -29,3 +29,10 @@
 - 覆盖树语义已经按 `DESIGN.md:1176-1254` 落地：后盖前、大盖小、等于范围同样按覆盖处理；父节点无结果时递归展开子节点并保留原文 gap；父节点一旦有完整结果组，整棵子树立即由祖先接管。
 - intersecting later mark 已实现为显式错误分支，而不是“普通无结果 mark”：该调用继续作为当前可见消息存在，但 tool 返回会被改写为 replay error 文本，且对应 mark id 被排除出覆盖树、replacement lookup 与后续 token 统计候选集合。
 - 为兼容当前仓库的 live/e2e 路径，T4 没有假设 mark tool 返回参数一定能从宿主消息体完整反解析；当前 replay 以“历史里真实出现的 tool call message id + 持久 source snapshot 范围”组合重建覆盖语义，真相入口已切到历史调用顺序，SQLite 只承担结果组与运行时状态承载。
+
+## 2026-04-06 T5 Projection / Visible ID / Reminder / 清理规则重构
+- single-exit 可见前缀现在收口到 `src/projection/messages-transform.ts` 的 materialize 阶段：`projection-builder` 只产出结构化 projection，并在 message `info` 上写 bare `visibleMessageID + visibleState` metadata；最终 `[protected|compressible|referable_*]` 文本只在 transform 出口写一次，符合 `DESIGN.md:479-500` / `900-931`。
+- assistant/tool 的最终可见语义已按 `DESIGN.md:170-185` / `211-214` 对齐：assistant 有正文（包括 `input_text` 正文）时直接把 visible id 放到正文最前；assistant 只有 tool 调用、没有正文时才补一条只含 id 的 assistant shell；tool 字符串输出把各自 msg id 前置到字符串最前，Responses content array 则把各自 msg id 插到最前面的 `input_text` 位置。
+- reminder artifact 不再占用永久 visible sequence：`src/projection/reminder-service.ts` 现在生成 projection-owned reminder id（`reminder_<severity>_<anchor-checksum>`），只保留稳定锚点 checksum，不再复用消息层 `00000x_xx` 序号；最终渲染仍走 single-exit `protected_*` 前缀，但消息层不携带永久序号，符合 `DESIGN.md:356-369` / `498-500`。
+- replacement / delete notice / mark cleanup / reminder cleanup 已按窗口语义实现：成功命中的 replacement 继续以 referable block 或极简 delete notice 存活；对应 source span 被隐藏；已被 replacement 覆盖的 mark tool 调用继续从 prompt-visible view 移除；anchor 落在成功 replacement 窗口内的 reminder 不再插回 projection，避免在被 replacement 接管后残留过期 reminder，符合 `DESIGN.md:407-411` / `754-778`。
+- 张力 3 没有被误伤：本次只清理“被当前成功窗口直接接管的旧 artifact”，没有把 compact 结果扩写成“以后完全不可再被更大范围包含或 delete 覆盖”；更大范围包含/覆盖的语义仍保持给后续 replay/tree/runner 路径继续消费。

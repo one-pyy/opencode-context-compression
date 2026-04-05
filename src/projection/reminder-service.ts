@@ -1,4 +1,5 @@
 import type { ProjectionPolicy } from "./policy-engine.js";
+import { formatReminderVisibleMessageID } from "../identity/visible-sequence.js";
 import { estimateEnvelopeTokens } from "../token-estimation.js";
 
 export type ReminderSeverity = "soft" | "hard";
@@ -182,7 +183,10 @@ function createReminder(
     severity,
     anchorHostMessageID: anchor.identity.hostMessageID,
     anchorVisibleMessageID: anchor.visible.visibleMessageID,
-    visibleMessageID: `${anchor.visible.visibleMessageID}.${severity}`,
+    visibleMessageID: formatReminderVisibleMessageID({
+      severity,
+      anchorVisibleChecksum: anchor.visible.visibleChecksum,
+    }),
     anchorIndex: anchor.index,
     text: severity === "hard" ? texts.hard : texts.soft,
   };

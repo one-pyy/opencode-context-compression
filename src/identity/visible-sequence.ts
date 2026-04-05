@@ -10,6 +10,10 @@ const VISIBLE_SEQUENCE_WIDTH = 6;
 const VISIBLE_CHECKSUM_WIDTH = 2;
 const VISIBLE_CHECKSUM_MODULUS = 36 ** VISIBLE_CHECKSUM_WIDTH;
 const VISIBLE_CHECKSUM_PATTERN = /^[0-9a-z]{2}$/;
+const LEGACY_ROLE_PREFIX_PATTERN = /^(?:assistant|user|tool)_/;
+
+export type VisibleRenderState = "protected" | "referable" | "compressible";
+export type ReminderVisibleSeverity = "soft" | "hard";
 
 export interface VisibleSequenceStore {
   ensureVisibleSequenceAssignment(input: {
@@ -81,6 +85,45 @@ export function formatBareVisibleMessageID(input: {
   }
 
   return `${String(input.visibleSeq).padStart(VISIBLE_SEQUENCE_WIDTH, "0")}_${input.visibleChecksum}`;
+}
+
+export function formatReminderVisibleMessageID(input: {
+  readonly severity: ReminderVisibleSeverity;
+  readonly anchorVisibleChecksum: string;
+}): string {
+  if (!VISIBLE_CHECKSUM_PATTERN.test(input.anchorVisibleChecksum)) {
+    throw new Error(
+      `Reminder anchor checksum must be ${VISIBLE_CHECKSUM_WIDTH} lowercase base36 characters. Received: '${input.anchorVisibleChecksum}'.`,
+    );
+  }
+
+  return `reminder_${input.severity}_${input.anchorVisibleChecksum}`;
+}
+
+export function renderVisibleIdentityToken(
+  visibleState: VisibleRenderState,
+  visibleMessageID: string,
+): string {
+  return `[${visibleState}_${normalizeVisibleMessageIDForRender(visibleMessageID)}]`;
+}
+
+export function normalizeVisibleMessageIDForRender(
+  visibleMessageID: string,
+): string {
+  let normalized = visibleMessageID;
+
+  while (true) {
+    const statePrefixMatch = /^(protected|referable|compressible)_(.+)$/u.exec(
+      normalized,
+    );
+    if (statePrefixMatch === null) {
+      break;
+    }
+
+    normalized = statePrefixMatch[2] ?? normalized;
+  }
+
+  return normalized.replace(LEGACY_ROLE_PREFIX_PATTERN, "");
 }
 
 function buildVisibleMessageIdentity(

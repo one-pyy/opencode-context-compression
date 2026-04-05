@@ -3,6 +3,9 @@ import type {
   TransformMessage,
   TransformPart,
 } from "../seams/noop-observation.js";
+import type { VisibleRenderState } from "./visible-sequence.js";
+
+const PROMPT_VISIBLE_METADATA_KEY = "dcpPromptVisible";
 
 export interface CanonicalIdentityAnchor {
   readonly hostMessageID: string;
@@ -15,6 +18,11 @@ export interface HostBackedCanonicalIdentity extends CanonicalIdentityAnchor {
   readonly parentID?: string;
   readonly hostCreatedAtMs?: number;
   readonly corroboratingPartMessageIDs: readonly string[];
+}
+
+export interface PromptVisibleIdentityMetadata {
+  readonly visibleMessageID: string;
+  readonly visibleState: VisibleRenderState;
 }
 
 export function resolveHostMessageCanonicalIdentity(
@@ -58,6 +66,43 @@ export function pickEarliestSourceCanonicalIdentity(
   return {
     hostMessageID: earliestSource.hostMessageID,
     canonicalMessageID: earliestSource.canonicalMessageID,
+  };
+}
+
+export function writePromptVisibleIdentityMetadata(
+  message: TransformMessage,
+  metadata: PromptVisibleIdentityMetadata,
+): void {
+  (message as Record<string, unknown>)[PROMPT_VISIBLE_METADATA_KEY] = {
+    visibleMessageID: metadata.visibleMessageID,
+    visibleState: metadata.visibleState,
+  } satisfies PromptVisibleIdentityMetadata;
+}
+
+export function readPromptVisibleIdentityMetadata(
+  message: TransformMessage,
+): PromptVisibleIdentityMetadata | undefined {
+  const raw = (message as Record<string, unknown>)[PROMPT_VISIBLE_METADATA_KEY];
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+
+  const record = raw as Record<string, unknown>;
+  const visibleMessageID = record.visibleMessageID;
+  const visibleState = record.visibleState;
+  if (
+    typeof visibleMessageID !== "string" ||
+    visibleMessageID.length === 0 ||
+    (visibleState !== "protected" &&
+      visibleState !== "referable" &&
+      visibleState !== "compressible")
+  ) {
+    return undefined;
+  }
+
+  return {
+    visibleMessageID,
+    visibleState,
   };
 }
 

@@ -5,7 +5,11 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { computeVisibleChecksum } from "../../src/identity/visible-sequence.js";
-import { createMessagesTransformHook } from "../../src/projection/messages-transform.js";
+import {
+  createMessagesTransformHook,
+  materializeProjectedMessages,
+} from "../../src/projection/messages-transform.js";
+import { buildProjectedMessages } from "../../src/projection/projection-builder.js";
 import type {
   MessagesTransformOutput,
   TransformEnvelope,
@@ -201,6 +205,132 @@ test("messages.transform renders tool-only assistant shells and prepends tool id
       "More context",
     ]);
   });
+});
+
+test("messages.transform prepends assistant visible ids directly into input_text bodies without synthesizing a shell", async () => {
+  await withTempPluginDirectory(async (pluginDirectory) => {
+    const transform = createMessagesTransformHook({
+      pluginDirectory,
+      createStore: ({ sessionID: _sessionID }) =>
+        createInMemoryProjectionStoreFixture(),
+    });
+    const output = {
+      messages: [
+        createEnvelope(
+          createMessage({ id: "assistant-array", role: "assistant", created: 1 }),
+          [
+            createInputTextPart("assistant-array", "我先查一下。", 1),
+            createInputTextPart("assistant-array", "继续处理中。", 2),
+          ],
+        ),
+      ],
+    } satisfies MessagesTransformOutput;
+
+    await transform({}, output);
+
+    assert.equal(readText(output.messages[0]!), "");
+    assert.deepEqual(readInputTextTexts(output.messages[0]!), [
+      `[compressible_000001_${computeVisibleChecksum("assistant-array")}] 我先查一下。`,
+      "继续处理中。",
+    ]);
+  });
+});
+
+test("final materialized output removes reminders whose anchor falls inside a committed replacement window", () => {
+  const store = createInMemoryProjectionStoreFixture({
+    marks: [
+      {
+        markID: "mark-1",
+        toolCallMessageID: "mark-tool-1",
+        allowDelete: false,
+        sourceMessageIDs: ["assistant-1", "tool-1"],
+        status: "consumed",
+        createdAtMs: 2,
+        consumedAtMs: 3,
+      },
+    ],
+    replacements: [
+      {
+        replacementID: "replacement-1",
+        allowDelete: false,
+        executionMode: "compact",
+        committedAtMs: 3,
+        contentText: "Compressed summary.",
+        markIDs: ["mark-1"],
+        sourceMessageIDs: ["assistant-1", "tool-1"],
+      },
+    ],
+  });
+
+  const canonicalMessages = [
+    createEnvelope(
+      createMessage({ id: "user-1", role: "user", created: 1 }),
+      [createTextPart("user-1", "hello")],
+    ),
+    createEnvelope(
+      createMessage({ id: "assistant-1", role: "assistant", created: 2 }),
+      [createTextPart("assistant-1", "draft")],
+    ),
+    createEnvelope(
+      createMessage({ id: "tool-1", role: "tool", created: 3 }),
+      [createTextPart("tool-1", "tool output")],
+    ),
+    createEnvelope(
+      createMessage({ id: "mark-tool-1", role: "tool", created: 4 }),
+      [createTextPart("mark-tool-1", "mark: a~b")],
+    ),
+  ];
+  store.syncCanonicalHostMessages({
+    messages: canonicalMessages.map((message) => ({
+      hostMessageID: message.info.id,
+      canonicalMessageID: message.info.id,
+      role: message.info.role,
+      hostCreatedAtMs:
+        typeof message.info.time?.created === "number"
+          ? message.info.time.created
+          : undefined,
+    })),
+  });
+
+  const projection = buildProjectedMessages({
+    messages: canonicalMessages,
+    store: store as never,
+    reminder: {
+      hsoft: 10,
+      hhard: 20,
+      softRepeatEveryTokens: 10,
+      hardRepeatEveryTokens: 10,
+      prompts: {
+        compactOnly: {
+          soft: {
+            path: "/tmp/reminder-soft-compact-only.md",
+            text: "Soft compact-only reminder.",
+          },
+          hard: {
+            path: "/tmp/reminder-hard-compact-only.md",
+            text: "Hard compact-only reminder.",
+          },
+        },
+        deleteAllowed: {
+          soft: {
+            path: "/tmp/reminder-soft-delete-allowed.md",
+            text: "Soft delete-allowed reminder.",
+          },
+          hard: {
+            path: "/tmp/reminder-hard-delete-allowed.md",
+            text: "Hard delete-allowed reminder.",
+          },
+        },
+      },
+    },
+    reminderModelName: "gpt-5",
+  });
+
+  const rendered = materializeProjectedMessages(projection.projectedMessages);
+  assert.deepEqual(rendered.map((message) => readText(message)), [
+    `[compressible_000001_${computeVisibleChecksum("user-1")}] hello`,
+    `[referable_000002_${computeVisibleChecksum("assistant-1")}] Compressed summary.`,
+  ]);
 });
 
 function createEnvelope(
