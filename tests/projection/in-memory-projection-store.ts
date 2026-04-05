@@ -46,6 +46,7 @@ interface HostMessageSnapshot {
   readonly hostMessageID: string;
   readonly canonicalMessageID: string;
   readonly role: string;
+  readonly firstSeenAtMs: number;
 }
 
 export function createInMemoryProjectionStoreFixture(input?: {
@@ -60,6 +61,10 @@ class InMemoryProjectionStoreFixture {
   private readonly replacements: readonly ReplacementSpec[];
   private readonly visibleAssignments = new Map<string, VisibleSequenceAssignment>();
   private readonly hostMessages = new Map<string, HostMessageSnapshot>();
+  private readonly runtimeStates = new Map<
+    string,
+    Partial<Pick<MarkSpec, "status" | "consumedAtMs" | "invalidatedAtMs" | "invalidationReason">>
+  >();
   private nextVisibleSeq = 1;
 
   constructor(input?: {
@@ -74,13 +79,25 @@ class InMemoryProjectionStoreFixture {
 
   syncCanonicalHostMessages(input: SyncCanonicalHostMessagesInput): void {
     this.hostMessages.clear();
-    for (const message of input.messages) {
+    for (const [index, message] of input.messages.entries()) {
       this.hostMessages.set(message.hostMessageID, {
         hostMessageID: message.hostMessageID,
         canonicalMessageID: message.canonicalMessageID,
         role: message.role,
+        firstSeenAtMs: index,
       });
     }
+  }
+
+  listHostMessages(): Array<{
+    hostMessageID: string;
+    canonicalMessageID: string;
+    role: string;
+    firstSeenAtMs: number;
+  }> {
+    return [...this.hostMessages.values()].sort(
+      (left, right) => left.firstSeenAtMs - right.firstSeenAtMs,
+    );
   }
 
   ensureVisibleSequenceAssignment(input: {
@@ -121,6 +138,29 @@ class InMemoryProjectionStoreFixture {
     return this.marks
       .map((mark) => this.buildMarkRecord(mark))
       .filter((mark) => options?.status === undefined || mark.status === options.status);
+  }
+
+  listMarkSourceMessages(markID: string): SourceSnapshotMessageRecord[] {
+    const mark = this.marks.find((candidate) => candidate.markID === markID);
+    return mark === undefined
+      ? []
+      : this.buildSourceMessages(`${mark.markID}:snapshot`, mark.sourceMessageIDs);
+  }
+
+  upsertMarkRuntimeState(input: {
+    readonly markID: string;
+    readonly status: MarkStatus;
+    readonly consumedAtMs?: number;
+    readonly invalidatedAtMs?: number;
+    readonly invalidationReason?: string;
+  }): MarkRecord | undefined {
+    this.runtimeStates.set(input.markID, {
+      status: input.status,
+      consumedAtMs: input.consumedAtMs,
+      invalidatedAtMs: input.invalidatedAtMs,
+      invalidationReason: input.invalidationReason,
+    });
+    return this.getMark(input.markID);
   }
 
   listReplacementSourceMessages(
@@ -265,17 +305,19 @@ class InMemoryProjectionStoreFixture {
   }
 
   private buildMarkRecord(spec: MarkSpec): MarkRecord {
+    const runtimeState = this.runtimeStates.get(spec.markID);
     return {
       markID: spec.markID,
       toolCallMessageID: spec.toolCallMessageID,
       allowDelete: spec.allowDelete,
       markLabel: undefined,
       sourceSnapshotID: `${spec.markID}:snapshot`,
-      status: spec.status ?? "active",
+      status: runtimeState?.status ?? spec.status ?? "active",
       createdAtMs: spec.createdAtMs ?? 0,
-      consumedAtMs: spec.consumedAtMs,
-      invalidatedAtMs: spec.invalidatedAtMs,
-      invalidationReason: spec.invalidationReason,
+      consumedAtMs: runtimeState?.consumedAtMs ?? spec.consumedAtMs,
+      invalidatedAtMs: runtimeState?.invalidatedAtMs ?? spec.invalidatedAtMs,
+      invalidationReason:
+        runtimeState?.invalidationReason ?? spec.invalidationReason,
       metadata: undefined,
     };
   }

@@ -1,7 +1,5 @@
 import type {
   ReplacementResultGroupItemRecord,
-  ReplacementResultGroupMarkLinkRecord,
-  ReplacementMarkLinkRecord,
   ReplacementRecord,
   SourceSnapshotMessageRecord,
   SqliteSessionStateStore,
@@ -13,6 +11,11 @@ import type {
   TransformMessage,
   TransformPart,
 } from "../seams/noop-observation.js";
+import {
+  replayMarkHistory,
+  type ReplayedMark,
+} from "../replay/mark-replay.js";
+import type { CoverageTreeNode, CoverageTreeRoot } from "../replay/coverage-tree.js";
 import {
   buildProjectionPolicy,
   type ProjectionPolicy,
@@ -39,12 +42,10 @@ export interface ProjectionBuildResult {
 }
 
 interface AppliedReplacementSpan {
-  readonly replacement: ReplacementRecord;
+  readonly replacement?: ReplacementRecord;
+  readonly resultGroupItem: ReplacementResultGroupItemRecord;
+  readonly executionMode: "compact" | "delete";
   readonly sourceMessages: readonly SourceSnapshotMessageRecord[];
-  readonly links:
-    | readonly ReplacementResultGroupMarkLinkRecord[]
-    | readonly ReplacementMarkLinkRecord[];
-  readonly hiddenToolCallMessageIDs: readonly string[];
   readonly startIndex: number;
   readonly endIndex: number;
   readonly visibleMessageID: string;
@@ -58,20 +59,35 @@ export function buildProjectedMessages(
     store: options.store,
     smallUserMessageThreshold: options.smallUserMessageThreshold,
   });
+  const replay = replayMarkHistory({
+    policy,
+    store: options.store,
+  });
+
+  syncReplayRuntimeState(options.store, replay);
+
   const reminder = options.reminder
     ? deriveReminder({
         policy,
         cadence: options.reminder,
-        texts: selectReminderTexts(policy, options.store, options.reminder),
+        texts: selectReminderTexts(replay.validNodes, options.reminder),
         modelName: options.reminderModelName,
       })
     : undefined;
-  const appliedSpans = collectAppliedReplacementSpans(policy, options.store);
+  const appliedSpans = collectAppliedReplacementSpans({
+    policy,
+    store: options.store,
+    replayRoot: replay.root,
+  });
   const spanByStartIndex = new Map(
     appliedSpans.map((span) => [span.startIndex, span]),
   );
-  const hiddenToolCallMessageIDs = new Set(
-    appliedSpans.flatMap((span) => span.hiddenToolCallMessageIDs),
+  const hiddenToolCallMessageIDs = new Set(replay.hiddenToolCallMessageIDs);
+  const invalidMarksByToolCallMessageID = new Map(
+    replay.invalidMarks.map((invalidMark) => [
+      invalidMark.mark.toolCallMessageID,
+      invalidMark,
+    ]),
   );
   const projectedMessages: TransformEnvelope[] = [];
   let reminderInserted = false;
@@ -105,13 +121,28 @@ export function buildProjectedMessages(
       continue;
     }
 
-    projectedMessages.push(
-      renderCanonicalMessage(
-        message.envelope,
-        message.visibleState,
-        message.visible.visibleMessageID,
-      ),
+    const invalidMark = invalidMarksByToolCallMessageID.get(
+      message.identity.hostMessageID,
     );
+    if (invalidMark !== undefined) {
+      projectedMessages.push(
+        renderRewrittenCanonicalMessage(
+          message.envelope,
+          message.visibleState,
+          message.visible.visibleMessageID,
+          invalidMark.errorText,
+        ),
+      );
+    } else {
+      projectedMessages.push(
+        renderCanonicalMessage(
+          message.envelope,
+          message.visibleState,
+          message.visible.visibleMessageID,
+        ),
+      );
+    }
+
     if (
       reminder !== undefined &&
       !reminderInserted &&
@@ -132,103 +163,115 @@ export function buildProjectedMessages(
     projectedMessages,
     policy,
     reminder,
-    appliedReplacementIDs: appliedSpans.map(
-      (span) => span.replacement.replacementID,
-    ),
+    appliedReplacementIDs: appliedSpans
+      .map((span) => span.replacement?.replacementID ?? span.resultGroupItem.replacementID)
+      .filter((replacementID): replacementID is string => replacementID !== undefined),
     hiddenToolCallMessageIDs: [...hiddenToolCallMessageIDs].sort(),
   };
 }
 
-function collectAppliedReplacementSpans(
+function syncReplayRuntimeState(
+  store: SqliteSessionStateStore,
+  replay: ReturnType<typeof replayMarkHistory>,
+): void {
+  for (const runtimeState of replay.runtimeStates) {
+    store.upsertMarkRuntimeState?.({
+      markID: runtimeState.markID,
+      toolCallMessageID: runtimeState.toolCallMessageID,
+      sourceSnapshotID: runtimeState.sourceSnapshotID,
+      status: runtimeState.status,
+      createdAtMs: runtimeState.createdAtMs,
+      consumedAtMs: runtimeState.consumedAtMs,
+      invalidatedAtMs: runtimeState.invalidatedAtMs,
+      invalidationReason: runtimeState.invalidationReason,
+    });
+  }
+}
+
+function selectReminderTexts(
+  validNodes: readonly CoverageTreeNode<ReplayedMark>[],
+  reminder: ReminderRuntimeConfig,
+): { soft: string; hard: string } {
+  const hasDeleteAllowedContext = validNodes.some(
+    (node) => node.value.mark.allowDelete,
+  );
+  const promptSet = hasDeleteAllowedContext
+    ? reminder.prompts.deleteAllowed
+    : reminder.prompts.compactOnly;
+
+  return {
+    soft: promptSet.soft.text,
+    hard: promptSet.hard.text,
+  };
+}
+
+function collectAppliedReplacementSpans(input: {
+  readonly policy: ProjectionPolicy;
+  readonly store: SqliteSessionStateStore;
+  readonly replayRoot: CoverageTreeRoot<ReplayedMark>;
+}): AppliedReplacementSpan[] {
+  return input.replayRoot.children
+    .flatMap((node) => collectRenderableSpansFromNode(node, input.policy, input.store))
+    .sort(
+      (left, right) =>
+        left.startIndex - right.startIndex ||
+        readCommittedAtMs(left) - readCommittedAtMs(right) ||
+        readStableSpanID(left).localeCompare(readStableSpanID(right)),
+    );
+}
+
+function collectRenderableSpansFromNode(
+  node: CoverageTreeNode<ReplayedMark>,
   policy: ProjectionPolicy,
   store: SqliteSessionStateStore,
 ): AppliedReplacementSpan[] {
-  const candidates: AppliedReplacementSpan[] = [];
-  const seenReplacementIDs = new Set<string>();
-
-  for (const mark of store
-    .listMarks()
-    .filter((mark) => mark.status !== "invalid")) {
-    const resultGroup = store.getReplacementResultGroup?.(mark.markID);
-    if (resultGroup?.completeness !== "complete") {
-      continue;
-    }
-
-    const replacement = resolveAppliedReplacementRecord(store, mark.markID);
-    if (replacement === undefined || seenReplacementIDs.has(replacement.replacementID)) {
-      continue;
-    }
-
-    const candidate = createAppliedReplacementSpan(mark.markID, replacement, policy, store);
-    if (candidate === undefined) {
-      continue;
-    }
-
-    seenReplacementIDs.add(replacement.replacementID);
-    candidates.push(candidate);
+  const appliedSpan = createAppliedReplacementSpan(node.value.mark.markID, policy, store);
+  if (appliedSpan !== undefined) {
+    return [appliedSpan];
   }
 
-  candidates.sort(
-    (left, right) =>
-      left.startIndex - right.startIndex ||
-      left.replacement.committedAtMs - right.replacement.committedAtMs ||
-      left.replacement.replacementID.localeCompare(
-        right.replacement.replacementID,
-      ),
+  return node.children.flatMap((child) =>
+    collectRenderableSpansFromNode(child, policy, store),
   );
-
-  const occupiedIndexes = new Set<number>();
-  const selected: AppliedReplacementSpan[] = [];
-  for (const candidate of candidates) {
-    if (
-      rangeOverlaps(candidate.startIndex, candidate.endIndex, occupiedIndexes)
-    ) {
-      continue;
-    }
-
-    selected.push(candidate);
-    for (
-      let index = candidate.startIndex;
-      index <= candidate.endIndex;
-      index += 1
-    ) {
-      occupiedIndexes.add(index);
-    }
-  }
-
-  return selected;
 }
 
 function createAppliedReplacementSpan(
   markID: string,
-  replacement: ReplacementRecord,
   policy: ProjectionPolicy,
   store: SqliteSessionStateStore,
 ): AppliedReplacementSpan | undefined {
+  const resultGroup = store.getReplacementResultGroup?.(markID);
+  if (resultGroup?.completeness !== "complete") {
+    return undefined;
+  }
+
+  const resultGroupItem = store.listReplacementResultGroupItems?.(markID)?.[0];
+  if (resultGroupItem === undefined) {
+    return undefined;
+  }
+
+  const replacement = resolveAppliedReplacementRecord(store, markID, resultGroupItem);
   if (
-    replacement.status !== "committed" ||
-    replacement.invalidatedAtMs !== undefined
+    replacement !== undefined &&
+    (replacement.status !== "committed" || replacement.invalidatedAtMs !== undefined)
   ) {
     return undefined;
   }
 
-  const sourceMessages = resolveAppliedSourceMessages(store, markID, replacement);
+  const sourceMessages = store.listMarkSourceMessages(markID);
   if (sourceMessages.length === 0) {
     return undefined;
   }
 
   const sourcePolicyMessages: Array<ProjectionPolicy["messages"][number]> = [];
   for (const sourceMessage of sourceMessages) {
-    const projectedMessage = policy.byHostMessageID.get(
-      sourceMessage.hostMessageID,
-    );
+    const projectedMessage = policy.byHostMessageID.get(sourceMessage.hostMessageID);
     if (projectedMessage === undefined) {
       return undefined;
     }
 
     if (
-      projectedMessage.identity.canonicalMessageID !==
-        sourceMessage.canonicalMessageID ||
+      projectedMessage.identity.canonicalMessageID !== sourceMessage.canonicalMessageID ||
       projectedMessage.identity.role !== sourceMessage.hostRole ||
       projectedMessage.visibleState === "protected"
     ) {
@@ -243,16 +286,6 @@ function createAppliedReplacementSpan(
     return undefined;
   }
 
-  const links =
-    store.listReplacementResultGroupMarkLinks?.(markID) ??
-    store.listReplacementMarkLinks(replacement.replacementID);
-  const hiddenToolCallMessageIDs = links
-    .map((link) => store.getMark(link.markID)?.toolCallMessageID)
-    .filter(
-      (toolCallMessageID): toolCallMessageID is string =>
-        toolCallMessageID !== undefined,
-    );
-
   const referableIdentity = ensureReferableVisibleMessageIdentity(
     store,
     sourceMessages.map((message) => ({
@@ -263,9 +296,9 @@ function createAppliedReplacementSpan(
 
   return {
     replacement,
+    resultGroupItem,
+    executionMode: resultGroup.executionMode,
     sourceMessages,
-    links,
-    hiddenToolCallMessageIDs,
     startIndex: indexes[0] ?? 0,
     endIndex: indexes[indexes.length - 1] ?? 0,
     visibleMessageID: referableIdentity.visibleMessageID,
@@ -275,43 +308,25 @@ function createAppliedReplacementSpan(
 function resolveAppliedReplacementRecord(
   store: SqliteSessionStateStore,
   markID: string,
+  resultGroupItem: ReplacementResultGroupItemRecord,
 ): ReplacementRecord | undefined {
-  const groupItems =
-    store.listReplacementResultGroupItems?.(markID) ??
-    ([] as readonly ReplacementResultGroupItemRecord[]);
-  const replacementID = groupItems[0]?.replacementID;
-  if (replacementID !== undefined) {
-    return store.getReplacement(replacementID);
+  if (resultGroupItem.replacementID !== undefined) {
+    return store.getReplacement(resultGroupItem.replacementID);
   }
 
   return store.findLatestCommittedReplacementForMark(markID);
 }
 
-function resolveAppliedSourceMessages(
-  store: SqliteSessionStateStore,
-  markID: string,
-  replacement: ReplacementRecord,
-): readonly SourceSnapshotMessageRecord[] {
-  const firstGroupItem = store.listReplacementResultGroupItems?.(markID)?.[0];
-  if (firstGroupItem?.sourceSnapshotID !== undefined) {
-    return store.listSourceSnapshotMessages(firstGroupItem.sourceSnapshotID);
-  }
-
-  return store.listReplacementSourceMessages(replacement.replacementID);
+function readCommittedAtMs(span: AppliedReplacementSpan): number {
+  return span.replacement?.committedAtMs ?? 0;
 }
 
-function rangeOverlaps(
-  startIndex: number,
-  endIndex: number,
-  occupiedIndexes: ReadonlySet<number>,
-): boolean {
-  for (let index = startIndex; index <= endIndex; index += 1) {
-    if (occupiedIndexes.has(index)) {
-      return true;
-    }
-  }
-
-  return false;
+function readStableSpanID(span: AppliedReplacementSpan): string {
+  return (
+    span.replacement?.replacementID ??
+    span.resultGroupItem.replacementID ??
+    `${span.visibleMessageID}:${span.startIndex}:${span.endIndex}`
+  );
 }
 
 function areContiguous(indexes: readonly number[]): boolean {
@@ -351,6 +366,31 @@ function renderCanonicalMessage(
   };
 }
 
+function renderRewrittenCanonicalMessage(
+  envelope: TransformEnvelope,
+  visibleState: Exclude<ProjectionVisibleState, "referable">,
+  visibleMessageID: string,
+  rewrittenText: string,
+): TransformEnvelope {
+  const info = structuredClone(envelope.info);
+  const parts = structuredClone(envelope.parts);
+  writePrimaryMessageText(parts, info, rewrittenText);
+  const role = readMessageRole(info);
+
+  if (role === "assistant") {
+    renderAssistantMessage(parts, info, visibleState, visibleMessageID);
+  } else if (role === "tool") {
+    renderToolMessage(parts, info, visibleState, visibleMessageID);
+  } else {
+    renderPrefixedCanonicalMessage(parts, info, visibleState, visibleMessageID);
+  }
+
+  return {
+    info,
+    parts,
+  };
+}
+
 function renderAppliedReplacement(
   span: AppliedReplacementSpan,
   policy: ProjectionPolicy,
@@ -358,13 +398,12 @@ function renderAppliedReplacement(
   const baseMessage = policy.messages[span.startIndex];
   if (baseMessage === undefined) {
     throw new Error(
-      `Missing base message at index ${span.startIndex} for replacement '${span.replacement.replacementID}'.`,
+      `Missing base message at index ${span.startIndex} for replacement '${readStableSpanID(span)}'.`,
     );
   }
 
   const info = structuredClone(baseMessage.envelope.info) as TransformMessage &
     Record<string, unknown>;
-  // Present the synthetic replacement as assistant-authored so compacted summaries are not projected as user/tool turns.
   info.role = "assistant";
   delete info.parentID;
 
@@ -373,7 +412,7 @@ function renderAppliedReplacement(
     messageID: String(baseMessage.identity.hostMessageID),
     visibleState: "referable",
     visibleMessageID: span.visibleMessageID,
-    text: readReplacementText(span.replacement, span.sourceMessages.length),
+    text: readReplacementText(span),
   });
 }
 
@@ -403,25 +442,6 @@ function renderReminder(
   });
 }
 
-function selectReminderTexts(
-  policy: ProjectionPolicy,
-  store: SqliteSessionStateStore,
-  reminder: ReminderRuntimeConfig,
-): { soft: string; hard: string } {
-  const hasDeleteAllowedContext = policy.messages.some((message) => {
-    const mark = store.getMarkByToolCallMessageID(message.identity.hostMessageID);
-    return mark?.status === "active" && mark.allowDelete;
-  });
-  const promptSet = hasDeleteAllowedContext
-    ? reminder.prompts["deleteAllowed"]
-    : reminder.prompts["compactOnly"];
-
-  return {
-    soft: promptSet.soft.text,
-    hard: promptSet.hard.text,
-  };
-}
-
 function createSyntheticTextEnvelope(input: {
   readonly info: TransformMessage;
   readonly messageID: string;
@@ -447,6 +467,32 @@ function createSyntheticTextEnvelope(input: {
       } as TransformPart,
     ],
   };
+}
+
+function writePrimaryMessageText(
+  parts: TransformPart[],
+  info: TransformMessage,
+  text: string,
+): void {
+  const firstTextPart = parts.find(isTextPart);
+  if (firstTextPart !== undefined) {
+    firstTextPart.text = text;
+    return;
+  }
+
+  const firstInputTextPart = parts.find(isInputTextPart);
+  if (firstInputTextPart !== undefined) {
+    (firstInputTextPart as TransformPart & { text: string }).text = text;
+    return;
+  }
+
+  parts.unshift({
+    id: `${info.id}:dcp-rewrite`,
+    sessionID: info.sessionID,
+    messageID: info.id,
+    type: "text",
+    text,
+  } as TransformPart);
 }
 
 function applyRenderedTextPrefix(
@@ -604,7 +650,14 @@ function readPrimaryMessageText(
   parts: readonly TransformPart[],
 ): string | undefined {
   const firstTextPart = parts.find(isTextPart);
-  return firstTextPart?.text;
+  if (firstTextPart !== undefined) {
+    return firstTextPart.text;
+  }
+
+  const firstInputTextPart = parts.find(isInputTextPart);
+  return firstInputTextPart === undefined
+    ? undefined
+    : (firstInputTextPart as TransformPart & { text: string }).text;
 }
 
 function renderPrefixedText(
@@ -635,24 +688,32 @@ function normalizeVisibleMessageIDForRender(visibleMessageID: string): string {
   return normalized.replace(LEGACY_ROLE_PREFIX_PATTERN, "");
 }
 
-function readReplacementText(
-  replacement: ReplacementRecord,
-  sourceCount: number,
-): string {
+function readReplacementText(span: AppliedReplacementSpan): string {
   if (
-    replacement.contentText !== undefined &&
-    replacement.contentText.length > 0
+    span.resultGroupItem.contentText !== undefined &&
+    span.resultGroupItem.contentText.length > 0
   ) {
-    return replacement.contentText;
+    return span.resultGroupItem.contentText;
   }
 
-  if (replacement.contentJSON !== undefined) {
-    return stableStringify(replacement.contentJSON);
+  if (
+    span.replacement?.contentText !== undefined &&
+    span.replacement.contentText.length > 0
+  ) {
+    return span.replacement.contentText;
   }
 
-  return replacement.executionMode === "delete"
-    ? `Deleted ${sourceCount} earlier message(s).`
-    : `Compacted ${sourceCount} earlier message(s).`;
+  if (span.resultGroupItem.contentJSON !== undefined) {
+    return stableStringify(span.resultGroupItem.contentJSON);
+  }
+
+  if (span.replacement?.contentJSON !== undefined) {
+    return stableStringify(span.replacement.contentJSON);
+  }
+
+  return span.executionMode === "delete"
+    ? `Deleted ${span.sourceMessages.length} earlier message(s).`
+    : `Compacted ${span.sourceMessages.length} earlier message(s).`;
 }
 
 function stableStringify(value: unknown): string {

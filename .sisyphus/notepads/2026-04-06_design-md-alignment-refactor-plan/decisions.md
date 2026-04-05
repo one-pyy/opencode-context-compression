@@ -32,3 +32,9 @@
 ## 2026-04-06 T3 repair
 - `mark id -> replacement result group` 的 store API 语义最终以 `replacement_result_group_marks` 为 lookup bridge，而不是 `primary_mark_id` 单字段。`primary_mark_id` 继续保留为组内 canonical mark / 排序字段，但不再是唯一有效查询入口。
 - 对历史库的 migration 修复采用最小稳定规则：每个 legacy replacement 的最早 consumed link 记为 `primary`，其余 links 记为 `consumed`；这只是兼容层语义修复，不等同于 T4 中基于历史重放的最终树结构裁决。
+
+## 2026-04-06 T4 历史重放 / 覆盖树 / replacement 结果组主链路
+- 本次裁决：`src/projection/projection-builder.ts` 的 mark 发现逻辑不再从 `store.listMarks()` 扫描活动 mark，而是先按历史里的真实 tool-call 顺序重放，再基于 replay 产生的合法 coverage tree 去按 mark id 查询 result group。这样满足 `conflict-audit.md` 冲突 2 的“以历史重放为主，以数据库结果组 lookup 为辅”。
+- 本次裁决：coverage 判断严格基于 mark 的原始 source span（即 replay 的原消息坐标），不按投影视图块表面重新做几何判断；因此 compact 结果块仍可被更大范围 mark 包含或被 delete 覆盖，避免把张力 3 错误实现成“压缩块以后完全不能进入更大范围”。
+- 本次裁决：intersecting later mark 的最终视图语义按 `DESIGN.md:1316-1323` 执行——保留该 tool 调用为普通当前可见消息，改写其返回值为错误文本，同时把该 mark id 排除出 coverage tree、token 统计和 replacement lookup。它不是“合法但暂无结果”的树节点。
+- 明确保留给 T5/T6/T7 的边界：single-exit/显示层统一格式化、scheduler marked-token 直接消费 replay tree、runner 对 replay 节点的更深输入构造、以及 gate/lock 与 replay 状态的统一收口，本次都没有重写。

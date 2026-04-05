@@ -153,6 +153,19 @@ export interface InvalidateMarkInput {
   readonly reason: string;
 }
 
+export interface UpsertMarkRuntimeStateInput {
+  readonly markID: string;
+  readonly toolCallMessageID: string;
+  readonly sourceSnapshotID: string;
+  readonly status: MarkStatus;
+  readonly createdAtMs: number;
+  readonly consumedAtMs?: number;
+  readonly invalidatedAtMs?: number;
+  readonly invalidationReason?: string;
+  readonly mode?: CompactionExecutionMode;
+  readonly metadata?: JsonValue;
+}
+
 export interface CreateCompactionBatchInput {
   readonly batchID: string;
   readonly canonicalRevision?: string;
@@ -897,6 +910,65 @@ export class SqliteSessionStateStore {
           markID: input.markID,
           invalidatedAtMs,
           invalidationReason: input.reason,
+        });
+
+      return this.requireMark(input.markID);
+    });
+  }
+
+  upsertMarkRuntimeState(input: UpsertMarkRuntimeStateInput): MarkRecord {
+    return this.transaction(() => {
+      const mark = this.requireMark(input.markID);
+      this.requireHostMessage(input.toolCallMessageID);
+      this.requireSourceSnapshot(input.sourceSnapshotID);
+
+      this.database
+        .prepare(
+          `INSERT INTO mark_runtime_state (
+             mark_id,
+             tool_call_message_id,
+             source_snapshot_id,
+             status,
+             created_at_ms,
+             consumed_at_ms,
+             invalidated_at_ms,
+             invalidation_reason,
+             mode,
+             metadata_json
+           ) VALUES (
+             :markID,
+             :toolCallMessageID,
+             :sourceSnapshotID,
+             :status,
+             :createdAtMs,
+             :consumedAtMs,
+             :invalidatedAtMs,
+             :invalidationReason,
+             :mode,
+             :metadataJson
+           )
+           ON CONFLICT(mark_id) DO UPDATE SET
+             tool_call_message_id = excluded.tool_call_message_id,
+             source_snapshot_id = excluded.source_snapshot_id,
+             status = excluded.status,
+             created_at_ms = excluded.created_at_ms,
+             consumed_at_ms = excluded.consumed_at_ms,
+             invalidated_at_ms = excluded.invalidated_at_ms,
+             invalidation_reason = excluded.invalidation_reason,
+             mode = excluded.mode,
+             metadata_json = excluded.metadata_json`,
+        )
+        .run({
+          markID: input.markID,
+          toolCallMessageID: input.toolCallMessageID,
+          sourceSnapshotID: input.sourceSnapshotID,
+          status: input.status,
+          createdAtMs: input.createdAtMs,
+          consumedAtMs: input.consumedAtMs ?? null,
+          invalidatedAtMs: input.invalidatedAtMs ?? null,
+          invalidationReason: input.invalidationReason ?? null,
+          mode: input.mode ?? null,
+          metadataJson: serializeJson(input.metadata ?? mark.metadata),
         });
 
       return this.requireMark(input.markID);

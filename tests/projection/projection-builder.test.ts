@@ -18,28 +18,28 @@ import type {
   TransformPart,
 } from "../../src/seams/noop-observation.js";
 
-test("projection builder deterministically applies committed replacements and hides consumed mark tool calls only in the view", async () => {
+test("projection builder replays history marks and uses the current best available child result when a newer covering mark has no result", async () => {
   await withTempStore(async (store, clock) => {
     const messages = [
       createEnvelope(
-        createMessage({ id: "system-1", role: "system", created: 1 }),
-        [createTextPart("system-1", "system")],
-      ),
-      createEnvelope(
-        createMessage({ id: "user-1", role: "user", created: 2 }),
+        createMessage({ id: "user-1", role: "user", created: 1 }),
         [createTextPart("user-1", "hello")],
       ),
       createEnvelope(
-        createMessage({ id: "assistant-1", role: "assistant", created: 3 }),
+        createMessage({ id: "assistant-1", role: "assistant", created: 2 }),
         [createTextPart("assistant-1", "draft")],
       ),
       createEnvelope(
-        createMessage({ id: "tool-1", role: "tool", created: 4 }),
+        createMessage({ id: "tool-1", role: "tool", created: 3 }),
         [createTextPart("tool-1", "tool output")],
       ),
       createEnvelope(
-        createMessage({ id: "mark-tool-1", role: "tool", created: 5 }),
-        [createTextPart("mark-tool-1", "mark: a~b")],
+        createMessage({ id: "mark-tool-small", role: "tool", created: 4 }),
+        [createTextPart("mark-tool-small", "m_small")],
+      ),
+      createEnvelope(
+        createMessage({ id: "mark-tool-big", role: "tool", created: 5 }),
+        [createTextPart("mark-tool-big", "m_big")],
       ),
       createEnvelope(
         createMessage({ id: "user-2", role: "user", created: 6 }),
@@ -50,8 +50,8 @@ test("projection builder deterministically applies committed replacements and hi
     syncMessages(store, clock, messages);
     persistMark({
       store,
-      markID: "mark-1",
-      toolCallMessageID: "mark-tool-1",
+      markID: "m_small",
+      toolCallMessageID: "mark-tool-small",
       allowDelete: false,
       createdAtMs: clock.tick(),
       sourceMessages: [
@@ -59,51 +59,382 @@ test("projection builder deterministically applies committed replacements and hi
         { hostMessageID: "tool-1" },
       ],
     });
-    store.commitReplacement({
-      replacementID: "replacement-1",
+    persistMark({
+      store,
+      markID: "m_big",
+      toolCallMessageID: "mark-tool-big",
       allowDelete: false,
+      createdAtMs: clock.tick(),
+      sourceMessages: [
+        { hostMessageID: "user-1" },
+        { hostMessageID: "assistant-1" },
+        { hostMessageID: "tool-1" },
+        { hostMessageID: "mark-tool-small" },
+        { hostMessageID: "mark-tool-big" },
+        { hostMessageID: "user-2" },
+      ],
+    });
+    store.commitReplacementResultGroup({
+      primaryMarkID: "m_small",
       executionMode: "compact",
       committedAtMs: clock.tick(),
-      contentText: "Compressed summary.",
-      markIDs: ["mark-1"],
-      sourceSnapshot: {
-        messages: [
-          { hostMessageID: "assistant-1", role: "assistant" },
-          { hostMessageID: "tool-1", role: "tool" },
-        ],
-      },
+      items: [
+        {
+          contentText: "Compressed summary.",
+          sourceSnapshot: {
+            messages: [
+              { hostMessageID: "assistant-1", role: "assistant" },
+              { hostMessageID: "tool-1", role: "tool" },
+            ],
+          },
+        },
+      ],
     });
 
-    const firstProjection = buildProjectedMessages({
-      messages,
-      store,
-      reminder: undefined,
-    });
-    const secondProjection = buildProjectedMessages({
+    const projection = buildProjectedMessages({
       messages,
       store,
       reminder: undefined,
     });
 
-    assert.equal(firstProjection.projectedMessages.length, 4);
     assert.deepEqual(
-      firstProjection.projectedMessages.map((message) => readText(message)),
+      projection.projectedMessages.map((message) => readText(message)),
       [
-        `[protected_000001_${computeVisibleChecksum("system-1")}] system`,
-        `[compressible_000002_${computeVisibleChecksum("user-1")}] hello`,
-        `[referable_000003_${computeVisibleChecksum("assistant-1")}] Compressed summary.`,
+        `[compressible_000001_${computeVisibleChecksum("user-1")}] hello`,
+        `[referable_000002_${computeVisibleChecksum("assistant-1")}] Compressed summary.`,
         `[compressible_000006_${computeVisibleChecksum("user-2")}] next`,
       ],
     );
-    assert.deepEqual(firstProjection.hiddenToolCallMessageIDs, ["mark-tool-1"]);
-    assert.deepEqual(firstProjection.appliedReplacementIDs, ["replacement-1"]);
-    assert.equal(
-      store.getMarkByToolCallMessageID("mark-tool-1")?.status,
-      "consumed",
+    assert.deepEqual(
+      projection.hiddenToolCallMessageIDs,
+      ["mark-tool-big", "mark-tool-small"],
     );
-    assert.equal(
-      JSON.stringify(firstProjection.projectedMessages),
-      JSON.stringify(secondProjection.projectedMessages),
+    assert.equal(store.getMark("m_big")?.status, "active");
+    assert.equal(store.getMark("m_small")?.status, "consumed");
+  });
+});
+
+test("projection builder lets a covering ancestor take over once its own result group exists", async () => {
+  await withTempStore(async (store, clock) => {
+    const messages = [
+      createEnvelope(
+        createMessage({ id: "user-1", role: "user", created: 1 }),
+        [createTextPart("user-1", "hello")],
+      ),
+      createEnvelope(
+        createMessage({ id: "assistant-1", role: "assistant", created: 2 }),
+        [createTextPart("assistant-1", "draft")],
+      ),
+      createEnvelope(
+        createMessage({ id: "tool-1", role: "tool", created: 3 }),
+        [createTextPart("tool-1", "tool output")],
+      ),
+      createEnvelope(
+        createMessage({ id: "mark-tool-small", role: "tool", created: 4 }),
+        [createTextPart("mark-tool-small", "m_small")],
+      ),
+      createEnvelope(
+        createMessage({ id: "mark-tool-big", role: "tool", created: 5 }),
+        [createTextPart("mark-tool-big", "m_big")],
+      ),
+      createEnvelope(
+        createMessage({ id: "user-2", role: "user", created: 6 }),
+        [createTextPart("user-2", "next")],
+      ),
+    ];
+
+    syncMessages(store, clock, messages);
+    persistMark({
+      store,
+      markID: "m_small",
+      toolCallMessageID: "mark-tool-small",
+      allowDelete: false,
+      createdAtMs: clock.tick(),
+      sourceMessages: [
+        { hostMessageID: "assistant-1" },
+        { hostMessageID: "tool-1" },
+      ],
+    });
+    persistMark({
+      store,
+      markID: "m_big",
+      toolCallMessageID: "mark-tool-big",
+      allowDelete: false,
+      createdAtMs: clock.tick(),
+      sourceMessages: [
+        { hostMessageID: "user-1" },
+        { hostMessageID: "assistant-1" },
+        { hostMessageID: "tool-1" },
+        { hostMessageID: "mark-tool-small" },
+        { hostMessageID: "mark-tool-big" },
+        { hostMessageID: "user-2" },
+      ],
+    });
+    store.commitReplacementResultGroup({
+      primaryMarkID: "m_small",
+      executionMode: "compact",
+      committedAtMs: clock.tick(),
+      items: [
+        {
+          contentText: "Compressed summary.",
+          sourceSnapshot: {
+            messages: [
+              { hostMessageID: "assistant-1", role: "assistant" },
+              { hostMessageID: "tool-1", role: "tool" },
+            ],
+          },
+        },
+      ],
+    });
+    store.commitReplacementResultGroup({
+      primaryMarkID: "m_big",
+      executionMode: "compact",
+      committedAtMs: clock.tick(),
+      items: [
+        {
+          contentText: "Big summary.",
+          sourceSnapshot: {
+            messages: [
+              { hostMessageID: "user-1", role: "user" },
+              { hostMessageID: "assistant-1", role: "assistant" },
+              { hostMessageID: "tool-1", role: "tool" },
+              { hostMessageID: "mark-tool-small", role: "tool" },
+              { hostMessageID: "mark-tool-big", role: "tool" },
+              { hostMessageID: "user-2", role: "user" },
+            ],
+          },
+        },
+      ],
+    });
+
+    const projection = buildProjectedMessages({
+      messages,
+      store,
+      reminder: undefined,
+    });
+
+    assert.deepEqual(
+      projection.projectedMessages.map((message) => readText(message)),
+      [`[referable_000001_${computeVisibleChecksum("user-1")}] Big summary.`],
+    );
+    assert.deepEqual(
+      projection.hiddenToolCallMessageIDs,
+      ["mark-tool-big", "mark-tool-small"],
+    );
+    assert.equal(store.getMark("m_big")?.status, "consumed");
+  });
+});
+
+test("projection builder treats an equal-range later mark as the new parent while still falling back to the earlier child result", async () => {
+  await withTempStore(async (store, clock) => {
+    const messages = [
+      createEnvelope(
+        createMessage({ id: "user-1", role: "user", created: 1 }),
+        [createTextPart("user-1", "hello")],
+      ),
+      createEnvelope(
+        createMessage({ id: "assistant-1", role: "assistant", created: 2 }),
+        [createTextPart("assistant-1", "draft")],
+      ),
+      createEnvelope(
+        createMessage({ id: "tool-1", role: "tool", created: 3 }),
+        [createTextPart("tool-1", "tool output")],
+      ),
+      createEnvelope(
+        createMessage({ id: "mark-tool-old", role: "tool", created: 4 }),
+        [createTextPart("mark-tool-old", "m_old")],
+      ),
+      createEnvelope(
+        createMessage({ id: "mark-tool-new", role: "tool", created: 5 }),
+        [createTextPart("mark-tool-new", "m_new")],
+      ),
+      createEnvelope(
+        createMessage({ id: "user-2", role: "user", created: 6 }),
+        [createTextPart("user-2", "next")],
+      ),
+    ];
+
+    syncMessages(store, clock, messages);
+    persistMark({
+      store,
+      markID: "m_old",
+      toolCallMessageID: "mark-tool-old",
+      allowDelete: false,
+      createdAtMs: clock.tick(),
+      sourceMessages: [
+        { hostMessageID: "assistant-1" },
+        { hostMessageID: "tool-1" },
+      ],
+    });
+    persistMark({
+      store,
+      markID: "m_new",
+      toolCallMessageID: "mark-tool-new",
+      allowDelete: false,
+      createdAtMs: clock.tick(),
+      sourceMessages: [
+        { hostMessageID: "assistant-1" },
+        { hostMessageID: "tool-1" },
+      ],
+    });
+    store.commitReplacementResultGroup({
+      primaryMarkID: "m_old",
+      executionMode: "compact",
+      committedAtMs: clock.tick(),
+      items: [
+        {
+          contentText: "Old summary.",
+          sourceSnapshot: {
+            messages: [
+              { hostMessageID: "assistant-1", role: "assistant" },
+              { hostMessageID: "tool-1", role: "tool" },
+            ],
+          },
+        },
+      ],
+    });
+
+    const projection = buildProjectedMessages({
+      messages,
+      store,
+      reminder: undefined,
+    });
+
+    assert.deepEqual(
+      projection.projectedMessages.map((message) => readText(message)),
+      [
+        `[compressible_000001_${computeVisibleChecksum("user-1")}] hello`,
+        `[referable_000002_${computeVisibleChecksum("assistant-1")}] Old summary.`,
+        `[compressible_000006_${computeVisibleChecksum("user-2")}] next`,
+      ],
+    );
+    assert.deepEqual(
+      projection.hiddenToolCallMessageIDs,
+      ["mark-tool-new", "mark-tool-old"],
+    );
+    assert.equal(store.getMark("m_new")?.status, "active");
+    assert.equal(store.getMark("m_old")?.status, "consumed");
+  });
+});
+
+test("projection builder rewrites intersecting later marks into visible error tool messages and excludes them from replay semantics", async () => {
+  await withTempStore(async (store, clock) => {
+    const messages = [
+      createEnvelope(
+        createMessage({ id: "user-1", role: "user", created: 1 }),
+        [createTextPart("user-1", "alpha")],
+      ),
+      createEnvelope(
+        createMessage({ id: "assistant-1", role: "assistant", created: 2 }),
+        [createTextPart("assistant-1", "beta")],
+      ),
+      createEnvelope(
+        createMessage({ id: "tool-1", role: "tool", created: 3 }),
+        [createTextPart("tool-1", "gamma")],
+      ),
+      createEnvelope(
+        createMessage({ id: "tool-2", role: "tool", created: 4 }),
+        [createTextPart("tool-2", "delta")],
+      ),
+      createEnvelope(
+        createMessage({ id: "user-2", role: "user", created: 5 }),
+        [createTextPart("user-2", "omega")],
+      ),
+      createEnvelope(
+        createMessage({ id: "mark-tool-left", role: "tool", created: 6 }),
+        [createTextPart("mark-tool-left", "m_left")],
+      ),
+      createEnvelope(
+        createMessage({ id: "mark-tool-bad", role: "tool", created: 7 }),
+        [createTextPart("mark-tool-bad", "m_bad")],
+      ),
+    ];
+
+    syncMessages(store, clock, messages);
+    persistMark({
+      store,
+      markID: "m_left",
+      toolCallMessageID: "mark-tool-left",
+      allowDelete: false,
+      createdAtMs: clock.tick(),
+      sourceMessages: [
+        { hostMessageID: "assistant-1" },
+        { hostMessageID: "tool-1" },
+        { hostMessageID: "tool-2" },
+      ],
+    });
+    persistMark({
+      store,
+      markID: "m_bad",
+      toolCallMessageID: "mark-tool-bad",
+      allowDelete: false,
+      createdAtMs: clock.tick(),
+      sourceMessages: [
+        { hostMessageID: "tool-1" },
+        { hostMessageID: "tool-2" },
+        { hostMessageID: "user-2" },
+      ],
+    });
+    store.commitReplacementResultGroup({
+      primaryMarkID: "m_left",
+      executionMode: "compact",
+      committedAtMs: clock.tick(),
+      items: [
+        {
+          contentText: "Left summary.",
+          sourceSnapshot: {
+            messages: [
+              { hostMessageID: "assistant-1", role: "assistant" },
+              { hostMessageID: "tool-1", role: "tool" },
+              { hostMessageID: "tool-2", role: "tool" },
+            ],
+          },
+        },
+      ],
+    });
+    store.commitReplacementResultGroup({
+      primaryMarkID: "m_bad",
+      executionMode: "compact",
+      committedAtMs: clock.tick(),
+      items: [
+        {
+          contentText: "Bad summary should never render.",
+          sourceSnapshot: {
+            messages: [
+              { hostMessageID: "tool-1", role: "tool" },
+              { hostMessageID: "tool-2", role: "tool" },
+              { hostMessageID: "user-2", role: "user" },
+            ],
+          },
+        },
+      ],
+    });
+
+    const projection = buildProjectedMessages({
+      messages,
+      store,
+      reminder: undefined,
+    });
+
+    const texts = projection.projectedMessages.map((message) => readText(message));
+    assert.match(texts[0] ?? "", /^\[compressible_[^\]]+\] alpha$/u);
+    assert.match(
+      texts[1] ?? "",
+      /^\[referable_[^\]]+\] Left summary\.$/u,
+    );
+    assert.match(
+      texts[2] ?? "",
+      /^\[compressible_[^\]]+\] omega$/u,
+    );
+    assert.match(
+      texts[3] ?? "",
+      /^\[compressible_[^\]]+\] compression_mark replay error: mark 'm_bad' overlaps an earlier valid mark without containment/u,
+    );
+    assert.deepEqual(projection.hiddenToolCallMessageIDs, ["mark-tool-left"]);
+    assert.equal(store.getMark("m_bad")?.status, "invalid");
+    assert.match(
+      store.getMark("m_bad")?.invalidationReason ?? "",
+      /overlaps an earlier valid mark without containment/u,
     );
   });
 });
@@ -121,7 +452,7 @@ test("projection builder renders committed delete replacements as minimal refera
       ),
       createEnvelope(
         createMessage({ id: "mark-tool-1", role: "tool", created: 3 }),
-        [createTextPart("mark-tool-1", "mark: delete")],
+        [createTextPart("mark-tool-1", "m_delete")],
       ),
       createEnvelope(
         createMessage({ id: "assistant-2", role: "assistant", created: 4 }),
@@ -132,7 +463,7 @@ test("projection builder renders committed delete replacements as minimal refera
     syncMessages(store, clock, messages);
     persistMark({
       store,
-      markID: "mark-delete-1",
+      markID: "m_delete",
       toolCallMessageID: "mark-tool-1",
       allowDelete: true,
       createdAtMs: clock.tick(),
@@ -141,18 +472,21 @@ test("projection builder renders committed delete replacements as minimal refera
         { hostMessageID: "assistant-1" },
       ],
     });
-    store.commitReplacement({
-      replacementID: "replacement-delete-1",
-      allowDelete: true,
+    store.commitReplacementResultGroup({
+      primaryMarkID: "m_delete",
       executionMode: "delete",
       committedAtMs: clock.tick(),
-      markIDs: ["mark-delete-1"],
-      sourceSnapshot: {
-        messages: [
-          { hostMessageID: "user-1", role: "user" },
-          { hostMessageID: "assistant-1", role: "assistant" },
-        ],
-      },
+      items: [
+        {
+          contentText: "Deleted source span notice.",
+          sourceSnapshot: {
+            messages: [
+              { hostMessageID: "user-1", role: "user" },
+              { hostMessageID: "assistant-1", role: "assistant" },
+            ],
+          },
+        },
+      ],
     });
 
     const projection = buildProjectedMessages({
@@ -164,7 +498,7 @@ test("projection builder renders committed delete replacements as minimal refera
     assert.deepEqual(
       projection.projectedMessages.map((message) => readText(message)),
       [
-        `[referable_000001_${computeVisibleChecksum("user-1")}] Deleted 2 earlier message(s).`,
+        `[referable_000001_${computeVisibleChecksum("user-1")}] Deleted source span notice.`,
         `[compressible_000004_${computeVisibleChecksum("assistant-2")}] omega`,
       ],
     );
@@ -251,9 +585,7 @@ test("projection builder protects short user messages via smallUserMessageThresh
       ],
     );
     assert.deepEqual(
-      unprotectedProjection.projectedMessages.map((message) =>
-        readText(message),
-      ),
+      unprotectedProjection.projectedMessages.map((message) => readText(message)),
       [
         `[compressible_000001_${computeVisibleChecksum("user-short")}] tiny`,
         `[compressible_000002_${computeVisibleChecksum("user-long")}] this is a much longer user message`,

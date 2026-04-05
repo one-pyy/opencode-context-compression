@@ -14,3 +14,7 @@
 
 ## 2026-04-06 T3 repair
 - result-group API 的“任意 linked mark 可回查”与 migration `link_kind` 修复都能在 schema/store 层内最小完成，不需要扩到 T4 replay；但这也意味着当前 primary 选择仍是 migration/backfill 的稳定兼容规则，不是历史重放树意义上的最终权威排序语义。
+
+## 2026-04-06 T4 历史重放 / 覆盖树 / replacement 结果组主链路
+- T4 已把 projection 主链路切到历史重放，但 scheduler marked-token 统计、batch freeze 入口、runner/gate 仍保留现有消费面；这些下游消费层是否统一改为直接吃 replay/coverage-tree 结果，明确留给 T5/T6/T7，避免把本任务扩成整条运行时链路重写。
+- 当前仓库里 mark tool 的宿主消息形态在 live/e2e 与单测夹具之间并不完全一致，因此 T4 采用“历史顺序来自 host history，范围语义来自 mark/source snapshot，replacement 主键来自 mark id”的保守落地；若后续要彻底去除 mark/source snapshot 对 replay 的辅助承载，需要在更下游任务里先固定宿主 tool message 的可解析契约。

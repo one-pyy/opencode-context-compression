@@ -23,3 +23,9 @@
 ## 2026-04-06 T3 repair
 - 第一版 T3 虽然已经引入 result-group 表，但 `store.getReplacementResultGroup(markID)` 仍然按 `primary_mark_id` 查询，导致“非 primary linked mark 无法回查结果组”，这与 `mark id -> replacement result group` 的对外契约不一致；repair 后查询改为经 `replacement_result_group_marks` 反查 group，因此任一 linked mark 都可命中。
 - 第一版 v3 migration 把历史 `replacement_mark_links` 先全部写成 `primary`，再试图补 `consumed`，语义上会污染 link_kind；repair 后对历史 links 使用稳定规则派生一个 primary（最早 link，按时间/mark id 打破平局），其余保留为 consumed，并新增 backfill migration 补齐已迁数据库里缺失的 items/marks。
+
+## 2026-04-06 T4 历史重放 / 覆盖树 / replacement 结果组主链路
+- projection 主入口现在按历史里的真实 mark tool 调用顺序重放，而不是把 `store.listMarks()` 当语义真相源；实现上优先读取 sidecar 已同步的 host history 顺序（`hostCreatedAtMs/firstSeenAtMs`），再按 tool-call message id 反查 mark 与 source span。
+- 覆盖树语义已经按 `DESIGN.md:1176-1254` 落地：后盖前、大盖小、等于范围同样按覆盖处理；父节点无结果时递归展开子节点并保留原文 gap；父节点一旦有完整结果组，整棵子树立即由祖先接管。
+- intersecting later mark 已实现为显式错误分支，而不是“普通无结果 mark”：该调用继续作为当前可见消息存在，但 tool 返回会被改写为 replay error 文本，且对应 mark id 被排除出覆盖树、replacement lookup 与后续 token 统计候选集合。
+- 为兼容当前仓库的 live/e2e 路径，T4 没有假设 mark tool 返回参数一定能从宿主消息体完整反解析；当前 replay 以“历史里真实出现的 tool call message id + 持久 source snapshot 范围”组合重建覆盖语义，真相入口已切到历史调用顺序，SQLite 只承担结果组与运行时状态承载。
