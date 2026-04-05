@@ -77,7 +77,7 @@ test("runCompactionBatch falls back across the ordered model array and commits t
     );
     assert.equal(store.getMark("mark-delete-1")?.status, "consumed");
     assert.equal(
-      store.findFirstCommittedReplacementForMark("mark-delete-1")?.executionMode,
+      store.findLatestCommittedReplacementForMark("mark-delete-1")?.executionMode,
       "delete",
     );
 
@@ -129,7 +129,7 @@ test("runCompactionBatch preserves marks and clears the lock when the full model
     );
     assert.equal(store.getMark("mark-keep-1")?.status, "active");
     assert.equal(
-      store.findFirstCommittedReplacementForMark("mark-keep-1"),
+      store.findLatestCommittedReplacementForMark("mark-keep-1"),
       undefined,
     );
 
@@ -190,7 +190,7 @@ test("runCompactionBatch revalidates source identity before commit and refuses s
     );
     assert.equal(store.getMark("mark-keep-2")?.status, "active");
     assert.equal(
-      store.findFirstCommittedReplacementForMark("mark-keep-2"),
+      store.findLatestCommittedReplacementForMark("mark-keep-2"),
       undefined,
     );
 
@@ -244,7 +244,7 @@ test("runCompactionBatch ignores late results from a job that already reached a 
     assert.equal(result.jobs[0]?.attempts.length, 0);
     assert.equal(store.getMark("mark-keep-3")?.status, "active");
     assert.equal(
-      store.findFirstCommittedReplacementForMark("mark-keep-3"),
+      store.findLatestCommittedReplacementForMark("mark-keep-3"),
       undefined,
     );
   });

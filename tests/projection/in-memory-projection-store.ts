@@ -150,7 +150,7 @@ class InMemoryProjectionStoreFixture {
     }));
   }
 
-  findFirstCommittedReplacementForMark(markID: string): ReplacementRecord | undefined {
+  findLatestCommittedReplacementForMark(markID: string): ReplacementRecord | undefined {
     const candidate = this.replacements
       .filter(
         (replacement) =>

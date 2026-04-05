@@ -258,6 +258,10 @@ const STATE_SCHEMA_MIGRATIONS: readonly StateSchemaMigration[] = Object.freeze([
   {
     version: 2,
     apply(database) {
+      if (!hasLegacyRouteColumns(database)) {
+        return;
+      }
+
       database.exec(`
 DROP INDEX IF EXISTS idx_source_snapshots_lookup;
 DROP INDEX IF EXISTS idx_replacements_matchable;
@@ -503,6 +507,27 @@ function ensureStateSchemaMigrationTable(database: SqliteDatabase): void {
       applied_at_ms INTEGER NOT NULL
     )
   `);
+}
+
+function hasLegacyRouteColumns(database: SqliteDatabase): boolean {
+  return [
+    ["source_snapshots", "route"],
+    ["marks", "route"],
+    ["compaction_batch_marks", "route"],
+    ["replacements", "route"],
+  ].some(([tableName, columnName]) => tableHasColumn(database, tableName, columnName));
+}
+
+function tableHasColumn(
+  database: SqliteDatabase,
+  tableName: string,
+  columnName: string,
+): boolean {
+  const rows = database
+    .prepare(`PRAGMA table_info(${tableName})`)
+    .all() as Array<Record<string, unknown>>;
+
+  return rows.some((row) => row.name === columnName);
 }
 
 function readRequiredNumber(value: unknown, fieldName: string): number {

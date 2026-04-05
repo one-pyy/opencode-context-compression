@@ -240,7 +240,7 @@ test("canonical execution does not require old provider DCP fields", async () =>
     });
 
     try {
-      const replacement = store.findFirstCommittedReplacementForMark(
+      const replacement = store.findLatestCommittedReplacementForMark(
         "test-session:compression-mark:assistant-mark-call-1",
       );
       assert.equal(replacement?.contentText, "Compressed summary.");

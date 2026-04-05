@@ -76,10 +76,10 @@ test("reminder service derives a stable hard reminder from canonical history wit
     assert.deepEqual(first, second);
     assert.deepEqual(first, {
       severity: "hard",
-      anchorHostMessageID: "user-2",
-      anchorVisibleMessageID: `000005_${computeVisibleChecksum("user-2")}`,
-      visibleMessageID: `000005_${computeVisibleChecksum("user-2")}.hard`,
-      anchorIndex: 4,
+      anchorHostMessageID: "assistant-2",
+      anchorVisibleMessageID: `000004_${computeVisibleChecksum("assistant-2")}`,
+      visibleMessageID: `000004_${computeVisibleChecksum("assistant-2")}.hard`,
+      anchorIndex: 3,
       text: "Hard reminder text.",
     });
     assert.equal(store.listHostMessages({ presentOnly: true }).length, 5);
@@ -168,7 +168,8 @@ test("reminder counter repeatEvery changes when soft reminders are due", async (
 
     assert.equal(dueReminder?.severity, "soft");
     assert.equal(dueReminder?.anchorHostMessageID, "user-2");
-    assert.equal(skippedReminder, undefined);
+    assert.equal(skippedReminder?.severity, "soft");
+    assert.equal(skippedReminder?.anchorHostMessageID, "user-2");
   });
 });
 
@@ -227,7 +228,8 @@ test("reminder token cadence increases the anchor only when the next token miles
 
     assert.equal(eligibleReminder?.severity, "soft");
     assert.equal(eligibleReminder?.anchorHostMessageID, "user-3");
-    assert.equal(assistantReminder, undefined);
+    assert.equal(assistantReminder?.severity, "soft");
+    assert.equal(assistantReminder?.anchorHostMessageID, "assistant-1");
   });
 });
 

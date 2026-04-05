@@ -122,7 +122,7 @@ test("scheduler reaches batch freeze and runner", async () => {
       assert.equal(store.listMarks().at(0)?.status, "consumed");
 
       const batchID =
-        store.findFirstCommittedReplacementForMark("mark-1")?.batchID;
+        store.findLatestCommittedReplacementForMark("mark-1")?.batchID;
       assert.equal(typeof batchID, "string");
       if (typeof batchID !== "string") {
         assert.fail(
@@ -134,7 +134,7 @@ test("scheduler reaches batch freeze and runner", async () => {
       assert.equal(batches.length, 1);
       assert.equal(store.getCompactionBatch(batchID)?.status, "succeeded");
       assert.equal(
-        store.findFirstCommittedReplacementForMark("mark-1")?.contentText,
+          store.findLatestCommittedReplacementForMark("mark-1")?.contentText,
         "Compressed summary.",
       );
       assert.deepEqual(seenRequests, [
@@ -181,7 +181,7 @@ test("scheduler waits for marked-token readiness before running compaction", asy
       );
 
       assert.equal(
-        store.findFirstCommittedReplacementForMark("mark-1"),
+          store.findLatestCommittedReplacementForMark("mark-1"),
         undefined,
       );
 
@@ -205,7 +205,7 @@ test("scheduler waits for marked-token readiness before running compaction", asy
       );
 
       assert.equal(
-        store.findFirstCommittedReplacementForMark("mark-1")?.contentText,
+          store.findLatestCommittedReplacementForMark("mark-1")?.contentText,
         "Compressed summary.",
       );
     },
@@ -287,7 +287,7 @@ test("default scheduler transport executes through the plugin-owned runtime exec
       }
 
       assert.equal(
-        store.findFirstCommittedReplacementForMark("mark-1")?.contentText,
+          store.findLatestCommittedReplacementForMark("mark-1")?.contentText,
         "Compressed summary.",
       );
       assert.equal(requests.length, 1);
@@ -314,7 +314,11 @@ test("default scheduler transport executes through the plugin-owned runtime exec
       );
       assert.match(
         requestBody?.messages?.[0]?.content ?? "",
-        /The compaction route is: \*\*keep\*\*/u,
+        /Delete permission: \*\*allowDelete=false\*\*/u,
+      );
+      assert.match(
+        requestBody?.messages?.[0]?.content ?? "",
+        /Current execution mode: \*\*executionMode=compact\*\*/u,
       );
       assert.equal(requestBody?.messages?.[1]?.role, "user");
       assert.match(
@@ -461,7 +465,7 @@ test("default chat.params scheduler path returns before transport completion", a
       releaseTransport?.();
       await waitForSchedulerResult(store, backgroundErrors);
       assert.equal(
-        store.findFirstCommittedReplacementForMark("mark-1")?.contentText,
+          store.findLatestCommittedReplacementForMark("mark-1")?.contentText,
         "Compressed summary.",
       );
     },
@@ -504,7 +508,7 @@ test("scheduler ignores explicit tokenCount metadata when tokenizer-based text s
       );
 
       assert.equal(
-        store.findFirstCommittedReplacementForMark("mark-1"),
+          store.findLatestCommittedReplacementForMark("mark-1"),
         undefined,
       );
       assert.equal(store.listMarks({ status: "active" }).length, 1);
@@ -1059,7 +1063,7 @@ async function waitForSchedulerResult(
         : new Error(String(firstError));
     }
 
-    if (store.findFirstCommittedReplacementForMark("mark-1") !== undefined) {
+        if (store.findLatestCommittedReplacementForMark("mark-1") !== undefined) {
       return;
     }
 

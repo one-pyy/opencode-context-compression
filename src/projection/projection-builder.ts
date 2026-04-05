@@ -145,7 +145,7 @@ function collectAppliedReplacementSpans(
   for (const mark of store
     .listMarks()
     .filter((mark) => mark.status !== "invalid")) {
-    const replacement = store.findFirstCommittedReplacementForMark(mark.markID);
+    const replacement = store.findLatestCommittedReplacementForMark(mark.markID);
     if (
       replacement === undefined ||
       seenReplacementIDs.has(replacement.replacementID)

@@ -204,9 +204,9 @@ test("explicit plugin loading plus compression_mark drives the repo-owned keep r
       assert.deepEqual(
         querySqlite(
           databasePath,
-          "SELECT route || '|' || status || '|' || COALESCE(content_text, '') FROM replacements ORDER BY replacement_id;",
+          "SELECT allow_delete || '|' || execution_mode || '|' || status || '|' || COALESCE(content_text, '') FROM replacements ORDER BY replacement_id;",
         ),
-        ["keep|committed|Compressed summary."],
+        ["0|compact|committed|Compressed summary."],
       );
       assert.deepEqual(
         querySqlite(
@@ -240,14 +240,22 @@ test("explicit plugin loading plus compression_mark drives the repo-owned keep r
       assert.equal(keepRequestBody?.temperature, 0);
       assert.equal(keepRequestBody?.stream, false);
       assert.equal(keepRequestBody?.messages?.[0]?.role, "system");
-      assert.equal(
-        keepRequestBody?.messages?.[0]?.content,
-        runtimeConfig.promptText,
+      assert.match(
+        keepRequestBody?.messages?.[0]?.content ?? "",
+        /Delete permission: \*\*allowDelete=false\*\*/u,
+      );
+      assert.match(
+        keepRequestBody?.messages?.[0]?.content ?? "",
+        /Current execution mode: \*\*executionMode=compact\*\*/u,
       );
       assert.equal(keepRequestBody?.messages?.[1]?.role, "user");
       assert.match(
         keepRequestBody?.messages?.[1]?.content ?? "",
-        /Route: keep/u,
+        /Delete permission: false/u,
+      );
+      assert.match(
+        keepRequestBody?.messages?.[1]?.content ?? "",
+        /Execution mode: compact/u,
       );
       assert.match(
         keepRequestBody?.messages?.[1]?.content ?? "",
@@ -393,7 +401,6 @@ test("explicit plugin loading plus compression_mark commits the delete route thr
         authorization?: string;
         body: unknown;
       }> = [];
-      const runtimePrompt = schedulerRuntimePrompt(seamLogPath, tempDirectory);
       const restoreFetch = installFetchMock(async (input, init) => {
         const url =
           typeof input === "string"
@@ -485,7 +492,14 @@ test("explicit plugin loading plus compression_mark commits the delete route thr
       assert.equal(deleteRequestBody?.temperature, 0);
       assert.equal(deleteRequestBody?.stream, false);
       assert.equal(deleteRequestBody?.messages?.[0]?.role, "system");
-      assert.equal(deleteRequestBody?.messages?.[0]?.content, runtimePrompt);
+      assert.match(
+        deleteRequestBody?.messages?.[0]?.content ?? "",
+        /Delete permission: \*\*allowDelete=true\*\*/u,
+      );
+      assert.match(
+        deleteRequestBody?.messages?.[0]?.content ?? "",
+        /Current execution mode: \*\*executionMode=delete\*\*/u,
+      );
       assert.equal(deleteRequestBody?.messages?.[1]?.role, "user");
       assert.match(
         deleteRequestBody?.messages?.[1]?.content ?? "",
@@ -588,7 +602,7 @@ test("ordinary chat waits during the running lock, unrelated tools continue, and
       const firstToolOutput = await toolRegistry.compression_mark.execute(
         {
           contractVersion: "v1",
-          route: "keep",
+          allowDelete: false,
           target: {
             startVisibleMessageID: readVisibleMessageID(projected.messages[1]),
             endVisibleMessageID: readVisibleMessageID(projected.messages[2]),
@@ -1068,25 +1082,6 @@ function installFetchMock(
   return () => {
     globalThis.fetch = originalFetch;
   };
-}
-
-function schedulerRuntimePrompt(
-  seamLogPath: string,
-  tempDirectory: string,
-): string {
-  return loadRuntimeConfig({
-    ...process.env,
-    [RUNTIME_CONFIG_ENV.configPath]: writeE2ERuntimeConfig(tempDirectory, {
-      reminderHsoft: 999_999,
-      reminderHhard: 1_999_999,
-      markedTokenAutoCompactionThreshold: 5_000,
-    }),
-    [RUNTIME_CONFIG_ENV.runtimeLogPath]: join(
-      tempDirectory,
-      "runtime-events.jsonl",
-    ),
-    [RUNTIME_CONFIG_ENV.seamLogPath]: seamLogPath,
-  }).promptText;
 }
 
 function writeE2ERuntimeConfig(

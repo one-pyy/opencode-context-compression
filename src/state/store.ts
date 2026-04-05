@@ -1113,36 +1113,25 @@ export class SqliteSessionStateStore {
     ).map((row) => this.readReplacementMarkLinkRecord(row));
   }
 
-  findFirstCommittedReplacementForMark(markID: string): ReplacementRecord | undefined {
-    const mark = this.requireMark(markID);
-    const targetSnapshot = this.requireSourceSnapshot(mark.sourceSnapshotID);
-    const candidateRows = this.database
+  findLatestCommittedReplacementForMark(markID: string): ReplacementRecord | undefined {
+    this.requireMark(markID);
+
+    const row = this.database
       .prepare(
         `SELECT replacements.*
          FROM replacements
-         JOIN source_snapshots
-           ON source_snapshots.snapshot_id = replacements.source_snapshot_id
-         WHERE replacements.allow_delete = :allowDelete
+         JOIN replacement_mark_links
+           ON replacement_mark_links.replacement_id = replacements.replacement_id
+         WHERE replacement_mark_links.mark_id = :markID
+           AND replacement_mark_links.link_kind = 'consumed'
            AND replacements.status = 'committed'
            AND replacements.invalidated_at_ms IS NULL
-           AND source_snapshots.source_fingerprint = :sourceFingerprint
-           AND source_snapshots.source_count = :sourceCount
-         ORDER BY replacements.committed_at_ms DESC, replacements.replacement_id DESC`,
+         ORDER BY replacements.committed_at_ms DESC, replacements.replacement_id DESC
+         LIMIT 1`,
       )
-      .all({
-        allowDelete: mark.allowDelete ? 1 : 0,
-        sourceFingerprint: targetSnapshot.sourceFingerprint,
-        sourceCount: targetSnapshot.sourceCount,
-      }) as SqlRow[];
+      .get({ markID }) as SqlRow | undefined;
 
-    for (const row of candidateRows) {
-      const replacement = this.readReplacementRecord(row);
-      if (this.areSourceSnapshotsEquivalent(mark.sourceSnapshotID, replacement.sourceSnapshotID)) {
-        return replacement;
-      }
-    }
-
-    return undefined;
+    return row ? this.readReplacementRecord(row) : undefined;
   }
 
   invalidateReplacement(input: InvalidateReplacementInput): ReplacementRecord {
