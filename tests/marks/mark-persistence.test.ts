@@ -15,6 +15,7 @@ import {
 
 test("persistMark captures an ordered canonical source snapshot and carries allowDelete with the durable mark", async () => {
   await withTempStore(async (store, clock) => {
+    assert.equal(store.getSchemaVersion(), 5);
     store.syncCanonicalHostMessages({
       revision: "rev-mark-1",
       syncedAtMs: clock.tick(),
@@ -112,6 +113,107 @@ test("persistMark captures an ordered canonical source snapshot and carries allo
       store.getMarkByToolCallMessageID("mark-tool-1")?.markID,
       persisted.mark.markID,
     );
+    assert.equal(store.listMarks({ status: "active" }).length, 1);
+  });
+});
+
+test("commitReplacement persists a complete mark-id keyed result group and legacy replacement compatibility rows atomically", async () => {
+  await withTempStore(async (store, clock) => {
+    store.syncCanonicalHostMessages({
+      revision: "rev-group-1",
+      syncedAtMs: clock.tick(),
+      messages: [
+        hostMessage("src-1", "canon-src-1", "assistant"),
+        hostMessage("src-2", "canon-src-2", "tool"),
+        hostMessage("mark-tool-1", "canon-mark-tool-1", "tool"),
+      ],
+    });
+
+    persistMark({
+      store,
+      markID: "mark-1",
+      toolCallMessageID: "mark-tool-1",
+      allowDelete: false,
+      createdAtMs: clock.tick(),
+      sourceMessages: [{ hostMessageID: "src-1" }, { hostMessageID: "src-2" }],
+    });
+
+    const replacement = store.commitReplacement({
+      replacementID: "replacement-1",
+      allowDelete: false,
+      executionMode: "compact",
+      committedAtMs: clock.tick(),
+      contentText: "Compressed summary.",
+      markIDs: ["mark-1"],
+      sourceSnapshot: {
+        messages: [
+          { hostMessageID: "src-1", role: "assistant" },
+          { hostMessageID: "src-2", role: "tool" },
+        ],
+      },
+    });
+
+    const resultGroup = store.getReplacementResultGroup("mark-1");
+    assert.ok(resultGroup);
+    assert.equal(resultGroup?.primaryMarkID, "mark-1");
+    assert.equal(resultGroup?.completeness, "complete");
+    assert.equal(resultGroup?.itemCount, 1);
+    assert.deepEqual(store.listReplacementResultGroupItems("mark-1"), [
+      {
+        resultGroupID: "replacement-1",
+        itemIndex: 0,
+        replacementID: "replacement-1",
+        sourceSnapshotID: replacement.sourceSnapshotID,
+        contentText: "Compressed summary.",
+        contentJSON: undefined,
+        metadata: undefined,
+      },
+    ]);
+    assert.deepEqual(
+      store.listReplacementResultGroupMarkLinks("mark-1").map((link) => [link.markID, link.linkKind]),
+      [["mark-1", "primary"]],
+    );
+    assert.equal(store.findLatestCommittedReplacementForMark("mark-1")?.replacementID, "replacement-1");
+    assert.equal(store.getMark("mark-1")?.status, "consumed");
+  });
+});
+
+test("result groups stay absent when only incomplete compatibility rows exist", async () => {
+  await withTempStore(async (store, clock) => {
+    store.syncCanonicalHostMessages({
+      revision: "rev-group-2",
+      syncedAtMs: clock.tick(),
+      messages: [
+        hostMessage("src-1", "canon-src-1", "assistant"),
+        hostMessage("mark-tool-1", "canon-mark-tool-1", "tool"),
+      ],
+    });
+
+    persistMark({
+      store,
+      markID: "mark-2",
+      toolCallMessageID: "mark-tool-1",
+      allowDelete: false,
+      createdAtMs: clock.tick(),
+      sourceMessages: [{ hostMessageID: "src-1" }],
+    });
+
+    store.commitReplacementResultGroup({
+      primaryMarkID: "mark-2",
+      executionMode: "compact",
+      committedAtMs: clock.tick(),
+      items: [
+        {
+          sourceSnapshot: {
+            messages: [{ hostMessageID: "src-1", role: "assistant" }],
+          },
+          contentText: "summary only in group",
+        },
+      ],
+    });
+
+    assert.equal(store.getReplacementResultGroup("mark-2")?.completeness, "complete");
+    assert.equal(store.findLatestCommittedReplacementForMark("mark-2"), undefined);
   });
 });
 

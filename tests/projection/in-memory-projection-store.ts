@@ -3,6 +3,9 @@ import type {
   JsonValue,
   MarkRecord,
   MarkStatus,
+  ReplacementResultGroupItemRecord,
+  ReplacementResultGroupMarkLinkRecord,
+  ReplacementResultGroupRecord,
   ReplacementMarkLinkRecord,
   ReplacementRecord,
   ReplacementStatus,
@@ -132,6 +135,101 @@ class InMemoryProjectionStoreFixture {
           `${replacement.replacementID}:snapshot`,
           replacement.sourceMessageIDs,
         );
+  }
+
+  listSourceSnapshotMessages(snapshotID: string): SourceSnapshotMessageRecord[] {
+    const mark = this.marks.find(
+      (candidate) => `${candidate.markID}:snapshot` === snapshotID,
+    );
+    if (mark !== undefined) {
+      return this.buildSourceMessages(snapshotID, mark.sourceMessageIDs);
+    }
+
+    const replacement = this.replacements.find(
+      (candidate) => `${candidate.replacementID}:snapshot` === snapshotID,
+    );
+    return replacement === undefined
+      ? []
+      : this.buildSourceMessages(snapshotID, replacement.sourceMessageIDs);
+  }
+
+  getReplacement(replacementID: string): ReplacementRecord | undefined {
+    const replacement = this.replacements.find(
+      (candidate) => candidate.replacementID === replacementID,
+    );
+    return replacement ? this.buildReplacementRecord(replacement) : undefined;
+  }
+
+  getReplacementResultGroup(markID: string): ReplacementResultGroupRecord | undefined {
+    const replacement = this.replacements
+      .filter(
+        (candidate) =>
+          candidate.status !== "invalidated" &&
+          candidate.invalidatedAtMs === undefined &&
+          (candidate.markIDs ?? []).includes(markID),
+      )
+      .sort(
+        (left, right) =>
+          (right.committedAtMs ?? 0) - (left.committedAtMs ?? 0) ||
+          right.replacementID.localeCompare(left.replacementID),
+      )[0];
+    if (replacement === undefined) {
+      return undefined;
+    }
+
+    return {
+      resultGroupID: replacement.replacementID,
+      primaryMarkID: markID,
+      completeness:
+        replacement.status === "invalidated" || replacement.invalidatedAtMs !== undefined
+          ? "incomplete"
+          : "complete",
+      executionMode: replacement.executionMode,
+      batchID: undefined,
+      jobID: undefined,
+      sourceSnapshotID: `${replacement.replacementID}:snapshot`,
+      itemCount: 1,
+      committedAtMs: replacement.committedAtMs ?? 0,
+      invalidatedAtMs: replacement.invalidatedAtMs,
+      invalidationKind: replacement.invalidationKind,
+      invalidatedByMarkID: replacement.invalidatedByMarkID,
+      metadata: undefined,
+    };
+  }
+
+  listReplacementResultGroupItems(markID: string): ReplacementResultGroupItemRecord[] {
+    const replacement = this.findLatestCommittedReplacementForMark(markID);
+    if (replacement === undefined) {
+      return [];
+    }
+
+    return [
+      {
+        resultGroupID: replacement.replacementID,
+        itemIndex: 0,
+        replacementID: replacement.replacementID,
+        sourceSnapshotID: replacement.sourceSnapshotID,
+        contentText: replacement.contentText,
+        contentJSON: replacement.contentJSON,
+        metadata: replacement.metadata,
+      },
+    ];
+  }
+
+  listReplacementResultGroupMarkLinks(markID: string): ReplacementResultGroupMarkLinkRecord[] {
+    const replacement = this.findLatestCommittedReplacementForMark(markID);
+    if (replacement === undefined) {
+      return [];
+    }
+
+    return (this.replacements.find((candidate) => candidate.replacementID === replacement.replacementID)?.markIDs ?? []).map(
+      (linkedMarkID) => ({
+        resultGroupID: replacement.replacementID,
+        markID: linkedMarkID,
+        linkKind: linkedMarkID === markID ? "primary" : "consumed",
+        createdAtMs: replacement.committedAtMs,
+      }),
+    );
   }
 
   listReplacementMarkLinks(replacementID: string): ReplacementMarkLinkRecord[] {

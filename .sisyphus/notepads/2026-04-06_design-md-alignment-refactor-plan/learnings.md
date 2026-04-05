@@ -12,3 +12,14 @@
 ## 2026-04-06 T2 repair
 - 第一次 T2 实现把内部持久 `allowDelete` 直接绑定到 `mode===delete`，这会在“compact + 当前策略允许 delete”时把兼容位硬降成 `false`，等于在 T2 内偷裁决了 T3/T4 的长期持久语义冲突。
 - repair 后的最小安全做法是：公共契约仍由 `mode` 表达动作、delete 仍走 admission 拒绝；内部兼容 `allowDelete` 只跟当前 admission seam 走，不再由 `mode` 单独拍板。
+
+## 2026-04-06 T3 Sidecar 数据模型与 Schema 重构
+- `DESIGN.md:868-874` / `1122-1125` / `1266-1283` 在实现上可安全收敛成两类 SQLite 主职责：`mark id -> replacement result group`，以及 reminder / compressing / job / visible-id 之类 runtime state；当前仓库已新增 `replacement_result_groups`、`replacement_result_group_items`、`replacement_result_group_marks`、`mark_runtime_state`、`reminder_state` 来承接这条主模型。
+- 依据 `conflict-audit.md` 的“冲突 2”，本次没有用“第 15 章覆盖旧章”去裁决，也没有一次性删除 `marks/source_snapshots/replacements`；旧表仍保留为 migration compatibility 与当前 runner/projection 兼容投影层，但新的 store 主查询入口已经面向 `getReplacementResultGroup(markID)` 与其 items/links，而不再把 `listMarks()` / persistent mark rows 当 replacement truth。
+- 依据 `conflict-audit.md` 的“冲突 1”，`allowDelete` 仍留在旧兼容承载与 source snapshot 指纹里，避免直接拍死现有 compaction input / tests；但 T3 没有再把它扩成新的 result-group 真相字段，result-group lookup 的主键是 `mark id`，最终动作字段仍以 `executionMode` 为准。
+- 结果组原子性当前通过 store 事务与 `replacement_result_groups.completeness` 显式表达：只有完整组才会被 projection 命中；legacy `replacement` invalidation 会同步把对应 result group 降为 `incomplete`。
+- 明确保留给 T4 的边界：历史重放成为 projection 主入口、覆盖树按 mark tool 调用构建、fallback 到子节点结果、以及摆脱 `listMarks()` 作为活动 mark 来源的主链路改造，仍需在 T4 继续完成。
+
+## 2026-04-06 T3 repair
+- 第一版 T3 虽然已经引入 result-group 表，但 `store.getReplacementResultGroup(markID)` 仍然按 `primary_mark_id` 查询，导致“非 primary linked mark 无法回查结果组”，这与 `mark id -> replacement result group` 的对外契约不一致；repair 后查询改为经 `replacement_result_group_marks` 反查 group，因此任一 linked mark 都可命中。
+- 第一版 v3 migration 把历史 `replacement_mark_links` 先全部写成 `primary`，再试图补 `consumed`，语义上会污染 link_kind；repair 后对历史 links 使用稳定规则派生一个 primary（最早 link，按时间/mark id 打破平局），其余保留为 consumed，并新增 backfill migration 补齐已迁数据库里缺失的 items/marks。

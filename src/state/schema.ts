@@ -1,15 +1,20 @@
 import type { SqliteDatabase } from "./sqlite-runtime.js";
 
 export const STATE_SCHEMA_MIGRATION_TABLE = "state_schema_migrations";
-export const CURRENT_STATE_SCHEMA_VERSION = 2;
+export const CURRENT_STATE_SCHEMA_VERSION = 5;
 
 export const STATE_TABLE_NAMES = Object.freeze([
   "session_state",
   "host_messages",
+  "reminder_state",
   "visible_sequence_state",
   "source_snapshots",
   "source_snapshot_messages",
   "marks",
+  "mark_runtime_state",
+  "replacement_result_groups",
+  "replacement_result_group_items",
+  "replacement_result_group_marks",
   "replacements",
   "replacement_mark_links",
   "compaction_batches",
@@ -56,6 +61,23 @@ WHERE visible_seq IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_host_messages_present
 ON host_messages (canonical_present, last_seen_at_ms);
+
+CREATE TABLE IF NOT EXISTS reminder_state (
+  reminder_key TEXT PRIMARY KEY CHECK (reminder_key = 'default'),
+  last_anchor_host_message_id TEXT,
+  last_visible_message_id TEXT,
+  last_severity TEXT CHECK (last_severity IN ('soft', 'hard')),
+  last_potential_token_total INTEGER,
+  metadata_json TEXT,
+  updated_at_ms INTEGER NOT NULL,
+  FOREIGN KEY (last_anchor_host_message_id) REFERENCES host_messages(host_message_id)
+);
+
+INSERT OR IGNORE INTO reminder_state (
+  reminder_key,
+  updated_at_ms
+)
+VALUES ('default', 0);
 
 CREATE TABLE IF NOT EXISTS visible_sequence_state (
   allocator_name TEXT PRIMARY KEY CHECK (allocator_name = 'default'),
@@ -118,6 +140,27 @@ ON marks (tool_call_message_id, status);
 CREATE INDEX IF NOT EXISTS idx_marks_source_snapshot
 ON marks (source_snapshot_id);
 
+CREATE TABLE IF NOT EXISTS mark_runtime_state (
+  mark_id TEXT PRIMARY KEY,
+  tool_call_message_id TEXT NOT NULL,
+  source_snapshot_id TEXT,
+  status TEXT NOT NULL CHECK (status IN ('active', 'consumed', 'invalid')),
+  created_at_ms INTEGER NOT NULL,
+  consumed_at_ms INTEGER,
+  invalidated_at_ms INTEGER,
+  invalidation_reason TEXT,
+  mode TEXT,
+  metadata_json TEXT,
+  FOREIGN KEY (tool_call_message_id) REFERENCES host_messages(host_message_id),
+  FOREIGN KEY (source_snapshot_id) REFERENCES source_snapshots(snapshot_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_mark_runtime_state_status
+ON mark_runtime_state (status, created_at_ms, mark_id);
+
+CREATE INDEX IF NOT EXISTS idx_mark_runtime_state_tool_call
+ON mark_runtime_state (tool_call_message_id);
+
 CREATE TABLE IF NOT EXISTS compaction_batches (
   batch_id TEXT PRIMARY KEY,
   status TEXT NOT NULL CHECK (status IN ('frozen', 'running', 'succeeded', 'failed', 'cancelled')),
@@ -167,6 +210,64 @@ ON compaction_jobs (batch_id, status, queued_at_ms);
 
 CREATE INDEX IF NOT EXISTS idx_compaction_jobs_mark
 ON compaction_jobs (mark_id, status, queued_at_ms);
+
+CREATE TABLE IF NOT EXISTS replacement_result_groups (
+  result_group_id TEXT PRIMARY KEY,
+  primary_mark_id TEXT NOT NULL,
+  completeness TEXT NOT NULL CHECK (completeness IN ('complete', 'incomplete')),
+  execution_mode TEXT NOT NULL CHECK (execution_mode IN ('compact', 'delete')),
+  batch_id TEXT,
+  job_id TEXT,
+  source_snapshot_id TEXT,
+  item_count INTEGER NOT NULL CHECK (item_count >= 0),
+  committed_at_ms INTEGER NOT NULL,
+  invalidated_at_ms INTEGER,
+  invalidation_kind TEXT,
+  invalidated_by_mark_id TEXT,
+  metadata_json TEXT,
+  FOREIGN KEY (primary_mark_id) REFERENCES marks(mark_id),
+  FOREIGN KEY (batch_id) REFERENCES compaction_batches(batch_id),
+  FOREIGN KEY (job_id) REFERENCES compaction_jobs(job_id),
+  FOREIGN KEY (source_snapshot_id) REFERENCES source_snapshots(snapshot_id),
+  FOREIGN KEY (invalidated_by_mark_id) REFERENCES marks(mark_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_replacement_result_groups_lookup
+ON replacement_result_groups (primary_mark_id, completeness, committed_at_ms);
+
+CREATE INDEX IF NOT EXISTS idx_replacement_result_groups_job
+ON replacement_result_groups (job_id);
+
+CREATE TABLE IF NOT EXISTS replacement_result_group_items (
+  result_group_id TEXT NOT NULL,
+  item_index INTEGER NOT NULL CHECK (item_index >= 0),
+  replacement_id TEXT,
+  source_snapshot_id TEXT NOT NULL,
+  content_text TEXT,
+  content_json TEXT,
+  metadata_json TEXT,
+  PRIMARY KEY (result_group_id, item_index),
+  UNIQUE (replacement_id),
+  FOREIGN KEY (result_group_id) REFERENCES replacement_result_groups(result_group_id) ON DELETE CASCADE,
+  FOREIGN KEY (replacement_id) REFERENCES replacements(replacement_id) ON DELETE SET NULL,
+  FOREIGN KEY (source_snapshot_id) REFERENCES source_snapshots(snapshot_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_replacement_result_group_items_snapshot
+ON replacement_result_group_items (source_snapshot_id);
+
+CREATE TABLE IF NOT EXISTS replacement_result_group_marks (
+  result_group_id TEXT NOT NULL,
+  mark_id TEXT NOT NULL,
+  link_kind TEXT NOT NULL CHECK (link_kind IN ('primary', 'consumed')),
+  created_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (result_group_id, mark_id),
+  FOREIGN KEY (result_group_id) REFERENCES replacement_result_groups(result_group_id) ON DELETE CASCADE,
+  FOREIGN KEY (mark_id) REFERENCES marks(mark_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_replacement_result_group_marks_mark
+ON replacement_result_group_marks (mark_id, result_group_id);
 
 CREATE TABLE IF NOT EXISTS replacements (
   replacement_id TEXT PRIMARY KEY,
@@ -438,6 +539,408 @@ CREATE INDEX idx_replacements_matchable
 ON replacements (allow_delete, status, committed_at_ms);
 CREATE INDEX idx_replacements_job
 ON replacements (job_id);
+      `);
+    },
+  },
+  {
+    version: 3,
+    apply(database) {
+      database.exec(`
+CREATE TABLE IF NOT EXISTS mark_runtime_state (
+  mark_id TEXT PRIMARY KEY,
+  tool_call_message_id TEXT NOT NULL,
+  source_snapshot_id TEXT,
+  status TEXT NOT NULL CHECK (status IN ('active', 'consumed', 'invalid')),
+  created_at_ms INTEGER NOT NULL,
+  consumed_at_ms INTEGER,
+  invalidated_at_ms INTEGER,
+  invalidation_reason TEXT,
+  mode TEXT,
+  metadata_json TEXT,
+  FOREIGN KEY (tool_call_message_id) REFERENCES host_messages(host_message_id),
+  FOREIGN KEY (source_snapshot_id) REFERENCES source_snapshots(snapshot_id)
+);
+
+INSERT OR IGNORE INTO mark_runtime_state (
+  mark_id,
+  tool_call_message_id,
+  source_snapshot_id,
+  status,
+  created_at_ms,
+  consumed_at_ms,
+  invalidated_at_ms,
+  invalidation_reason,
+  metadata_json
+)
+SELECT
+  mark_id,
+  tool_call_message_id,
+  source_snapshot_id,
+  status,
+  created_at_ms,
+  consumed_at_ms,
+  invalidated_at_ms,
+  invalidation_reason,
+  metadata_json
+FROM marks;
+
+CREATE INDEX IF NOT EXISTS idx_mark_runtime_state_status
+ON mark_runtime_state (status, created_at_ms, mark_id);
+
+CREATE INDEX IF NOT EXISTS idx_mark_runtime_state_tool_call
+ON mark_runtime_state (tool_call_message_id);
+
+CREATE TABLE IF NOT EXISTS reminder_state (
+  reminder_key TEXT PRIMARY KEY CHECK (reminder_key = 'default'),
+  last_anchor_host_message_id TEXT,
+  last_visible_message_id TEXT,
+  last_severity TEXT CHECK (last_severity IN ('soft', 'hard')),
+  last_potential_token_total INTEGER,
+  metadata_json TEXT,
+  updated_at_ms INTEGER NOT NULL,
+  FOREIGN KEY (last_anchor_host_message_id) REFERENCES host_messages(host_message_id)
+);
+
+INSERT OR IGNORE INTO reminder_state (
+  reminder_key,
+  updated_at_ms
+)
+VALUES ('default', 0);
+
+CREATE TABLE IF NOT EXISTS replacement_result_groups (
+  result_group_id TEXT PRIMARY KEY,
+  primary_mark_id TEXT NOT NULL,
+  completeness TEXT NOT NULL CHECK (completeness IN ('complete', 'incomplete')),
+  execution_mode TEXT NOT NULL CHECK (execution_mode IN ('compact', 'delete')),
+  batch_id TEXT,
+  job_id TEXT,
+  source_snapshot_id TEXT,
+  item_count INTEGER NOT NULL CHECK (item_count >= 0),
+  committed_at_ms INTEGER NOT NULL,
+  invalidated_at_ms INTEGER,
+  invalidation_kind TEXT,
+  invalidated_by_mark_id TEXT,
+  metadata_json TEXT,
+  FOREIGN KEY (primary_mark_id) REFERENCES marks(mark_id),
+  FOREIGN KEY (batch_id) REFERENCES compaction_batches(batch_id),
+  FOREIGN KEY (job_id) REFERENCES compaction_jobs(job_id),
+  FOREIGN KEY (source_snapshot_id) REFERENCES source_snapshots(snapshot_id),
+  FOREIGN KEY (invalidated_by_mark_id) REFERENCES marks(mark_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_replacement_result_groups_lookup
+ON replacement_result_groups (primary_mark_id, completeness, committed_at_ms);
+
+CREATE INDEX IF NOT EXISTS idx_replacement_result_groups_job
+ON replacement_result_groups (job_id);
+
+CREATE TABLE IF NOT EXISTS replacement_result_group_items (
+  result_group_id TEXT NOT NULL,
+  item_index INTEGER NOT NULL CHECK (item_index >= 0),
+  replacement_id TEXT,
+  source_snapshot_id TEXT NOT NULL,
+  content_text TEXT,
+  content_json TEXT,
+  metadata_json TEXT,
+  PRIMARY KEY (result_group_id, item_index),
+  UNIQUE (replacement_id),
+  FOREIGN KEY (result_group_id) REFERENCES replacement_result_groups(result_group_id) ON DELETE CASCADE,
+  FOREIGN KEY (replacement_id) REFERENCES replacements(replacement_id) ON DELETE SET NULL,
+  FOREIGN KEY (source_snapshot_id) REFERENCES source_snapshots(snapshot_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_replacement_result_group_items_snapshot
+ON replacement_result_group_items (source_snapshot_id);
+
+CREATE TABLE IF NOT EXISTS replacement_result_group_marks (
+  result_group_id TEXT NOT NULL,
+  mark_id TEXT NOT NULL,
+  link_kind TEXT NOT NULL CHECK (link_kind IN ('primary', 'consumed')),
+  created_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (result_group_id, mark_id),
+  FOREIGN KEY (result_group_id) REFERENCES replacement_result_groups(result_group_id) ON DELETE CASCADE,
+  FOREIGN KEY (mark_id) REFERENCES marks(mark_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_replacement_result_group_marks_mark
+ON replacement_result_group_marks (mark_id, result_group_id);
+
+INSERT OR IGNORE INTO replacement_result_groups (
+  result_group_id,
+  primary_mark_id,
+  completeness,
+  execution_mode,
+  batch_id,
+  job_id,
+  source_snapshot_id,
+  item_count,
+  committed_at_ms,
+  invalidated_at_ms,
+  invalidation_kind,
+  invalidated_by_mark_id,
+  metadata_json
+)
+SELECT
+  replacements.replacement_id,
+  replacement_mark_links.mark_id,
+  CASE
+    WHEN replacements.status = 'committed' AND replacements.invalidated_at_ms IS NULL THEN 'complete'
+    ELSE 'incomplete'
+  END,
+  replacements.execution_mode,
+  replacements.batch_id,
+  replacements.job_id,
+  replacements.source_snapshot_id,
+  1,
+  replacements.committed_at_ms,
+  replacements.invalidated_at_ms,
+  replacements.invalidation_kind,
+  replacements.invalidated_by_mark_id,
+  replacements.metadata_json
+FROM replacements
+JOIN replacement_mark_links
+  ON replacement_mark_links.replacement_id = replacements.replacement_id
+ AND replacement_mark_links.link_kind = 'consumed';
+
+INSERT OR IGNORE INTO replacement_result_group_items (
+  result_group_id,
+  item_index,
+  replacement_id,
+  source_snapshot_id,
+  content_text,
+  content_json,
+  metadata_json
+)
+SELECT
+  replacements.replacement_id,
+  0,
+  replacements.replacement_id,
+  replacements.source_snapshot_id,
+  replacements.content_text,
+  replacements.content_json,
+  replacements.metadata_json
+FROM replacements
+JOIN replacement_mark_links
+  ON replacement_mark_links.replacement_id = replacements.replacement_id
+ AND replacement_mark_links.link_kind = 'consumed';
+
+INSERT OR IGNORE INTO replacement_result_group_marks (
+  result_group_id,
+  mark_id,
+  link_kind,
+  created_at_ms
+)
+SELECT
+  replacement_id,
+  mark_id,
+  CASE
+    WHEN mark_id = (
+      SELECT replacement_mark_links2.mark_id
+      FROM replacement_mark_links AS replacement_mark_links2
+      WHERE replacement_mark_links2.replacement_id = replacement_mark_links.replacement_id
+        AND replacement_mark_links2.link_kind = 'consumed'
+      ORDER BY replacement_mark_links2.created_at_ms ASC, replacement_mark_links2.mark_id ASC
+      LIMIT 1
+    ) THEN 'primary'
+    ELSE 'consumed'
+  END,
+  created_at_ms
+FROM replacement_mark_links
+WHERE link_kind = 'consumed';
+      `);
+    },
+  },
+  {
+    version: 4,
+    apply(database) {
+      database.exec(`
+DROP INDEX IF EXISTS idx_replacement_result_groups_lookup;
+DROP INDEX IF EXISTS idx_replacement_result_groups_job;
+
+ALTER TABLE replacement_result_group_items RENAME TO replacement_result_group_items_v3;
+ALTER TABLE replacement_result_group_marks RENAME TO replacement_result_group_marks_v3;
+
+ALTER TABLE replacement_result_groups RENAME TO replacement_result_groups_v3;
+
+CREATE TABLE replacement_result_groups (
+  result_group_id TEXT PRIMARY KEY,
+  primary_mark_id TEXT NOT NULL,
+  completeness TEXT NOT NULL CHECK (completeness IN ('complete', 'incomplete')),
+  execution_mode TEXT NOT NULL CHECK (execution_mode IN ('compact', 'delete')),
+  batch_id TEXT,
+  job_id TEXT,
+  source_snapshot_id TEXT,
+  item_count INTEGER NOT NULL CHECK (item_count >= 0),
+  committed_at_ms INTEGER NOT NULL,
+  invalidated_at_ms INTEGER,
+  invalidation_kind TEXT,
+  invalidated_by_mark_id TEXT,
+  metadata_json TEXT,
+  FOREIGN KEY (primary_mark_id) REFERENCES marks(mark_id),
+  FOREIGN KEY (batch_id) REFERENCES compaction_batches(batch_id),
+  FOREIGN KEY (job_id) REFERENCES compaction_jobs(job_id),
+  FOREIGN KEY (source_snapshot_id) REFERENCES source_snapshots(snapshot_id),
+  FOREIGN KEY (invalidated_by_mark_id) REFERENCES marks(mark_id)
+);
+
+INSERT INTO replacement_result_groups (
+  result_group_id,
+  primary_mark_id,
+  completeness,
+  execution_mode,
+  batch_id,
+  job_id,
+  source_snapshot_id,
+  item_count,
+  committed_at_ms,
+  invalidated_at_ms,
+  invalidation_kind,
+  invalidated_by_mark_id,
+  metadata_json
+)
+SELECT
+  result_group_id,
+  primary_mark_id,
+  completeness,
+  execution_mode,
+  batch_id,
+  job_id,
+  source_snapshot_id,
+  item_count,
+  committed_at_ms,
+  invalidated_at_ms,
+  invalidation_kind,
+  invalidated_by_mark_id,
+  metadata_json
+FROM replacement_result_groups_v3;
+
+DROP TABLE replacement_result_groups_v3;
+
+CREATE INDEX idx_replacement_result_groups_lookup
+ON replacement_result_groups (primary_mark_id, completeness, committed_at_ms);
+
+CREATE INDEX idx_replacement_result_groups_job
+ON replacement_result_groups (job_id);
+
+CREATE TABLE replacement_result_group_items (
+  result_group_id TEXT NOT NULL,
+  item_index INTEGER NOT NULL CHECK (item_index >= 0),
+  replacement_id TEXT,
+  source_snapshot_id TEXT NOT NULL,
+  content_text TEXT,
+  content_json TEXT,
+  metadata_json TEXT,
+  PRIMARY KEY (result_group_id, item_index),
+  UNIQUE (replacement_id),
+  FOREIGN KEY (result_group_id) REFERENCES replacement_result_groups(result_group_id) ON DELETE CASCADE,
+  FOREIGN KEY (replacement_id) REFERENCES replacements(replacement_id) ON DELETE SET NULL,
+  FOREIGN KEY (source_snapshot_id) REFERENCES source_snapshots(snapshot_id)
+);
+
+INSERT INTO replacement_result_group_items (
+  result_group_id,
+  item_index,
+  replacement_id,
+  source_snapshot_id,
+  content_text,
+  content_json,
+  metadata_json
+)
+SELECT
+  result_group_id,
+  item_index,
+  replacement_id,
+  source_snapshot_id,
+  content_text,
+  content_json,
+  metadata_json
+FROM replacement_result_group_items_v3;
+
+DROP TABLE replacement_result_group_items_v3;
+
+CREATE INDEX idx_replacement_result_group_items_snapshot
+ON replacement_result_group_items (source_snapshot_id);
+
+CREATE TABLE replacement_result_group_marks (
+  result_group_id TEXT NOT NULL,
+  mark_id TEXT NOT NULL,
+  link_kind TEXT NOT NULL CHECK (link_kind IN ('primary', 'consumed')),
+  created_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (result_group_id, mark_id),
+  FOREIGN KEY (result_group_id) REFERENCES replacement_result_groups(result_group_id) ON DELETE CASCADE,
+  FOREIGN KEY (mark_id) REFERENCES marks(mark_id)
+);
+
+INSERT INTO replacement_result_group_marks (
+  result_group_id,
+  mark_id,
+  link_kind,
+  created_at_ms
+)
+SELECT
+  result_group_id,
+  mark_id,
+  link_kind,
+  created_at_ms
+FROM replacement_result_group_marks_v3;
+
+DROP TABLE replacement_result_group_marks_v3;
+
+CREATE INDEX idx_replacement_result_group_marks_mark
+ON replacement_result_group_marks (mark_id, result_group_id);
+      `);
+    },
+  },
+  {
+    version: 5,
+    apply(database) {
+      database.exec(`
+INSERT OR IGNORE INTO replacement_result_group_items (
+  result_group_id,
+  item_index,
+  replacement_id,
+  source_snapshot_id,
+  content_text,
+  content_json,
+  metadata_json
+)
+SELECT
+  replacements.replacement_id,
+  0,
+  replacements.replacement_id,
+  replacements.source_snapshot_id,
+  replacements.content_text,
+  replacements.content_json,
+  replacements.metadata_json
+FROM replacements
+JOIN replacement_result_groups
+  ON replacement_result_groups.result_group_id = replacements.replacement_id;
+
+INSERT OR IGNORE INTO replacement_result_group_marks (
+  result_group_id,
+  mark_id,
+  link_kind,
+  created_at_ms
+)
+SELECT
+  replacement_mark_links.replacement_id,
+  replacement_mark_links.mark_id,
+  CASE
+    WHEN replacement_mark_links.mark_id = (
+      SELECT replacement_mark_links2.mark_id
+      FROM replacement_mark_links AS replacement_mark_links2
+      WHERE replacement_mark_links2.replacement_id = replacement_mark_links.replacement_id
+        AND replacement_mark_links2.link_kind = 'consumed'
+      ORDER BY replacement_mark_links2.created_at_ms ASC, replacement_mark_links2.mark_id ASC
+      LIMIT 1
+    ) THEN 'primary'
+    ELSE 'consumed'
+  END,
+  replacement_mark_links.created_at_ms
+FROM replacement_mark_links
+JOIN replacement_result_groups
+  ON replacement_result_groups.result_group_id = replacement_mark_links.replacement_id
+WHERE replacement_mark_links.link_kind = 'consumed';
       `);
     },
   },

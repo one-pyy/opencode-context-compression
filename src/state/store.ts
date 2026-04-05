@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 
-import { getAppliedStateSchemaVersion } from "./schema.js";
 import { openSessionDatabase, type OpenSessionDatabaseOptions } from "./session-db.js";
 import type { SqliteDatabase } from "./sqlite-runtime.js";
 
@@ -28,6 +27,10 @@ export type RuntimeGateObservedState =
   | "failed"
   | "stale"
   | "manually-cleared";
+
+export type ReplacementResultGroupCompleteness = "complete" | "incomplete";
+export type ReplacementResultGroupMarkLinkKind = "primary" | "consumed";
+export type ReminderSeverity = "soft" | "hard";
 
 export interface CanonicalHostMessageInput {
   readonly hostMessageID: string;
@@ -62,6 +65,25 @@ export interface SessionStateRecord {
   readonly lastCanonicalRevision?: string;
   readonly lastSyncedAtMs?: number;
   readonly updatedAtMs: number;
+}
+
+export interface ReminderStateRecord {
+  readonly reminderKey: "default";
+  readonly lastAnchorHostMessageID?: string;
+  readonly lastVisibleMessageID?: string;
+  readonly lastSeverity?: ReminderSeverity;
+  readonly lastPotentialTokenTotal?: number;
+  readonly metadata?: JsonValue;
+  readonly updatedAtMs: number;
+}
+
+export interface UpsertReminderStateInput {
+  readonly lastAnchorHostMessageID?: string;
+  readonly lastVisibleMessageID?: string;
+  readonly lastSeverity?: ReminderSeverity;
+  readonly lastPotentialTokenTotal?: number;
+  readonly metadata?: JsonValue;
+  readonly updatedAtMs?: number;
 }
 
 export interface SourceSnapshotMessageInput {
@@ -261,6 +283,61 @@ export interface ReplacementMarkLinkRecord {
   readonly createdAtMs: number;
 }
 
+export interface ReplacementResultGroupRecord {
+  readonly resultGroupID: string;
+  readonly primaryMarkID: string;
+  readonly completeness: ReplacementResultGroupCompleteness;
+  readonly executionMode: CompactionExecutionMode;
+  readonly batchID?: string;
+  readonly jobID?: string;
+  readonly sourceSnapshotID?: string;
+  readonly itemCount: number;
+  readonly committedAtMs: number;
+  readonly invalidatedAtMs?: number;
+  readonly invalidationKind?: string;
+  readonly invalidatedByMarkID?: string;
+  readonly metadata?: JsonValue;
+}
+
+export interface ReplacementResultGroupItemRecord {
+  readonly resultGroupID: string;
+  readonly itemIndex: number;
+  readonly replacementID?: string;
+  readonly sourceSnapshotID: string;
+  readonly contentText?: string;
+  readonly contentJSON?: JsonValue;
+  readonly metadata?: JsonValue;
+}
+
+export interface ReplacementResultGroupMarkLinkRecord {
+  readonly resultGroupID: string;
+  readonly markID: string;
+  readonly linkKind: ReplacementResultGroupMarkLinkKind;
+  readonly createdAtMs: number;
+}
+
+export interface ReplacementResultGroupItemInput {
+  readonly replacementID?: string;
+  readonly sourceSnapshot?: SourceSnapshotInput;
+  readonly sourceSnapshotID?: string;
+  readonly contentText?: string;
+  readonly contentJSON?: JsonValue;
+  readonly metadata?: JsonValue;
+}
+
+export interface CommitReplacementResultGroupInput {
+  readonly resultGroupID?: string;
+  readonly primaryMarkID: string;
+  readonly executionMode: CompactionExecutionMode;
+  readonly committedAtMs?: number;
+  readonly batchID?: string;
+  readonly jobID?: string;
+  readonly sourceSnapshotID?: string;
+  readonly metadata?: JsonValue;
+  readonly markIDs?: readonly string[];
+  readonly items: readonly ReplacementResultGroupItemInput[];
+}
+
 export interface InvalidateReplacementInput {
   readonly replacementID: string;
   readonly invalidatedAtMs?: number;
@@ -336,6 +413,7 @@ export function computeSourceFingerprint(
 export class SqliteSessionStateStore {
   readonly databasePath: string;
   readonly sessionID: string;
+  readonly schemaVersion: number;
 
   private readonly database: SqliteDatabase;
   private readonly now: () => number;
@@ -346,6 +424,7 @@ export class SqliteSessionStateStore {
     this.database = handle.database;
     this.databasePath = handle.databasePath;
     this.sessionID = options.sessionID;
+    this.schemaVersion = handle.schemaVersion;
     this.now = options.now ?? Date.now;
   }
 
@@ -356,7 +435,7 @@ export class SqliteSessionStateStore {
   }
 
   getSchemaVersion(): number {
-    return getAppliedStateSchemaVersion(this.database);
+    return this.schemaVersion;
   }
 
   getSessionState(): SessionStateRecord {
@@ -374,6 +453,55 @@ export class SqliteSessionStateStore {
       lastSyncedAtMs: readOptionalNumber(row.last_synced_at_ms),
       updatedAtMs: readRequiredNumber(row.updated_at_ms, "session_state.updated_at_ms"),
     };
+  }
+
+  getReminderState(): ReminderStateRecord {
+    const row = this.requireRow(
+      this.database
+        .prepare(
+          `SELECT * FROM reminder_state WHERE reminder_key = 'default'`,
+        )
+        .get() as SqlRow | undefined,
+      "reminder_state.default",
+    );
+
+    return this.readReminderStateRecord(row);
+  }
+
+  upsertReminderState(input: UpsertReminderStateInput): ReminderStateRecord {
+    const updatedAtMs = input.updatedAtMs ?? this.now();
+
+    return this.transaction(() => {
+      if (input.lastAnchorHostMessageID !== undefined) {
+        this.requireHostMessage(input.lastAnchorHostMessageID);
+      }
+
+      const current = this.getReminderState();
+      this.database
+        .prepare(
+          `UPDATE reminder_state
+           SET last_anchor_host_message_id = :lastAnchorHostMessageID,
+               last_visible_message_id = :lastVisibleMessageID,
+               last_severity = :lastSeverity,
+               last_potential_token_total = :lastPotentialTokenTotal,
+               metadata_json = :metadataJson,
+               updated_at_ms = :updatedAtMs
+           WHERE reminder_key = 'default'`,
+        )
+        .run({
+          lastAnchorHostMessageID:
+            input.lastAnchorHostMessageID ?? current.lastAnchorHostMessageID ?? null,
+          lastVisibleMessageID:
+            input.lastVisibleMessageID ?? current.lastVisibleMessageID ?? null,
+          lastSeverity: input.lastSeverity ?? current.lastSeverity ?? null,
+          lastPotentialTokenTotal:
+            input.lastPotentialTokenTotal ?? current.lastPotentialTokenTotal ?? null,
+          metadataJson: serializeJson(input.metadata ?? current.metadata),
+          updatedAtMs,
+        });
+
+      return this.getReminderState();
+    });
   }
 
   syncCanonicalHostMessages(input: SyncCanonicalHostMessagesInput): void {
@@ -605,21 +733,87 @@ export class SqliteSessionStateStore {
           metadataJson: serializeJson(input.metadata),
         });
 
+      this.database
+        .prepare(
+          `INSERT INTO mark_runtime_state (
+             mark_id,
+             tool_call_message_id,
+             source_snapshot_id,
+             status,
+             created_at_ms,
+             metadata_json
+           ) VALUES (
+             :markID,
+             :toolCallMessageID,
+             :sourceSnapshotID,
+             'active',
+             :createdAtMs,
+             :metadataJson
+           )
+           ON CONFLICT(mark_id) DO UPDATE SET
+             tool_call_message_id = excluded.tool_call_message_id,
+             source_snapshot_id = excluded.source_snapshot_id,
+             status = excluded.status,
+             created_at_ms = excluded.created_at_ms,
+             metadata_json = excluded.metadata_json`,
+        )
+        .run({
+          markID: input.markID,
+          toolCallMessageID: input.toolCallMessageID,
+          sourceSnapshotID,
+          createdAtMs,
+          metadataJson: serializeJson(input.metadata),
+        });
+
       return this.requireMark(input.markID);
     });
   }
 
   getMark(markID: string): MarkRecord | undefined {
-    const row = this.database.prepare(`SELECT * FROM marks WHERE mark_id = :markID`).get({
-      markID,
-    }) as SqlRow | undefined;
+    const row = this.database
+      .prepare(
+        `SELECT
+           marks.mark_id,
+           marks.tool_call_message_id,
+           marks.allow_delete,
+           marks.mark_label,
+           COALESCE(mark_runtime_state.source_snapshot_id, marks.source_snapshot_id) AS source_snapshot_id,
+           COALESCE(mark_runtime_state.status, marks.status) AS status,
+           COALESCE(mark_runtime_state.created_at_ms, marks.created_at_ms) AS created_at_ms,
+           COALESCE(mark_runtime_state.consumed_at_ms, marks.consumed_at_ms) AS consumed_at_ms,
+           COALESCE(mark_runtime_state.invalidated_at_ms, marks.invalidated_at_ms) AS invalidated_at_ms,
+           COALESCE(mark_runtime_state.invalidation_reason, marks.invalidation_reason) AS invalidation_reason,
+           COALESCE(mark_runtime_state.metadata_json, marks.metadata_json) AS metadata_json
+         FROM marks
+         LEFT JOIN mark_runtime_state
+           ON mark_runtime_state.mark_id = marks.mark_id
+         WHERE marks.mark_id = :markID`,
+      )
+      .get({ markID }) as SqlRow | undefined;
 
     return row ? this.readMarkRecord(row) : undefined;
   }
 
   getMarkByToolCallMessageID(toolCallMessageID: string): MarkRecord | undefined {
     const row = this.database
-      .prepare(`SELECT * FROM marks WHERE tool_call_message_id = :toolCallMessageID`)
+      .prepare(
+        `SELECT
+           marks.mark_id,
+           marks.tool_call_message_id,
+           marks.allow_delete,
+           marks.mark_label,
+           COALESCE(mark_runtime_state.source_snapshot_id, marks.source_snapshot_id) AS source_snapshot_id,
+           COALESCE(mark_runtime_state.status, marks.status) AS status,
+           COALESCE(mark_runtime_state.created_at_ms, marks.created_at_ms) AS created_at_ms,
+           COALESCE(mark_runtime_state.consumed_at_ms, marks.consumed_at_ms) AS consumed_at_ms,
+           COALESCE(mark_runtime_state.invalidated_at_ms, marks.invalidated_at_ms) AS invalidated_at_ms,
+           COALESCE(mark_runtime_state.invalidation_reason, marks.invalidation_reason) AS invalidation_reason,
+           COALESCE(mark_runtime_state.metadata_json, marks.metadata_json) AS metadata_json
+         FROM marks
+         LEFT JOIN mark_runtime_state
+           ON mark_runtime_state.mark_id = marks.mark_id
+         WHERE marks.tool_call_message_id = :toolCallMessageID`,
+      )
       .get({ toolCallMessageID }) as SqlRow | undefined;
 
     return row ? this.readMarkRecord(row) : undefined;
@@ -628,15 +822,41 @@ export class SqliteSessionStateStore {
   listMarks(options?: { readonly status?: MarkStatus }): MarkRecord[] {
     const statement = options?.status
       ? this.database.prepare(
-          `SELECT *
+          `SELECT
+             marks.mark_id,
+             marks.tool_call_message_id,
+             marks.allow_delete,
+             marks.mark_label,
+             COALESCE(mark_runtime_state.source_snapshot_id, marks.source_snapshot_id) AS source_snapshot_id,
+             COALESCE(mark_runtime_state.status, marks.status) AS status,
+             COALESCE(mark_runtime_state.created_at_ms, marks.created_at_ms) AS created_at_ms,
+             COALESCE(mark_runtime_state.consumed_at_ms, marks.consumed_at_ms) AS consumed_at_ms,
+             COALESCE(mark_runtime_state.invalidated_at_ms, marks.invalidated_at_ms) AS invalidated_at_ms,
+             COALESCE(mark_runtime_state.invalidation_reason, marks.invalidation_reason) AS invalidation_reason,
+             COALESCE(mark_runtime_state.metadata_json, marks.metadata_json) AS metadata_json
            FROM marks
-           WHERE status = :status
-           ORDER BY created_at_ms ASC, mark_id ASC`,
+           LEFT JOIN mark_runtime_state
+             ON mark_runtime_state.mark_id = marks.mark_id
+           WHERE COALESCE(mark_runtime_state.status, marks.status) = :status
+           ORDER BY COALESCE(mark_runtime_state.created_at_ms, marks.created_at_ms) ASC, marks.mark_id ASC`,
         )
       : this.database.prepare(`
-          SELECT *
+          SELECT
+             marks.mark_id,
+             marks.tool_call_message_id,
+             marks.allow_delete,
+             marks.mark_label,
+             COALESCE(mark_runtime_state.source_snapshot_id, marks.source_snapshot_id) AS source_snapshot_id,
+             COALESCE(mark_runtime_state.status, marks.status) AS status,
+             COALESCE(mark_runtime_state.created_at_ms, marks.created_at_ms) AS created_at_ms,
+             COALESCE(mark_runtime_state.consumed_at_ms, marks.consumed_at_ms) AS consumed_at_ms,
+             COALESCE(mark_runtime_state.invalidated_at_ms, marks.invalidated_at_ms) AS invalidated_at_ms,
+             COALESCE(mark_runtime_state.invalidation_reason, marks.invalidation_reason) AS invalidation_reason,
+             COALESCE(mark_runtime_state.metadata_json, marks.metadata_json) AS metadata_json
           FROM marks
-          ORDER BY created_at_ms ASC, mark_id ASC
+          LEFT JOIN mark_runtime_state
+            ON mark_runtime_state.mark_id = marks.mark_id
+          ORDER BY COALESCE(mark_runtime_state.created_at_ms, marks.created_at_ms) ASC, marks.mark_id ASC
         `);
 
     return (
@@ -654,6 +874,20 @@ export class SqliteSessionStateStore {
       this.database
         .prepare(
           `UPDATE marks
+           SET status = 'invalid',
+               invalidated_at_ms = :invalidatedAtMs,
+               invalidation_reason = :invalidationReason
+           WHERE mark_id = :markID`,
+        )
+        .run({
+          markID: input.markID,
+          invalidatedAtMs,
+          invalidationReason: input.reason,
+        });
+
+      this.database
+        .prepare(
+          `UPDATE mark_runtime_state
            SET status = 'invalid',
                invalidated_at_ms = :invalidatedAtMs,
                invalidation_reason = :invalidationReason
@@ -967,6 +1201,18 @@ export class SqliteSessionStateStore {
     ).map((row) => this.readCompactionJobAttemptRecord(row));
   }
 
+  commitReplacementResultGroup(
+    input: CommitReplacementResultGroupInput,
+  ): ReplacementResultGroupRecord {
+    if (input.items.length === 0) {
+      throw new Error("Replacement result groups require at least one item.");
+    }
+
+    return this.transaction(() => {
+      return this.commitReplacementResultGroupWithinTransaction(input);
+    });
+  }
+
   commitReplacement(input: CommitReplacementInput): ReplacementRecord {
     const committedAtMs = input.committedAtMs ?? this.now();
 
@@ -1049,6 +1295,33 @@ export class SqliteSessionStateStore {
           metadataJson: serializeJson(input.metadata),
         });
 
+      if (linkedMarkIDs.length === 0) {
+        throw new Error(
+          `Replacement '${input.replacementID}' requires at least one linked mark id.`,
+        );
+      }
+
+      this.commitReplacementResultGroupWithinTransaction({
+        resultGroupID: input.replacementID,
+        primaryMarkID: linkedMarkIDs[0],
+        executionMode: input.executionMode,
+        committedAtMs,
+        batchID,
+        jobID: input.jobID,
+        sourceSnapshotID,
+        metadata: input.metadata,
+        markIDs: linkedMarkIDs,
+        items: [
+          {
+            replacementID: input.replacementID,
+            sourceSnapshotID,
+            contentText: input.contentText,
+            contentJSON: input.contentJSON,
+            metadata: input.metadata,
+          },
+        ],
+      });
+
       const insertLink = this.database.prepare(
         `INSERT INTO replacement_mark_links (
            replacement_id,
@@ -1073,6 +1346,18 @@ export class SqliteSessionStateStore {
         this.database
           .prepare(
             `UPDATE marks
+             SET status = 'consumed',
+                 consumed_at_ms = :consumedAtMs
+             WHERE mark_id = :markID`,
+          )
+          .run({
+            markID,
+            consumedAtMs: committedAtMs,
+          });
+
+        this.database
+          .prepare(
+            `UPDATE mark_runtime_state
              SET status = 'consumed',
                  consumed_at_ms = :consumedAtMs
              WHERE mark_id = :markID`,
@@ -1113,7 +1398,67 @@ export class SqliteSessionStateStore {
     ).map((row) => this.readReplacementMarkLinkRecord(row));
   }
 
+  getReplacementResultGroup(markID: string): ReplacementResultGroupRecord | undefined {
+    const row = this.database
+      .prepare(
+        `SELECT replacement_result_groups.*
+         FROM replacement_result_groups
+         JOIN replacement_result_group_marks
+           ON replacement_result_group_marks.result_group_id = replacement_result_groups.result_group_id
+         WHERE replacement_result_group_marks.mark_id = :markID
+         ORDER BY replacement_result_groups.committed_at_ms DESC, replacement_result_groups.result_group_id DESC
+         LIMIT 1`,
+      )
+      .get({ markID }) as SqlRow | undefined;
+
+    return row ? this.readReplacementResultGroupRecord(row) : undefined;
+  }
+
+  listReplacementResultGroupItems(markID: string): ReplacementResultGroupItemRecord[] {
+    const group = this.getReplacementResultGroup(markID);
+    if (group === undefined) {
+      return [];
+    }
+
+    return (
+      this.database
+        .prepare(
+          `SELECT *
+           FROM replacement_result_group_items
+           WHERE result_group_id = :resultGroupID
+           ORDER BY item_index ASC`,
+        )
+        .all({ resultGroupID: group.resultGroupID }) as SqlRow[]
+    ).map((row) => this.readReplacementResultGroupItemRecord(row));
+  }
+
+  listReplacementResultGroupMarkLinks(markID: string): ReplacementResultGroupMarkLinkRecord[] {
+    const group = this.getReplacementResultGroup(markID);
+    if (group === undefined) {
+      return [];
+    }
+
+    return (
+      this.database
+        .prepare(
+          `SELECT *
+           FROM replacement_result_group_marks
+           WHERE result_group_id = :resultGroupID
+           ORDER BY created_at_ms ASC, mark_id ASC`,
+        )
+        .all({ resultGroupID: group.resultGroupID }) as SqlRow[]
+    ).map((row) => this.readReplacementResultGroupMarkLinkRecord(row));
+  }
+
   findLatestCommittedReplacementForMark(markID: string): ReplacementRecord | undefined {
+    const group = this.getReplacementResultGroup(markID);
+    if (group?.completeness === "complete") {
+      const firstItem = this.listReplacementResultGroupItems(markID)[0];
+      if (firstItem?.replacementID !== undefined) {
+        return this.getReplacement(firstItem.replacementID);
+      }
+    }
+
     this.requireMark(markID);
 
     const row = this.database
@@ -1154,6 +1499,22 @@ export class SqliteSessionStateStore {
         )
         .run({
           replacementID: input.replacementID,
+          invalidatedAtMs,
+          invalidationKind: input.invalidationKind,
+          invalidatedByMarkID: input.invalidatedByMarkID ?? current.invalidatedByMarkID ?? null,
+        });
+
+      this.database
+        .prepare(
+          `UPDATE replacement_result_groups
+           SET completeness = 'incomplete',
+               invalidated_at_ms = :invalidatedAtMs,
+               invalidation_kind = :invalidationKind,
+               invalidated_by_mark_id = :invalidatedByMarkID
+           WHERE result_group_id = :resultGroupID`,
+        )
+        .run({
+          resultGroupID: input.replacementID,
           invalidatedAtMs,
           invalidationKind: input.invalidationKind,
           invalidatedByMarkID: input.invalidatedByMarkID ?? current.invalidatedByMarkID ?? null,
@@ -1238,6 +1599,174 @@ export class SqliteSessionStateStore {
       }
       throw error;
     }
+  }
+
+  private commitReplacementResultGroupWithinTransaction(
+    input: CommitReplacementResultGroupInput,
+  ): ReplacementResultGroupRecord {
+    if (input.items.length === 0) {
+      throw new Error("Replacement result groups require at least one item.");
+    }
+
+    const committedAtMs = input.committedAtMs ?? this.now();
+    const resultGroupID = input.resultGroupID ?? input.primaryMarkID;
+    const primaryMark = this.requireMark(input.primaryMarkID);
+    let batchID = input.batchID;
+    let sourceSnapshotID = input.sourceSnapshotID;
+
+    if (input.jobID !== undefined) {
+      const job = this.requireCompactionJob(input.jobID);
+      batchID ??= job.batchID;
+      sourceSnapshotID ??= job.sourceSnapshotID;
+    }
+
+    const linkedMarkIDs = [...new Set([input.primaryMarkID, ...(input.markIDs ?? [])])];
+    const normalizedItems = input.items.map((item, itemIndex) => {
+      let itemSourceSnapshotID = item.sourceSnapshotID;
+      if (item.sourceSnapshot !== undefined) {
+        itemSourceSnapshotID = this.insertSourceSnapshot({
+          snapshotID:
+            item.sourceSnapshot.snapshotID ?? `${resultGroupID}:item:${itemIndex}:snapshot`,
+          snapshotKind: "replacement",
+          allowDelete: primaryMark.allowDelete,
+          createdAtMs: committedAtMs,
+          input: item.sourceSnapshot,
+        });
+      }
+
+      itemSourceSnapshotID ??= sourceSnapshotID;
+      if (itemSourceSnapshotID === undefined) {
+        throw new Error(
+          `Replacement result group '${resultGroupID}' item ${itemIndex} requires a source snapshot.`,
+        );
+      }
+
+      return {
+        ...item,
+        sourceSnapshotID: itemSourceSnapshotID,
+      };
+    });
+
+    sourceSnapshotID ??= normalizedItems[0]?.sourceSnapshotID;
+    if (sourceSnapshotID === undefined) {
+      throw new Error(`Replacement result group '${resultGroupID}' requires a source snapshot.`);
+    }
+
+    for (const markID of linkedMarkIDs) {
+      const mark = this.requireMark(markID);
+      if (!this.areSourceSnapshotsEquivalent(mark.sourceSnapshotID, sourceSnapshotID)) {
+        throw new Error(
+          `Result group '${resultGroupID}' cannot consume mark '${markID}' because their source snapshots differ.`,
+        );
+      }
+    }
+
+    this.database
+      .prepare(
+        `INSERT INTO replacement_result_groups (
+           result_group_id,
+           primary_mark_id,
+           completeness,
+           execution_mode,
+           batch_id,
+           job_id,
+           source_snapshot_id,
+           item_count,
+           committed_at_ms,
+           metadata_json
+         ) VALUES (
+           :resultGroupID,
+           :primaryMarkID,
+           'complete',
+           :executionMode,
+           :batchID,
+           :jobID,
+           :sourceSnapshotID,
+           :itemCount,
+           :committedAtMs,
+           :metadataJson
+         )`,
+      )
+      .run({
+        resultGroupID,
+        primaryMarkID: input.primaryMarkID,
+        executionMode: input.executionMode,
+        batchID: batchID ?? null,
+        jobID: input.jobID ?? null,
+        sourceSnapshotID,
+        itemCount: normalizedItems.length,
+        committedAtMs,
+        metadataJson: serializeJson(input.metadata),
+      });
+
+    const insertGroupItem = this.database.prepare(
+      `INSERT INTO replacement_result_group_items (
+         result_group_id,
+         item_index,
+         replacement_id,
+         source_snapshot_id,
+         content_text,
+         content_json,
+         metadata_json
+       ) VALUES (
+         :resultGroupID,
+         :itemIndex,
+         :replacementID,
+         :sourceSnapshotID,
+         :contentText,
+         :contentJson,
+         :metadataJson
+       )`,
+    );
+
+    const insertGroupMark = this.database.prepare(
+      `INSERT INTO replacement_result_group_marks (
+         result_group_id,
+         mark_id,
+         link_kind,
+         created_at_ms
+       ) VALUES (
+         :resultGroupID,
+         :markID,
+         :linkKind,
+         :createdAtMs
+       )`,
+    );
+
+    for (const [itemIndex, item] of normalizedItems.entries()) {
+      insertGroupItem.run({
+        resultGroupID,
+        itemIndex,
+        replacementID: item.replacementID ?? null,
+        sourceSnapshotID: item.sourceSnapshotID,
+        contentText: item.contentText ?? null,
+        contentJson: serializeJson(item.contentJSON),
+        metadataJson: serializeJson(item.metadata),
+      });
+    }
+
+    linkedMarkIDs.forEach((markID) => {
+      insertGroupMark.run({
+        resultGroupID,
+        markID,
+        linkKind: markID === input.primaryMarkID ? "primary" : "consumed",
+        createdAtMs: committedAtMs,
+      });
+
+      this.database
+        .prepare(
+          `UPDATE mark_runtime_state
+           SET status = 'consumed',
+               consumed_at_ms = :consumedAtMs
+           WHERE mark_id = :markID`,
+        )
+        .run({
+          markID,
+          consumedAtMs: committedAtMs,
+        });
+    });
+
+    return this.requireReplacementResultGroup(resultGroupID);
   }
 
   private insertSourceSnapshot(options: {
@@ -1498,6 +2027,21 @@ export class SqliteSessionStateStore {
     return replacement;
   }
 
+  private requireReplacementResultGroup(
+    resultGroupID: string,
+  ): ReplacementResultGroupRecord {
+    const row = this.database
+      .prepare(
+        `SELECT * FROM replacement_result_groups WHERE result_group_id = :resultGroupID`,
+      )
+      .get({ resultGroupID }) as SqlRow | undefined;
+    if (row === undefined) {
+      throw new Error(`Unknown replacement result group '${resultGroupID}'.`);
+    }
+
+    return this.readReplacementResultGroupRecord(row);
+  }
+
   private requireRuntimeGateObservation(observationID: string): RuntimeGateObservationRecord {
     const row = this.database
       .prepare(`SELECT * FROM runtime_gate_audit WHERE observation_id = :observationID`)
@@ -1525,6 +2069,18 @@ export class SqliteSessionStateStore {
       visibleChecksum: readOptionalString(row.visible_checksum),
       metadata: parseJson(row.metadata_json),
       updatedAtMs: readRequiredNumber(row.updated_at_ms, "host_messages.updated_at_ms"),
+    };
+  }
+
+  private readReminderStateRecord(row: SqlRow): ReminderStateRecord {
+    return {
+      reminderKey: "default",
+      lastAnchorHostMessageID: readOptionalString(row.last_anchor_host_message_id),
+      lastVisibleMessageID: readOptionalString(row.last_visible_message_id),
+      lastSeverity: readOptionalString(row.last_severity) as ReminderSeverity | undefined,
+      lastPotentialTokenTotal: readOptionalNumber(row.last_potential_token_total),
+      metadata: parseJson(row.metadata_json),
+      updatedAtMs: readRequiredNumber(row.updated_at_ms, "reminder_state.updated_at_ms"),
     };
   }
 
@@ -1696,6 +2252,87 @@ export class SqliteSessionStateStore {
       createdAtMs: readRequiredNumber(
         row.created_at_ms,
         "replacement_mark_links.created_at_ms",
+      ),
+    };
+  }
+
+  private readReplacementResultGroupRecord(
+    row: SqlRow,
+  ): ReplacementResultGroupRecord {
+    return {
+      resultGroupID: readRequiredString(
+        row.result_group_id,
+        "replacement_result_groups.result_group_id",
+      ),
+      primaryMarkID: readRequiredString(
+        row.primary_mark_id,
+        "replacement_result_groups.primary_mark_id",
+      ),
+      completeness: readRequiredString(
+        row.completeness,
+        "replacement_result_groups.completeness",
+      ) as ReplacementResultGroupCompleteness,
+      executionMode: readRequiredString(
+        row.execution_mode,
+        "replacement_result_groups.execution_mode",
+      ) as CompactionExecutionMode,
+      batchID: readOptionalString(row.batch_id),
+      jobID: readOptionalString(row.job_id),
+      sourceSnapshotID: readOptionalString(row.source_snapshot_id),
+      itemCount: readRequiredNumber(
+        row.item_count,
+        "replacement_result_groups.item_count",
+      ),
+      committedAtMs: readRequiredNumber(
+        row.committed_at_ms,
+        "replacement_result_groups.committed_at_ms",
+      ),
+      invalidatedAtMs: readOptionalNumber(row.invalidated_at_ms),
+      invalidationKind: readOptionalString(row.invalidation_kind),
+      invalidatedByMarkID: readOptionalString(row.invalidated_by_mark_id),
+      metadata: parseJson(row.metadata_json),
+    };
+  }
+
+  private readReplacementResultGroupItemRecord(
+    row: SqlRow,
+  ): ReplacementResultGroupItemRecord {
+    return {
+      resultGroupID: readRequiredString(
+        row.result_group_id,
+        "replacement_result_group_items.result_group_id",
+      ),
+      itemIndex: readRequiredNumber(
+        row.item_index,
+        "replacement_result_group_items.item_index",
+      ),
+      replacementID: readOptionalString(row.replacement_id),
+      sourceSnapshotID: readRequiredString(
+        row.source_snapshot_id,
+        "replacement_result_group_items.source_snapshot_id",
+      ),
+      contentText: readOptionalString(row.content_text),
+      contentJSON: parseJson(row.content_json),
+      metadata: parseJson(row.metadata_json),
+    };
+  }
+
+  private readReplacementResultGroupMarkLinkRecord(
+    row: SqlRow,
+  ): ReplacementResultGroupMarkLinkRecord {
+    return {
+      resultGroupID: readRequiredString(
+        row.result_group_id,
+        "replacement_result_group_marks.result_group_id",
+      ),
+      markID: readRequiredString(row.mark_id, "replacement_result_group_marks.mark_id"),
+      linkKind: readRequiredString(
+        row.link_kind,
+        "replacement_result_group_marks.link_kind",
+      ) as ReplacementResultGroupMarkLinkKind,
+      createdAtMs: readRequiredNumber(
+        row.created_at_ms,
+        "replacement_result_group_marks.created_at_ms",
       ),
     };
   }

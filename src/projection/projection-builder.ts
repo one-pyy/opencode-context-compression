@@ -1,4 +1,6 @@
 import type {
+  ReplacementResultGroupItemRecord,
+  ReplacementResultGroupMarkLinkRecord,
   ReplacementMarkLinkRecord,
   ReplacementRecord,
   SourceSnapshotMessageRecord,
@@ -39,7 +41,9 @@ export interface ProjectionBuildResult {
 interface AppliedReplacementSpan {
   readonly replacement: ReplacementRecord;
   readonly sourceMessages: readonly SourceSnapshotMessageRecord[];
-  readonly links: readonly ReplacementMarkLinkRecord[];
+  readonly links:
+    | readonly ReplacementResultGroupMarkLinkRecord[]
+    | readonly ReplacementMarkLinkRecord[];
   readonly hiddenToolCallMessageIDs: readonly string[];
   readonly startIndex: number;
   readonly endIndex: number;
@@ -145,15 +149,17 @@ function collectAppliedReplacementSpans(
   for (const mark of store
     .listMarks()
     .filter((mark) => mark.status !== "invalid")) {
-    const replacement = store.findLatestCommittedReplacementForMark(mark.markID);
-    if (
-      replacement === undefined ||
-      seenReplacementIDs.has(replacement.replacementID)
-    ) {
+    const resultGroup = store.getReplacementResultGroup?.(mark.markID);
+    if (resultGroup?.completeness !== "complete") {
       continue;
     }
 
-    const candidate = createAppliedReplacementSpan(replacement, policy, store);
+    const replacement = resolveAppliedReplacementRecord(store, mark.markID);
+    if (replacement === undefined || seenReplacementIDs.has(replacement.replacementID)) {
+      continue;
+    }
+
+    const candidate = createAppliedReplacementSpan(mark.markID, replacement, policy, store);
     if (candidate === undefined) {
       continue;
     }
@@ -194,6 +200,7 @@ function collectAppliedReplacementSpans(
 }
 
 function createAppliedReplacementSpan(
+  markID: string,
   replacement: ReplacementRecord,
   policy: ProjectionPolicy,
   store: SqliteSessionStateStore,
@@ -205,9 +212,7 @@ function createAppliedReplacementSpan(
     return undefined;
   }
 
-  const sourceMessages = store.listReplacementSourceMessages(
-    replacement.replacementID,
-  );
+  const sourceMessages = resolveAppliedSourceMessages(store, markID, replacement);
   if (sourceMessages.length === 0) {
     return undefined;
   }
@@ -238,7 +243,9 @@ function createAppliedReplacementSpan(
     return undefined;
   }
 
-  const links = store.listReplacementMarkLinks(replacement.replacementID);
+  const links =
+    store.listReplacementResultGroupMarkLinks?.(markID) ??
+    store.listReplacementMarkLinks(replacement.replacementID);
   const hiddenToolCallMessageIDs = links
     .map((link) => store.getMark(link.markID)?.toolCallMessageID)
     .filter(
@@ -263,6 +270,34 @@ function createAppliedReplacementSpan(
     endIndex: indexes[indexes.length - 1] ?? 0,
     visibleMessageID: referableIdentity.visibleMessageID,
   };
+}
+
+function resolveAppliedReplacementRecord(
+  store: SqliteSessionStateStore,
+  markID: string,
+): ReplacementRecord | undefined {
+  const groupItems =
+    store.listReplacementResultGroupItems?.(markID) ??
+    ([] as readonly ReplacementResultGroupItemRecord[]);
+  const replacementID = groupItems[0]?.replacementID;
+  if (replacementID !== undefined) {
+    return store.getReplacement(replacementID);
+  }
+
+  return store.findLatestCommittedReplacementForMark(markID);
+}
+
+function resolveAppliedSourceMessages(
+  store: SqliteSessionStateStore,
+  markID: string,
+  replacement: ReplacementRecord,
+): readonly SourceSnapshotMessageRecord[] {
+  const firstGroupItem = store.listReplacementResultGroupItems?.(markID)?.[0];
+  if (firstGroupItem?.sourceSnapshotID !== undefined) {
+    return store.listSourceSnapshotMessages(firstGroupItem.sourceSnapshotID);
+  }
+
+  return store.listReplacementSourceMessages(replacement.replacementID);
 }
 
 function rangeOverlaps(

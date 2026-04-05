@@ -22,3 +22,13 @@
 ## 2026-04-06 T2 repair
 - repair 明确撤销了“`allowDelete: args.mode === \"delete\"`”这种过度绑定；内部兼容持久位改为从当前 admission seam 派生，确保 T2 只做公共契约与 admission，不借机决定 compact mark 的长期 delete 能力。
 - docs 变更未被证明为本次 repair 的必要条件，因此回退 `README.md` 与 `readme.zh.md`，把文档统一留回后续专门任务处理。
+
+## 2026-04-06 T3 Sidecar 数据模型与 Schema 重构
+- 本次 schema/store 的主模型裁决是：SQLite 的主真相入口收敛为“`mark id -> 完整 replacement result group` + runtime state”，直接对应 `DESIGN.md:868-874`、`1122-1125`、`1266-1283`；但考虑 `conflict-audit.md` 的冲突 1/2，旧 `marks/source_snapshots/replacements` 不做一次性清除，而是降级为兼容迁移层与当前消费层过渡承载。
+- 新增 `replacement_result_groups` / `replacement_result_group_items` / `replacement_result_group_marks` 的原因不是扩 sidecar，而是把原本散落在 `replacements + replacement_mark_links` 里的“mark id 对应完整结果组”语义显式化；当前一条 legacy replacement 迁移成一组单 item，后续多 item 结果组仍可在不改 schema 的前提下落地。
+- `mark_runtime_state` 保留 `active/consumed/invalid`、tool-call 关联与少量 metadata，目的是给 T4 的历史重放提供“必要运行时缓存/执行元数据”，而不是继续把 mark 当 sidecar 主业务真相。
+- reminder / visible-id / compressing / job 的 sidecar 职责在 T3 只做 schema/store 承载补齐，不扩展到新的 projection 主链路；因此 `reminder_state` 只落 runtime state 存储接口，不在本任务内实现新的 reminder history replay 逻辑。
+
+## 2026-04-06 T3 repair
+- `mark id -> replacement result group` 的 store API 语义最终以 `replacement_result_group_marks` 为 lookup bridge，而不是 `primary_mark_id` 单字段。`primary_mark_id` 继续保留为组内 canonical mark / 排序字段，但不再是唯一有效查询入口。
+- 对历史库的 migration 修复采用最小稳定规则：每个 legacy replacement 的最早 consumed link 记为 `primary`，其余 links 记为 `consumed`；这只是兼容层语义修复，不等同于 T4 中基于历史重放的最终树结构裁决。

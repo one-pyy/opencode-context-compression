@@ -18,6 +18,7 @@ export interface OpenSessionDatabaseOptions {
 export interface SessionDatabaseHandle {
   readonly database: SqliteDatabase;
   readonly databasePath: string;
+  readonly schemaVersion: number;
   close(): void;
 }
 
@@ -54,11 +55,12 @@ export function openSessionDatabase(options: OpenSessionDatabaseOptions): Sessio
 
   database.exec("PRAGMA journal_mode = WAL");
   database.exec(`PRAGMA busy_timeout = ${normalizeBusyTimeoutMs(options.busyTimeoutMs)}`);
-  applyStateSchemaMigrations(database, options.now);
+  const schemaVersion = applyStateSchemaMigrations(database, options.now);
 
   return {
     database,
     databasePath,
+    schemaVersion,
     close() {
       if (database.isOpen) {
         database.close();
