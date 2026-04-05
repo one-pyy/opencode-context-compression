@@ -29,3 +29,7 @@
 
 ## 2026-04-06 T6 repair：same-model retry before fallback
 - repair 采用的最小策略是：仅对当前已验证的 hard output validation failure（`missing-required-placeholders`）启用一次同模型重试，然后才允许 fallback 到下一个模型。其他 transport / source / stale 类失败仍保持现有终止或直接 fallback 行为，避免让 repair 越界扩散到整条失败分类系统。
+
+## 2026-04-06 T7 Scheduler / Gate / Batch Freeze / 运行时门闩对齐
+- T7 对齐后，等待中的普通对话既可能在“lock 文件仍处于 `succeeded` / `failed` 终态时”解除等待，也可能在“lock 文件已清、send-entry gate 回看 persisted batch 状态时”解除等待；这是 runner 先 settle 再 clear 带来的合法 race，不应再让测试把来源硬编码成唯一的 `compaction-batch` 分支。
+- 当前仓库依然没有 build script；T7 的验证已按现状使用 `lsp_diagnostics`、相关 runtime/e2e tests、`npm run typecheck` 和 `npm test`，没有把“补 build 命令”顺手并进本任务。

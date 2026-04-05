@@ -220,6 +220,42 @@ test("manual lock-file removal wakes ordinary chat without masquerading as succe
   });
 });
 
+test("settled lock state is visible before manual cleanup removes the file", async () => {
+  await withTempLockDirectory(async (lockDirectory) => {
+    await acquireSessionFileLock({
+      lockDirectory,
+      sessionID: "session-terminal-visible",
+    });
+
+    await settleSessionFileLock({
+      lockDirectory,
+      sessionID: "session-terminal-visible",
+      status: "succeeded",
+      note: "finished-before-clear",
+    });
+
+    const settledState = await readSessionFileLock({
+      lockDirectory,
+      sessionID: "session-terminal-visible",
+    });
+    assert.equal(settledState.kind, "succeeded");
+    if (settledState.kind === "succeeded") {
+      assert.equal(settledState.record.note, "finished-before-clear");
+    }
+
+    await releaseSessionFileLock({
+      lockDirectory,
+      sessionID: "session-terminal-visible",
+    });
+
+    const clearedState = await readSessionFileLock({
+      lockDirectory,
+      sessionID: "session-terminal-visible",
+    });
+    assert.equal(clearedState.kind, "unlocked");
+  });
+});
+
 test("readSessionFileLock tolerates a transient partial lock rewrite but still returns the final record", async () => {
   await withTempLockDirectory(async (lockDirectory) => {
     const sessionID = "session-partial-rewrite";

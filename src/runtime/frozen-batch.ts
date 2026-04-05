@@ -6,10 +6,10 @@ export interface FrozenBatch<T> {
   has(memberID: string): boolean;
 }
 
-export function freezeBatch<T>(
+export function freezeBatchAt<T>(
   members: readonly T[],
   identifyMember: (member: T) => string,
-  now: () => number = Date.now,
+  frozenAtMs: number,
 ): FrozenBatch<T> {
   const snapshot = Object.freeze([...members]);
   const memberIDs = Object.freeze(
@@ -18,7 +18,7 @@ export function freezeBatch<T>(
   const memberIDSet = new Set(memberIDs);
 
   return Object.freeze({
-    frozenAtMs: now(),
+    frozenAtMs,
     members: snapshot,
     memberIDs,
     size: snapshot.length,
@@ -26,4 +26,12 @@ export function freezeBatch<T>(
       return memberIDSet.has(memberID);
     },
   });
+}
+
+export function freezeBatch<T>(
+  members: readonly T[],
+  identifyMember: (member: T) => string,
+  now: () => number = Date.now,
+): FrozenBatch<T> {
+  return freezeBatchAt(members, identifyMember, now());
 }

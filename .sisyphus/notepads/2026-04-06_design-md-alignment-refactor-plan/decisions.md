@@ -55,3 +55,9 @@
 
 ## 2026-04-06 T6 repair：same-model retry before fallback
 - 决定：在仓库尚未冻结 per-model retry config surface 的前提下，runner 先用局部默认值为 hard output validation failure 提供一次 same-model retry；只有当前模型重试耗尽后，才进入下一个 fallback 模型。
+
+## 2026-04-06 T7 Scheduler / Gate / Batch Freeze / 运行时门闩对齐
+- 决定：普通对话等待入口继续唯一落在 `send-entry gate`。`chat.params` 只允许承担 live `compressing` 读取、调度后台 compaction job、以及少量 runtime metadata；不重新承担普通聊天等待、prompt authoring 或 projection 改写职责。
+- 决定：lock 生命周期以 file-lock 为实时权威，但终态语义允许有“先 settle 再 clear”的短窗口。也就是说，普通对话只要观察到 live lock 已进入 `succeeded` / `failed`、超时 stale、手工清锁、或文件已移除且 batch 已终态，就都可以继续；测试不得再把“必须先删 lock 文件”当作额外契约。
+- 决定：dispatch freeze 边界以 `frozenAtMs` 为准，而不是以调度前拿到的一份内存数组快照为准。实现上先建立 dispatch/lock，再从持久 active mark 集中筛出 `createdAtMs <= frozenAtMs` 的成员写入 `compaction_batch_marks`；late mark 不需要额外 branching，自然进入下一批。
+- 决定：T7 不扩展到 T8 文档统一收口。README / 设计文档措辞统一、更多操作员说明示例、以及对“终态 lock 窗口”的文档化表述仍明确留给 T8，而不是在本任务里继续改文档面。

@@ -10,7 +10,10 @@ import {
   type CompactionRunnerTransport,
 } from "../../src/compaction/runner.js";
 import { persistMark } from "../../src/marks/mark-service.js";
-import { readSessionFileLock } from "../../src/runtime/file-lock.js";
+import {
+  readSessionFileLock,
+  settleSessionFileLock,
+} from "../../src/runtime/file-lock.js";
 import {
   createSqliteSessionStateStore,
   type SqliteSessionStateStore,
@@ -172,6 +175,64 @@ test("runCompactionBatch preserves marks and clears the lock when the full model
       now: () => clock.current,
     });
     assert.equal(lockState.kind, "unlocked");
+  });
+});
+
+test("runCompactionBatch writes terminal lock status before clearing the lock file", async () => {
+  await withTempEnvironment(async ({ store, clock, lockDirectory }) => {
+    seedKeepMark(store, clock, "mark-keep-lock-lifecycle");
+    let observedFailedLockState:
+      | Awaited<ReturnType<typeof readSessionFileLock>>
+      | undefined;
+    const transport = createSafeTransport(async () => {
+      await settleSessionFileLock({
+        lockDirectory,
+        sessionID: store.sessionID,
+        status: "failed",
+        settledAtMs: clock.tick(),
+        note: "probe-terminal-status",
+      });
+      observedFailedLockState = await readSessionFileLock({
+        lockDirectory,
+        sessionID: store.sessionID,
+        now: () => clock.current,
+      });
+      throw new CompactionTransportInvocationError(
+        "unavailable",
+        "provider unavailable after terminal probe",
+      );
+    });
+
+    const result = await runCompactionBatch({
+      store,
+      lockDirectory,
+      sessionID: store.sessionID,
+      promptText: "Produce a keep compaction result.",
+      models: ["model-a"],
+      transport,
+      loadCanonicalSourceMessages: createCanonicalLoader({
+        "src-1": "Assistant content.",
+        "src-2": "Tool content.",
+      }),
+      now: () => clock.tick(),
+    });
+
+    assert.equal(result.started, true);
+    if (!result.started) {
+      assert.fail("expected the compaction batch to start");
+    }
+
+    assert.equal(observedFailedLockState?.kind, "failed");
+    if (observedFailedLockState?.kind === "failed") {
+      assert.equal(observedFailedLockState.record.note, "probe-terminal-status");
+    }
+
+    const finalLockState = await readSessionFileLock({
+      lockDirectory,
+      sessionID: store.sessionID,
+      now: () => clock.current,
+    });
+    assert.equal(finalLockState.kind, "unlocked");
   });
 });
 

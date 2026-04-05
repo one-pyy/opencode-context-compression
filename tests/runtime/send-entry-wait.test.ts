@@ -9,6 +9,7 @@ import { persistMark } from "../../src/marks/mark-service.js";
 import {
   acquireSessionFileLock,
   releaseSessionFileLock,
+  settleSessionFileLock,
 } from "../../src/runtime/file-lock.js";
 import {
   ActiveCompactionLockError,
@@ -65,6 +66,11 @@ test("ordinary chat waits at send-entry while unrelated tools still run and resu
           batchID: frozen.persistedBatch.batchID,
           status: "succeeded",
         });
+        await settleSessionFileLock({
+          lockDirectory,
+          sessionID: store.sessionID,
+          status: "succeeded",
+        });
         await releaseSessionFileLock({
           lockDirectory,
           sessionID: store.sessionID,
@@ -74,10 +80,10 @@ test("ordinary chat waits at send-entry while unrelated tools still run and resu
       const outcome = await waitPromise;
       await release;
 
-      assert.deepEqual(outcome, {
-        outcome: "succeeded",
-        source: "compaction-batch",
-      });
+      assert.equal(outcome?.outcome, "succeeded");
+      assert.ok(
+        outcome?.source === "compaction-batch" || outcome?.source === "lock-file",
+      );
     },
   );
 });
@@ -107,6 +113,11 @@ test("ordinary chat stops waiting once the active batch reaches terminal failure
           batchID: frozen.persistedBatch.batchID,
           status: "failed",
         });
+        await settleSessionFileLock({
+          lockDirectory,
+          sessionID: store.sessionID,
+          status: "failed",
+        });
         await releaseSessionFileLock({
           lockDirectory,
           sessionID: store.sessionID,
@@ -120,10 +131,10 @@ test("ordinary chat stops waiting once the active batch reaches terminal failure
       });
       await release;
 
-      assert.deepEqual(outcome, {
-        outcome: "failed",
-        source: "compaction-batch",
-      });
+      assert.equal(outcome?.outcome, "failed");
+      assert.ok(
+        outcome?.source === "compaction-batch" || outcome?.source === "lock-file",
+      );
     },
   );
 });
@@ -193,6 +204,40 @@ test("ordinary chat stops waiting when the live lock ages past the configured ti
       assert.deepEqual(outcome, {
         outcome: "timed-out",
         source: "lock-file",
+      });
+    },
+  );
+});
+
+test("ordinary chat returns immediately from persisted failed lock state without entering a wait loop", async () => {
+  await withTempEnvironment(
+    async ({ pluginDirectory, lockDirectory, store }) => {
+      await acquireSessionFileLock({
+        lockDirectory,
+        sessionID: store.sessionID,
+      });
+      await settleSessionFileLock({
+        lockDirectory,
+        sessionID: store.sessionID,
+        status: "failed",
+        note: "terminal failure persisted before clear",
+      });
+
+      const outcome = await waitForOrdinaryChatGateIfNeeded({
+        pluginDirectory,
+        sessionID: store.sessionID,
+        pollIntervalMs: 0,
+        sleep: async () => {},
+      });
+
+      assert.deepEqual(outcome, {
+        outcome: "failed",
+        source: "lock-file",
+      });
+
+      await releaseSessionFileLock({
+        lockDirectory,
+        sessionID: store.sessionID,
       });
     },
   );

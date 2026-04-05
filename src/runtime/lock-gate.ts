@@ -9,7 +9,7 @@ import {
   type WaitForSessionFileLockOptions,
   waitForSessionFileLock,
 } from "./file-lock.js";
-import { freezeBatch, type FrozenBatch } from "./frozen-batch.js";
+import { freezeBatchAt, type FrozenBatch } from "./frozen-batch.js";
 
 export type LockGatePath = "ordinary-chat" | "dcp-mark-tool" | "non-dcp-tool";
 
@@ -52,6 +52,25 @@ export interface StartFrozenCompactionBatchOptions<
   readonly marks: readonly T[];
   readonly identifyMark: (mark: T) => string;
 }
+
+export type BeginFrozenCompactionDispatchResult =
+  | {
+      readonly started: true;
+      readonly frozenAtMs: number;
+      readonly lockPath: string;
+      readonly lock: Extract<
+        AcquireSessionFileLockResult,
+        { acquired: true }
+      >["record"];
+    }
+  | {
+      readonly started: false;
+      readonly lockPath: string;
+      readonly state: Extract<
+        AcquireSessionFileLockResult,
+        { acquired: false }
+      >["state"];
+    };
 
 export type StartFrozenCompactionBatchResult<T> =
   | {
@@ -121,15 +140,39 @@ export async function evaluateLockGate(
 export async function startFrozenCompactionBatch<T>(
   options: StartFrozenCompactionBatchOptions<T>,
 ): Promise<StartFrozenCompactionBatchResult<T>> {
-  const now = options.now ?? Date.now;
+  const dispatch = await beginFrozenCompactionDispatch(options);
+  if (!dispatch.started) {
+    return {
+      started: false,
+      lockPath: dispatch.lockPath,
+      state: dispatch.state,
+    };
+  }
 
-  const batch = freezeBatch(options.marks, options.identifyMark, now);
+  const batch = freezeBatchAt(
+    options.marks,
+    options.identifyMark,
+    dispatch.frozenAtMs,
+  );
+  return {
+    started: true,
+    batch,
+    lockPath: dispatch.lockPath,
+    lock: dispatch.lock,
+  };
+}
+
+export async function beginFrozenCompactionDispatch(
+  options: AcquireSessionFileLockOptions,
+): Promise<BeginFrozenCompactionDispatchResult> {
+  const now = options.now ?? Date.now;
+  const frozenAtMs = now();
   const lockResult = await acquireSessionFileLock({
     lockDirectory: options.lockDirectory,
     sessionID: options.sessionID,
     timeoutMs: options.timeoutMs,
     now,
-    startedAtMs: batch.frozenAtMs,
+    startedAtMs: frozenAtMs,
     note: options.note,
   });
 
@@ -143,7 +186,7 @@ export async function startFrozenCompactionBatch<T>(
 
   return {
     started: true,
-    batch,
+    frozenAtMs,
     lockPath: lockResult.lockPath,
     lock: lockResult.record,
   };

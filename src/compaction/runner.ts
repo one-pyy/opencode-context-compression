@@ -3,7 +3,7 @@ import {
   createCoverageTreeRoot,
   insertIntoCoverageTree,
 } from "../replay/coverage-tree.js";
-import { releaseSessionFileLock } from "../runtime/file-lock.js";
+import { settleAndReleaseSessionFileLock } from "../runtime/file-lock.js";
 import type { RuntimeEventWriter } from "../runtime/runtime-events.js";
 import type {
   CompactionBatchMarkRecord,
@@ -272,6 +272,7 @@ export async function runCompactionBatch(
   const jobResults: CompactionJobExecutionResult[] = [];
   let finalStatus: "succeeded" | "failed" = "succeeded";
   let finalGateNote = options.note;
+  let finalObservationRecorded = false;
 
   try {
     for (const batchMember of frozen.persistedMembers) {
@@ -342,6 +343,7 @@ export async function runCompactionBatch(
       },
       finalObservation,
     );
+    finalObservationRecorded = true;
 
     return {
       started: true,
@@ -351,11 +353,58 @@ export async function runCompactionBatch(
       jobs: jobResults,
       finalStatus,
     };
+  } catch (error) {
+    finalStatus = "failed";
+    finalGateNote =
+      error instanceof Error && error.message.length > 0
+        ? error.message
+        : String(error);
+
+    batch = finalizeBatchStatus(
+      options.store,
+      batchID,
+      finalStatus,
+      options.metadata,
+    );
+
+    if (!finalObservationRecorded) {
+      const failedObservation = options.store.recordRuntimeGateObservation({
+        observationID: gateObservationCounter.next(finalStatus),
+        observedState: finalStatus,
+        lockPath: frozen.lockPath,
+        startedAtMs: frozen.lock.startedAtMs,
+        settledAtMs: now(),
+        observedAtMs: now(),
+        activeJobCount: 0,
+        note: finalGateNote,
+        metadata: options.metadata,
+      });
+      options.runtimeEvents?.recordRuntimeGateObservation(
+        {
+          observationID: failedObservation.observationID,
+          observedState: finalStatus,
+          lockPath: frozen.lockPath,
+          startedAtMs: frozen.lock.startedAtMs,
+          settledAtMs: failedObservation.settledAtMs,
+          observedAtMs: failedObservation.observedAtMs,
+          activeJobCount: 0,
+          note: finalGateNote,
+          metadata: options.metadata,
+        },
+        failedObservation,
+      );
+      finalObservationRecorded = true;
+    }
+
+    throw error;
   } finally {
     const releasedAtMs = now();
-    await releaseSessionFileLock({
+    await settleAndReleaseSessionFileLock({
       lockDirectory: options.lockDirectory,
       sessionID: options.sessionID,
+      status: finalStatus,
+      settledAtMs: releasedAtMs,
+      note: finalGateNote,
     });
 
     const unlockedObservation = options.store.recordRuntimeGateObservation({

@@ -123,6 +123,9 @@ export interface WaitForSessionFileLockOptions extends SessionFileLockOptions {
   readonly sleep?: (ms: number) => Promise<void>;
 }
 
+export interface SettleAndReleaseSessionFileLockOptions
+  extends SettleSessionFileLockOptions {}
+
 export type AcquireSessionFileLockResult =
   | {
       readonly acquired: true;
@@ -323,6 +326,14 @@ export async function releaseSessionFileLock(
     options.sessionID,
   );
   await rm(lockPath, { force: true });
+}
+
+export async function settleAndReleaseSessionFileLock(
+  options: SettleAndReleaseSessionFileLockOptions,
+): Promise<SessionFileLockRecord | undefined> {
+  const record = await settleSessionFileLock(options);
+  await releaseSessionFileLock(options);
+  return record;
 }
 
 export async function waitForSessionFileLock(

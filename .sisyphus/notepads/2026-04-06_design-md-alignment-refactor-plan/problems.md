@@ -12,3 +12,7 @@
 ## 2026-04-06 T6 Compaction 输入 / Runner / Transport / 失败语义对齐
 - 新增 e2e 一开始尝试通过公共 `compression_mark` 工具构造“outer compact 覆盖 inner compact referable block”场景，但当前公共工具契约只允许选择连续 `compressible` canonical span，不能直接选 referable compact block 本身；为避免把 T6 误扩成 T2/T7 工具契约重写，最终改为 sidecar 预置 inner committed result + outer active mark 的 integration-style e2e，直接验证 runner/input/placeholder/failure contract。
 - 为了不偷裁决 `allowDelete` 的长期语义，runner 执行模式改为优先读取 mark metadata 里的 `mode`；这要求测试夹具显式给 mark metadata 补 mode，否则旧夹具会继续落回 `allowDelete -> executionMode` 的兼容回退路径。
+
+## 2026-04-06 T7 Scheduler / Gate / Batch Freeze / 运行时门闩对齐
+- T7 已把 send-entry wait / batch freeze / lock lifecycle 收到当前 DESIGN 语义，但“这些 runtime 细节如何在 README / 设计辅助文档里统一讲清楚”仍未在本任务内处理；尤其是“lock 终态短暂可见后再 clear”的 operator-facing 说明，明确留给 T8 文档统一收口。
+- 当前 batch freeze 仍依赖持久 mark `createdAtMs` 作为 dispatch cut line，而不是完全从宿主历史 replay 时间戳直接导出；这满足 T7 的运行时门控行为，但若后续要把 mark membership 的时间边界也彻底统一到 replay 主链，需要在不回退当前行为的前提下另开后续任务处理。

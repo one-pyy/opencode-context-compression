@@ -20,8 +20,10 @@ import {
 import { persistMark } from "../../src/marks/mark-service.js";
 import { createChatParamsSchedulerHook } from "../../src/runtime/chat-params-scheduler.js";
 import {
+  acquireSessionFileLock,
   readSessionFileLock,
   releaseSessionFileLock,
+  settleSessionFileLock,
 } from "../../src/runtime/file-lock.js";
 import { waitForOrdinaryChatGateIfNeeded } from "../../src/runtime/send-entry-gate.js";
 import { createSqliteSessionStateStore } from "../../src/state/store.js";
@@ -884,6 +886,11 @@ test("ordinary chat waits during the running lock, unrelated tools continue, and
         ),
         [firstToolOutput],
       );
+      const runningLockState = await readSessionFileLock({
+        lockDirectory: join(tempDirectory, "locks"),
+        sessionID,
+      });
+      assert.equal(runningLockState.kind, "running");
       assert.deepEqual(
         querySqlite(
           databasePath,
@@ -894,10 +901,19 @@ test("ordinary chat waits during the running lock, unrelated tools continue, and
 
       releaseFirstTransport?.();
       const waitOutcome = await waitPromise;
-      assert.deepEqual(waitOutcome, {
-        outcome: "succeeded",
-        source: "compaction-batch",
+      assert.equal(waitOutcome?.outcome, "succeeded");
+      assert.ok(
+        waitOutcome?.source === "compaction-batch" ||
+          waitOutcome?.source === "lock-file",
+      );
+      const clearedLockState = await readSessionFileLock({
+        lockDirectory: join(tempDirectory, "locks"),
+        sessionID,
       });
+      assert.ok(
+        clearedLockState.kind === "unlocked" ||
+          clearedLockState.kind === "succeeded",
+      );
       assert.deepEqual(
         querySqlite(
           databasePath,
@@ -970,6 +986,41 @@ test("ordinary chat waits during the running lock, unrelated tools continue, and
       );
     },
   );
+});
+
+test("send-entry gate surfaces persisted terminal lock failure before operator cleanup in e2e wiring", async () => {
+  await withLoadedPluginFixture(async ({ tempDirectory }) => {
+    const sessionID = "test-session";
+    const lockDirectory = join(tempDirectory, "locks");
+
+    await acquireSessionFileLock({
+      lockDirectory,
+      sessionID,
+    });
+    await settleSessionFileLock({
+      lockDirectory,
+      sessionID,
+      status: "failed",
+      note: "persisted-terminal-failure",
+    });
+
+    const outcome = await waitForOrdinaryChatGateIfNeeded({
+      pluginDirectory: tempDirectory,
+      sessionID,
+      pollIntervalMs: 0,
+      sleep: async () => {},
+    });
+
+    assert.deepEqual(outcome, {
+      outcome: "failed",
+      source: "lock-file",
+    });
+
+    await releaseSessionFileLock({
+      lockDirectory,
+      sessionID,
+    });
+  });
 });
 
 async function withLoadedPluginFixture(

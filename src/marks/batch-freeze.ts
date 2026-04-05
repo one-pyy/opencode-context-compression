@@ -3,7 +3,8 @@ import {
   releaseSessionFileLock,
   type AcquireSessionFileLockResult,
 } from "../runtime/file-lock.js";
-import { startFrozenCompactionBatch } from "../runtime/lock-gate.js";
+import { freezeBatchAt } from "../runtime/frozen-batch.js";
+import { beginFrozenCompactionDispatch } from "../runtime/lock-gate.js";
 import type {
   CompactionBatchMarkRecord,
   CompactionBatchRecord,
@@ -53,32 +54,42 @@ export type FreezeCurrentCompactionBatchResult =
 export async function freezeCurrentCompactionBatch(
   options: FreezeCurrentCompactionBatchOptions,
 ): Promise<FreezeCurrentCompactionBatchResult> {
-  const activeMarks = options.store.listMarks({ status: "active" });
-  if (activeMarks.length === 0) {
+  const dispatch = await beginFrozenCompactionDispatch({
+    lockDirectory: options.lockDirectory,
+    sessionID: options.sessionID,
+    note: options.note,
+    now: options.now,
+    timeoutMs: options.timeoutMs,
+  });
+
+  if (!dispatch.started) {
+    return {
+      started: false,
+      reason: "active-compaction-lock",
+      lockPath: dispatch.lockPath,
+      state: dispatch.state,
+    };
+  }
+
+  const frozenMembers = options.store
+    .listMarks({ status: "active" })
+    .filter((mark) => mark.createdAtMs <= dispatch.frozenAtMs);
+  if (frozenMembers.length === 0) {
+    await releaseSessionFileLock({
+      lockDirectory: options.lockDirectory,
+      sessionID: options.sessionID,
+    });
     return {
       started: false,
       reason: "no-active-marks",
     };
   }
 
-  const startResult = await startFrozenCompactionBatch({
-    lockDirectory: options.lockDirectory,
-    sessionID: options.sessionID,
-    marks: activeMarks,
-    identifyMark: (mark) => mark.markID,
-    note: options.note,
-    now: options.now,
-    timeoutMs: options.timeoutMs,
-  });
-
-  if (!startResult.started) {
-    return {
-      started: false,
-      reason: "active-compaction-lock",
-      lockPath: startResult.lockPath,
-      state: startResult.state,
-    };
-  }
+  const runtimeBatch = freezeBatchAt(
+    frozenMembers,
+    (mark) => mark.markID,
+    dispatch.frozenAtMs,
+  );
 
   try {
     const persistedBatch = options.store.createCompactionBatch({
@@ -86,20 +97,20 @@ export async function freezeCurrentCompactionBatch(
       canonicalRevision:
         options.canonicalRevision ??
         options.store.getSessionState().lastCanonicalRevision,
-      frozenAtMs: startResult.batch.frozenAtMs,
+      frozenAtMs: runtimeBatch.frozenAtMs,
       metadata: options.metadata,
-      markIDs: startResult.batch.memberIDs,
+      markIDs: runtimeBatch.memberIDs,
     });
 
     return {
       started: true,
-      runtimeBatch: startResult.batch,
+      runtimeBatch,
       persistedBatch,
       persistedMembers: options.store.listCompactionBatchMarks(
         persistedBatch.batchID,
       ),
-      lockPath: startResult.lockPath,
-      lock: startResult.lock,
+      lockPath: dispatch.lockPath,
+      lock: dispatch.lock,
     };
   } catch (error) {
     // Clear the lock if SQLite persistence fails so ordinary chat is not blocked by a batch that never existed.

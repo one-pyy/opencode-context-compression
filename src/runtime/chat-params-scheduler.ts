@@ -108,7 +108,7 @@ async function runSchedulerOnce(
       now: options.now,
       timeoutMs: options.timeoutMs,
     });
-    if (lockState.kind === "running") {
+    if (isLiveCompactionLock(lockState.kind)) {
       return;
     }
 
@@ -174,6 +174,12 @@ async function runSchedulerOnce(
   } finally {
     store.close();
   }
+}
+
+function isLiveCompactionLock(
+  kind: Awaited<ReturnType<typeof readSessionFileLock>>["kind"],
+): kind is "running" {
+  return kind === "running";
 }
 
 async function syncCanonicalSessionHistory(input: {

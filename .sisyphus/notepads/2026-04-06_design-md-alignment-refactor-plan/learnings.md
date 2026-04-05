@@ -47,3 +47,9 @@
 ## 2026-04-06 T6 repair：same-model retry before fallback
 - verified gap: hard output errors（尤其是 `missing-required-placeholders`）虽然已经被正确归类，但 runner 仍然是“一次失败就切下一模型”；repair 后 `src/compaction/runner.ts` 会先在当前模型上做一次最小同模型重试，再进入 ordered fallback chain。
 - 这次 repair 没有引入新的 runtime config 字段；当前仓库尚无冻结好的 per-model retry surface，因此只在 runner 内部使用局部默认值，并且只对 hard output validation failure 打开同模型重试，避免把修补扩成配置系统重写。
+
+## 2026-04-06 T7 Scheduler / Gate / Batch Freeze / 运行时门闩对齐
+- `chat.params` 现在继续保留为窄调度缝：它只读取当前 session 的 live file-lock、同步 canonical history 供 marked-token readiness 评估、并在 readiness 满足时触发后台 runner；普通对话等待没有回流到 `chat.params`，仍然只发生在 `src/runtime/send-entry-gate.ts`。
+- lock 生命周期已经按 `DESIGN.md:618-642` 落到运行时顺序：后台 batch 真正 dispatch 时建 lock；runner 结束时先把 lock 写成 `succeeded` / `failed` 终态，再清掉 lock 文件；后续普通请求因此可以因为“终态 lock 仍短暂可见”或“文件已清理并从 persisted batch 读出终态”两种路径继续，但两者的外部语义都一致地表示“已经不再被 live lock 阻塞”。
+- batch freeze 的关键不是 runtime 里给 late mark 写 special-case，而是把 dispatch 时间钉死到 `frozenAtMs`：`freezeCurrentCompactionBatch()` 先建立 dispatch/lock，再按 `createdAtMs <= frozenAtMs` 过滤持久 active mark 集持久化当前 batch；lock 期间新写入的 mark 自然留在下一轮，不会混入当前 batch 成员表。
+- 针对 T7，测试断言也从“必须经某条内部来源命中”收敛为“等待直到终态/超时/手工恢复后放行”的外部行为证明，避免让旧测试反向把 runtime 语义钉死成某个内部 race 顺序。

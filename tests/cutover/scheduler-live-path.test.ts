@@ -407,10 +407,11 @@ test("send-entry gate remains the wait authority", async () => {
       assert.equal(raceOutcome, "pending");
       releaseTransport?.();
       const waitOutcome = await waitPromise;
-      assert.deepEqual(waitOutcome, {
-        outcome: "succeeded",
-        source: "compaction-batch",
-      });
+      assert.equal(waitOutcome?.outcome, "succeeded");
+      assert.ok(
+        waitOutcome?.source === "compaction-batch" ||
+          waitOutcome?.source === "lock-file",
+      );
     },
   );
 });
