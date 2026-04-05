@@ -95,6 +95,43 @@ interface RuntimeConfigFile {
   readonly seamLogPath: string;
 }
 
+const RUNTIME_CONFIG_TOP_LEVEL_FIELDS = Object.freeze([
+  "$schema",
+  "version",
+  "promptPath",
+  "compactionModels",
+  "markedTokenAutoCompactionThreshold",
+  "smallUserMessageThreshold",
+  "reminder",
+  "logging",
+  "compressing",
+  "schedulerMarkThreshold",
+  "runtimeLogPath",
+  "seamLogPath",
+]);
+
+const RUNTIME_CONFIG_REMINDER_FIELDS = Object.freeze([
+  "hsoft",
+  "hhard",
+  "softRepeatEveryTokens",
+  "hardRepeatEveryTokens",
+  "promptPaths",
+]);
+
+const RUNTIME_CONFIG_REMINDER_PROMPT_PATHS_FIELDS = Object.freeze([
+  "compactOnly",
+  "deleteAllowed",
+]);
+
+const RUNTIME_CONFIG_REMINDER_PROMPT_VARIANT_FIELDS = Object.freeze([
+  "soft",
+  "hard",
+]);
+
+const RUNTIME_CONFIG_LOGGING_FIELDS = Object.freeze(["level"]);
+
+const RUNTIME_CONFIG_COMPRESSING_FIELDS = Object.freeze(["timeoutSeconds"]);
+
 export class OpencodeContextCompressionRuntimeConfigError extends Error {
   constructor(message: string) {
     super(`opencode-context-compression runtime config error: ${message}`);
@@ -140,7 +177,7 @@ export function loadRuntimeConfig(
     RUNTIME_CONFIG_ENV.debugSnapshotPath,
     repoRoot,
   );
-  const promptText = readPromptText(promptPath);
+  const promptText = readPromptText(promptPath, "compaction");
   const models = readModelsOverride(env, fileConfig.compactionModels);
 
   return {
@@ -201,6 +238,13 @@ function parseRuntimeConfigFile(
     );
   }
 
+  assertNoUnexpectedFields(
+    parsed,
+    configPath,
+    "root",
+    RUNTIME_CONFIG_TOP_LEVEL_FIELDS,
+  );
+
   const version = parsed.version;
   if (version !== 1) {
     throw new OpencodeContextCompressionRuntimeConfigError(
@@ -213,30 +257,66 @@ function parseRuntimeConfigFile(
     configPath,
     "reminder",
   );
+  assertNoUnexpectedFields(
+    reminderConfig,
+    configPath,
+    "reminder",
+    RUNTIME_CONFIG_REMINDER_FIELDS,
+  );
   const reminderPromptPaths = readOptionalRecord(
     reminderConfig?.promptPaths,
     configPath,
     "reminder.promptPaths",
+  );
+  assertNoUnexpectedFields(
+    reminderPromptPaths,
+    configPath,
+    "reminder.promptPaths",
+    RUNTIME_CONFIG_REMINDER_PROMPT_PATHS_FIELDS,
   );
   const reminderPromptPathsCompactOnly = readOptionalRecord(
     reminderPromptPaths?.compactOnly,
     configPath,
     "reminder.promptPaths.compactOnly",
   );
+  assertNoUnexpectedFields(
+    reminderPromptPathsCompactOnly,
+    configPath,
+    "reminder.promptPaths.compactOnly",
+    RUNTIME_CONFIG_REMINDER_PROMPT_VARIANT_FIELDS,
+  );
   const reminderPromptPathsDeleteAllowed = readOptionalRecord(
     reminderPromptPaths?.deleteAllowed,
     configPath,
     "reminder.promptPaths.deleteAllowed",
+  );
+  assertNoUnexpectedFields(
+    reminderPromptPathsDeleteAllowed,
+    configPath,
+    "reminder.promptPaths.deleteAllowed",
+    RUNTIME_CONFIG_REMINDER_PROMPT_VARIANT_FIELDS,
   );
   const loggingConfig = readOptionalRecord(
     parsed.logging,
     configPath,
     "logging",
   );
+  assertNoUnexpectedFields(
+    loggingConfig,
+    configPath,
+    "logging",
+    RUNTIME_CONFIG_LOGGING_FIELDS,
+  );
   const compressingConfig = readOptionalRecord(
     parsed.compressing,
     configPath,
     "compressing",
+  );
+  assertNoUnexpectedFields(
+    compressingConfig,
+    configPath,
+    "compressing",
+    RUNTIME_CONFIG_COMPRESSING_FIELDS,
   );
 
   const reminderHsoft =
@@ -291,10 +371,22 @@ function parseRuntimeConfigFile(
     repoRoot,
   );
 
-  const compactOnlySoftPromptText = readPromptText(compactOnlySoftPromptPath);
-  const compactOnlyHardPromptText = readPromptText(compactOnlyHardPromptPath);
-  const deleteAllowedSoftPromptText = readPromptText(deleteAllowedSoftPromptPath);
-  const deleteAllowedHardPromptText = readPromptText(deleteAllowedHardPromptPath);
+  const compactOnlySoftPromptText = readPromptText(
+    compactOnlySoftPromptPath,
+    "reminder",
+  );
+  const compactOnlyHardPromptText = readPromptText(
+    compactOnlyHardPromptPath,
+    "reminder",
+  );
+  const deleteAllowedSoftPromptText = readPromptText(
+    deleteAllowedSoftPromptPath,
+    "reminder",
+  );
+  const deleteAllowedHardPromptText = readPromptText(
+    deleteAllowedHardPromptPath,
+    "reminder",
+  );
   const timeoutSeconds =
     readOptionalPositiveInteger(
       compressingConfig?.timeoutSeconds,
@@ -395,7 +487,10 @@ function parseRuntimeConfigFile(
   };
 }
 
-function readPromptText(promptPath: string): string {
+function readPromptText(
+  promptPath: string,
+  promptKind: "compaction" | "reminder",
+): string {
   if (!existsSync(promptPath)) {
     throw new OpencodeContextCompressionRuntimeConfigError(
       `Missing prompt asset at '${promptPath}'. No builtin prompt fallback is supported.`,
@@ -417,7 +512,36 @@ function readPromptText(promptPath: string): string {
     );
   }
 
+  if (promptKind === "reminder" && /\{\{[^{}]+\}\}/u.test(promptText)) {
+    throw new OpencodeContextCompressionRuntimeConfigError(
+      `Reminder prompt asset '${promptPath}' must be plain text and must not contain template placeholders.`,
+    );
+  }
+
   return promptText;
+}
+
+function assertNoUnexpectedFields(
+  value: Record<string, unknown> | undefined,
+  configPath: string,
+  fieldName: string,
+  allowedFields: readonly string[],
+): void {
+  if (value === undefined) {
+    return;
+  }
+
+  const allowedFieldSet = new Set(allowedFields);
+  const unexpectedField = Object.keys(value).find(
+    (entry) => !allowedFieldSet.has(entry),
+  );
+  if (unexpectedField === undefined) {
+    return;
+  }
+
+  throw new OpencodeContextCompressionRuntimeConfigError(
+    `Runtime config '${configPath}' field '${fieldName}' contains unsupported property '${unexpectedField}'.`,
+  );
 }
 
 function readModelsOverride(

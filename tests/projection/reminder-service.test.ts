@@ -50,7 +50,7 @@ test("reminder service derives a stable hard reminder from canonical history wit
     });
 
     const policy = buildProjectionPolicy({ messages, store });
-    const templates = {
+    const texts = {
       soft: "Soft reminder text.",
       hard: "Hard reminder text.",
     };
@@ -60,7 +60,7 @@ test("reminder service derives a stable hard reminder from canonical history wit
         hsoft: 60,
         hhard: 120,
       },
-      templates,
+      texts,
       modelName: "gpt-5",
     });
     const second = deriveReminder({
@@ -69,7 +69,7 @@ test("reminder service derives a stable hard reminder from canonical history wit
         hsoft: 60,
         hhard: 120,
       },
-      templates,
+      texts,
       modelName: "gpt-5",
     });
 
@@ -108,7 +108,7 @@ test("reminder service returns no artifact before thresholds are crossed", async
         hsoft: 50,
         hhard: 60,
       },
-      templates: { soft: "Soft.", hard: "Hard." },
+        texts: { soft: "Soft.", hard: "Hard." },
       modelName: "gpt-5",
     });
 
@@ -142,7 +142,7 @@ test("reminder counter repeatEvery changes when soft reminders are due", async (
     });
 
     const policy = buildProjectionPolicy({ messages, store });
-    const templates = { soft: "Soft.", hard: "Hard." };
+    const texts = { soft: "Soft.", hard: "Hard." };
     const dueReminder = deriveReminder({
       policy,
       cadence: {
@@ -151,7 +151,7 @@ test("reminder counter repeatEvery changes when soft reminders are due", async (
         softRepeatEveryTokens: 2,
         hardRepeatEveryTokens: 1,
       },
-      templates,
+      texts,
       modelName: "gpt-5",
     });
     const skippedReminder = deriveReminder({
@@ -162,7 +162,7 @@ test("reminder counter repeatEvery changes when soft reminders are due", async (
         softRepeatEveryTokens: 3,
         hardRepeatEveryTokens: 1,
       },
-      templates,
+      texts,
       modelName: "gpt-5",
     });
 
@@ -202,7 +202,7 @@ test("reminder token cadence increases the anchor only when the next token miles
     });
 
     const policy = buildProjectionPolicy({ messages, store });
-    const templates = { soft: "Soft.", hard: "Hard." };
+    const texts = { soft: "Soft.", hard: "Hard." };
     const eligibleReminder = deriveReminder({
       policy,
       cadence: {
@@ -211,7 +211,7 @@ test("reminder token cadence increases the anchor only when the next token miles
         softRepeatEveryTokens: 3,
         hardRepeatEveryTokens: 1,
       },
-      templates,
+      texts,
       modelName: "gpt-5",
     });
     const assistantReminder = deriveReminder({
@@ -222,7 +222,7 @@ test("reminder token cadence increases the anchor only when the next token miles
         softRepeatEveryTokens: 300,
         hardRepeatEveryTokens: 1,
       },
-      templates,
+      texts,
       modelName: "gpt-5",
     });
 
@@ -262,7 +262,7 @@ test("reminder thresholds ignore explicit tokenCount fields when tokenizer-based
         hsoft: 20,
         hhard: 999,
       },
-      templates: { soft: "Soft.", hard: "Hard." },
+        texts: { soft: "Soft.", hard: "Hard." },
       modelName: "gpt-5",
     });
 
@@ -299,7 +299,7 @@ test("reminder threshold tokenization fails fast when tokenizer resolution fails
             hsoft: 1,
             hhard: 2,
           },
-          templates: { soft: "Soft.", hard: "Hard." },
+          texts: { soft: "Soft.", hard: "Hard." },
           modelName: "unsupported-threshold-model",
         }),
       (error: unknown) => {

@@ -171,7 +171,7 @@ test("projection builder renders committed delete replacements as minimal refera
   });
 });
 
-test("projection builder renders reminder artifacts from template config", async () => {
+test("projection builder renders reminder artifacts from plain-text reminder config", async () => {
   await withTempStore(async (store, clock) => {
     const messages = [
       createEnvelope(

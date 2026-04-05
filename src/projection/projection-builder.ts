@@ -58,7 +58,7 @@ export function buildProjectedMessages(
     ? deriveReminder({
         policy,
         cadence: options.reminder,
-        templates: selectReminderTemplates(policy, options.store, options.reminder),
+        texts: selectReminderTexts(policy, options.store, options.reminder),
         modelName: options.reminderModelName,
       })
     : undefined;
@@ -368,7 +368,7 @@ function renderReminder(
   });
 }
 
-function selectReminderTemplates(
+function selectReminderTexts(
   policy: ProjectionPolicy,
   store: SqliteSessionStateStore,
   reminder: ReminderRuntimeConfig,

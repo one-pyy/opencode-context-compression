@@ -10,7 +10,7 @@ export interface ReminderCadence {
   readonly hardRepeatEveryTokens?: number;
 }
 
-export interface ReminderTemplates {
+export interface ReminderTexts {
   readonly soft: string;
   readonly hard: string;
 }
@@ -27,7 +27,7 @@ export interface DerivedReminder {
 export function deriveReminder(options: {
   readonly policy: ProjectionPolicy;
   readonly cadence?: ReminderCadence;
-  readonly templates: ReminderTemplates;
+  readonly texts: ReminderTexts;
   readonly modelName?: string;
 }): DerivedReminder | undefined {
   const cadence = normalizeReminderCadence(options.cadence);
@@ -43,7 +43,6 @@ export function deriveReminder(options: {
   );
 
   const hardReminderState = deriveReminderState(
-    eligibleMessages,
     eligibleMessageTokenCounts,
     cadence,
     "hard",
@@ -51,12 +50,11 @@ export function deriveReminder(options: {
   if (hardReminderState !== undefined) {
     const anchor = eligibleMessages[hardReminderState.anchorIndex];
     if (anchor !== undefined) {
-      return createReminder("hard", anchor, options.templates);
+        return createReminder("hard", anchor, options.texts);
     }
   }
 
   const softReminderState = deriveReminderState(
-    eligibleMessages,
     eligibleMessageTokenCounts,
     cadence,
     "soft",
@@ -64,7 +62,7 @@ export function deriveReminder(options: {
   if (softReminderState !== undefined) {
     const anchor = eligibleMessages[softReminderState.anchorIndex];
     if (anchor !== undefined) {
-      return createReminder("soft", anchor, options.templates);
+        return createReminder("soft", anchor, options.texts);
     }
   }
 
@@ -115,7 +113,6 @@ function normalizePositiveInteger(
 }
 
 function deriveReminderState(
-  eligibleMessages: readonly ProjectionPolicy["messages"][number][],
   eligibleMessageTokenCounts: readonly number[],
   cadence: ReminderCadence,
   severity: ReminderSeverity,
@@ -179,7 +176,7 @@ function totalTokens(tokenCounts: readonly number[]): number {
 function createReminder(
   severity: ReminderSeverity,
   anchor: ProjectionPolicy["messages"][number],
-  templates: ReminderTemplates,
+  texts: ReminderTexts,
 ): DerivedReminder {
   return {
     severity,
@@ -187,6 +184,6 @@ function createReminder(
     anchorVisibleMessageID: anchor.visible.visibleMessageID,
     visibleMessageID: `${anchor.visible.visibleMessageID}.${severity}`,
     anchorIndex: anchor.index,
-    text: severity === "hard" ? templates.hard : templates.soft,
+    text: severity === "hard" ? texts.hard : texts.soft,
   };
 }

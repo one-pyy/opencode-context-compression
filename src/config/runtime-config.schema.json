@@ -32,7 +32,7 @@
         "type": "string",
         "minLength": 1
       },
-      "description": "Ordered compaction model chain."
+      "description": "Ordered compaction model chain used for retry/fallback."
     },
     "markedTokenAutoCompactionThreshold": {
       "$ref": "#/$defs/positiveInteger",
@@ -44,7 +44,7 @@
     },
     "schedulerMarkThreshold": {
       "$ref": "#/$defs/positiveInteger",
-      "description": "Internal/test compatibility knob for mark-count scheduling."
+      "description": "Internal/test compatibility threshold that still works by mark count, distinct from markedTokenAutoCompactionThreshold."
     },
     "runtimeLogPath": {
       "type": "string",
@@ -93,6 +93,7 @@
         "promptPaths": {
           "type": "object",
           "additionalProperties": false,
+          "description": "Plain-text reminder prompt asset paths keyed by severity × allowDelete.",
           "properties": {
             "compactOnly": {
               "$ref": "#/$defs/reminderPromptVariant"
@@ -113,6 +114,7 @@
     "reminderPromptVariant": {
       "type": "object",
       "additionalProperties": false,
+      "description": "Reminder prompt text paths for one allowDelete branch. These assets are plain text, not templates.",
       "properties": {
         "soft": {
           "type": "string",

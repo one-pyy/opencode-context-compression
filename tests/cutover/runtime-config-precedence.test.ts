@@ -31,6 +31,8 @@ test("repo-owned runtime config, prompt assets, and docs resolve from this repo 
   assert.ok(promptFiles.includes("prompts/reminder-soft-delete-allowed.md"));
   assert.ok(promptFiles.includes("prompts/reminder-hard-compact-only.md"));
   assert.ok(promptFiles.includes("prompts/reminder-hard-delete-allowed.md"));
+  assert.ok(!promptFiles.includes("prompts/reminder-soft.md"));
+  assert.ok(!promptFiles.includes("prompts/reminder-hard.md"));
   assert.equal(runtimeConfig.repoRoot, resolveRuntimeConfigRepoRoot());
   assert.match(
     runtimeConfig.configPath,
@@ -74,6 +76,10 @@ test("repo-owned runtime config, prompt assets, and docs resolve from this repo 
   assert.match(
     await readRepoFile("src/config/runtime-config.jsonc"),
     /"\$schema"\s*:\s*"\.\/runtime-config\.schema\.json"/u,
+  );
+  assert.doesNotMatch(
+    await readRepoFile("src/config/runtime-config.jsonc"),
+    /counter\.source|repeatEvery"\s*:/u,
   );
   assert.doesNotMatch(readme, /config\/dcp-runtime\.json/u);
   assert.doesNotMatch(readmeZh, /config\/dcp-runtime\.json/u);
@@ -293,22 +299,48 @@ test("empty env overrides and missing repo-owned assets fail fast with plugin-ow
 
   try {
     const runtimeConfigPath = join(tempDirectory, "runtime-config.json");
+    const missingCompactionPromptPath = join(
+      tempDirectory,
+      "prompts",
+      "missing.md",
+    );
+    const missingSoftCompactPromptPath = join(
+      tempDirectory,
+      "prompts",
+      "missing-soft.md",
+    );
+    const missingHardCompactPromptPath = join(
+      tempDirectory,
+      "prompts",
+      "missing-hard.md",
+    );
+    const missingSoftDeletePromptPath = join(
+      tempDirectory,
+      "prompts",
+      "missing-soft-delete.md",
+    );
+    const missingHardDeletePromptPath = join(
+      tempDirectory,
+      "prompts",
+      "missing-hard-delete.md",
+    );
+    await mkdir(join(tempDirectory, "prompts"), { recursive: true });
     await writeFile(
       runtimeConfigPath,
       JSON.stringify(
         {
           version: 1,
-          promptPath: "prompts/missing.md",
+          promptPath: missingCompactionPromptPath,
           compactionModels: ["config-primary"],
           reminder: {
             promptPaths: {
               compactOnly: {
-                soft: "prompts/missing-soft.md",
-                hard: "prompts/missing-hard.md",
+                soft: missingSoftCompactPromptPath,
+                hard: missingHardCompactPromptPath,
               },
               deleteAllowed: {
-                soft: "prompts/missing-soft-delete.md",
-                hard: "prompts/missing-hard-delete.md",
+                soft: missingSoftDeletePromptPath,
+                hard: missingHardDeletePromptPath,
               },
             },
           },
@@ -331,6 +363,134 @@ test("empty env overrides and missing repo-owned assets fail fast with plugin-ow
           error instanceof OpencodeContextCompressionRuntimeConfigError,
         );
         assert.match(String(error), /Missing prompt asset/u);
+        return true;
+      },
+    );
+
+    await writeFile(missingCompactionPromptPath, "Compaction prompt.\n", "utf8");
+    await writeFile(
+      missingSoftCompactPromptPath,
+      "{{legacy_placeholder}}\n",
+      "utf8",
+    );
+    await writeFile(
+      missingHardCompactPromptPath,
+      "Hard compact-only reminder.\n",
+      "utf8",
+    );
+    await writeFile(
+      missingSoftDeletePromptPath,
+      "Soft delete-allowed reminder.\n",
+      "utf8",
+    );
+    await writeFile(
+      missingHardDeletePromptPath,
+      "Hard delete-allowed reminder.\n",
+      "utf8",
+    );
+
+    assert.throws(
+      () =>
+        loadRuntimeConfig({
+          [RUNTIME_CONFIG_ENV.configPath]: runtimeConfigPath,
+        }),
+      (error: unknown) => {
+        assert.ok(
+          error instanceof OpencodeContextCompressionRuntimeConfigError,
+        );
+        assert.match(
+          String(error),
+          /Reminder prompt asset .* must be plain text and must not contain template placeholders/u,
+        );
+        return true;
+      },
+    );
+
+    await writeFile(
+      missingSoftCompactPromptPath,
+      "Soft compact-only reminder.\n",
+      "utf8",
+    );
+    await writeFile(missingHardDeletePromptPath, "   \n", "utf8");
+
+    assert.throws(
+      () =>
+        loadRuntimeConfig({
+          [RUNTIME_CONFIG_ENV.configPath]: runtimeConfigPath,
+        }),
+      (error: unknown) => {
+        assert.ok(
+          error instanceof OpencodeContextCompressionRuntimeConfigError,
+        );
+        assert.match(String(error), /must contain non-empty prompt text/u);
+        return true;
+      },
+    );
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("legacy reminder cadence fields and unsupported config properties are rejected", async () => {
+  const tempDirectory = await mkdtemp(
+    join(tmpdir(), "opencode-context-compression-runtime-config-legacy-fields-"),
+  );
+
+  try {
+    await mkdir(join(tempDirectory, "prompts"), { recursive: true });
+    await writeFile(join(tempDirectory, "prompts", "compaction.md"), "Compaction prompt.\n", "utf8");
+    await writeFile(join(tempDirectory, "prompts", "soft-compact.md"), "Soft compact-only reminder.\n", "utf8");
+    await writeFile(join(tempDirectory, "prompts", "hard-compact.md"), "Hard compact-only reminder.\n", "utf8");
+    await writeFile(join(tempDirectory, "prompts", "soft-delete.md"), "Soft delete-allowed reminder.\n", "utf8");
+    await writeFile(join(tempDirectory, "prompts", "hard-delete.md"), "Hard delete-allowed reminder.\n", "utf8");
+
+    const runtimeConfigPath = join(tempDirectory, "runtime-config.json");
+    await writeFile(
+      runtimeConfigPath,
+      JSON.stringify(
+        {
+          version: 1,
+          promptPath: join(tempDirectory, "prompts", "compaction.md"),
+          compactionModels: ["config-primary"],
+          reminder: {
+            hsoft: 5,
+            hhard: 8,
+            softRepeatEveryTokens: 4,
+            hardRepeatEveryTokens: 2,
+            counter: {
+              source: "messages",
+            },
+            promptPaths: {
+              compactOnly: {
+                soft: join(tempDirectory, "prompts", "soft-compact.md"),
+                hard: join(tempDirectory, "prompts", "hard-compact.md"),
+              },
+              deleteAllowed: {
+                soft: join(tempDirectory, "prompts", "soft-delete.md"),
+                hard: join(tempDirectory, "prompts", "hard-delete.md"),
+              },
+            },
+          },
+          runtimeLogPath: "logs/runtime.jsonl",
+          seamLogPath: "logs/seam.jsonl",
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf8",
+    );
+
+    assert.throws(
+      () =>
+        loadRuntimeConfig({
+          [RUNTIME_CONFIG_ENV.configPath]: runtimeConfigPath,
+        }),
+      (error: unknown) => {
+        assert.ok(error instanceof OpencodeContextCompressionRuntimeConfigError);
+        assert.match(
+          String(error),
+          /field 'reminder' contains unsupported property 'counter'/u,
+        );
         return true;
       },
     );

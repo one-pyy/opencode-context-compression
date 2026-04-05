@@ -1,6 +1,9 @@
 {
   "$schema": "./runtime-config.schema.json",
-  // Canonical repo-owned runtime config for local plugin development.
+  // Canonical repo-owned runtime settings file.
+  // `schedulerMarkThreshold` is an internal/test compatibility threshold by mark count.
+  // `markedTokenAutoCompactionThreshold` is the real readiness threshold by marked token total.
+  // Reminder repeat cadence is token-based only; legacy counter-driven reminder fields are not part of this contract.
   "version": 1,
   "promptPath": "prompts/compaction.md",
   "compactionModels": [
@@ -13,6 +16,7 @@
   "markedTokenAutoCompactionThreshold": 20000,
   "smallUserMessageThreshold": 1024,
   "reminder": {
+    // Reminder prompt assets are plain-text files selected by severity × allowDelete.
     "hsoft": 30000,
     "hhard": 70000,
     "softRepeatEveryTokens": 20000,
