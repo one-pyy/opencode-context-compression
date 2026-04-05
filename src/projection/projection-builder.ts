@@ -300,14 +300,15 @@ function renderCanonicalMessage(
 ): TransformEnvelope {
   const info = structuredClone(envelope.info);
   const parts = structuredClone(envelope.parts);
+  const role = readMessageRole(info);
 
-  applyRenderedTextPrefix(
-    parts,
-    info,
-    visibleState,
-    visibleMessageID,
-    readPrimaryMessageText(parts),
-  );
+  if (role === "assistant") {
+    renderAssistantMessage(parts, info, visibleState, visibleMessageID);
+  } else if (role === "tool") {
+    renderToolMessage(parts, info, visibleState, visibleMessageID);
+  } else {
+    renderPrefixedCanonicalMessage(parts, info, visibleState, visibleMessageID);
+  }
 
   return {
     info,
@@ -440,11 +441,126 @@ function applyRenderedTextPrefix(
   } as TransformPart);
 }
 
+function renderAssistantMessage(
+  parts: TransformPart[],
+  info: TransformMessage,
+  visibleState: Exclude<ProjectionVisibleState, "referable">,
+  visibleMessageID: string,
+): void {
+  const identityToken = renderVisibleIdentityToken(visibleState, visibleMessageID);
+  const firstTextPart = parts.find(isTextPart);
+  if (firstTextPart !== undefined) {
+    firstTextPart.text = prependRenderedToken(firstTextPart.text, identityToken);
+    return;
+  }
+
+  parts.unshift(createRenderedTextPart(info, `${info.id}:dcp-assistant-shell`, identityToken));
+}
+
+function renderToolMessage(
+  parts: TransformPart[],
+  info: TransformMessage,
+  visibleState: Exclude<ProjectionVisibleState, "referable">,
+  visibleMessageID: string,
+): void {
+  const identityToken = renderVisibleIdentityToken(visibleState, visibleMessageID);
+  const firstTextPart = parts.find(isTextPart);
+  if (firstTextPart !== undefined) {
+    firstTextPart.text = prependRenderedToken(firstTextPart.text, identityToken);
+    return;
+  }
+
+  const inputTextIndex = parts.findIndex(isInputTextPart);
+  if (inputTextIndex >= 0) {
+    parts.splice(
+      inputTextIndex,
+      0,
+      createRenderedInputTextPart(
+        info,
+        `${info.id}:dcp-input-prefix`,
+        identityToken,
+      ),
+    );
+    return;
+  }
+
+  parts.unshift(createRenderedTextPart(info, `${info.id}:dcp-prefix`, identityToken));
+}
+
+function renderPrefixedCanonicalMessage(
+  parts: TransformPart[],
+  info: TransformMessage,
+  visibleState: Exclude<ProjectionVisibleState, "referable">,
+  visibleMessageID: string,
+): void {
+  applyRenderedTextPrefix(
+    parts,
+    info,
+    visibleState,
+    visibleMessageID,
+    readPrimaryMessageText(parts),
+  );
+}
+
+function renderVisibleIdentityToken(
+  visibleState: ProjectionVisibleState,
+  visibleMessageID: string,
+): string {
+  return `[${visibleState}_${normalizeVisibleMessageIDForRender(visibleMessageID)}]`;
+}
+
+function prependRenderedToken(text: string | undefined, token: string): string {
+  return text && text.length > 0 ? `${token} ${text}` : token;
+}
+
+function createRenderedTextPart(
+  info: TransformMessage,
+  id: string,
+  text: string,
+): TransformPart {
+  return {
+    id,
+    sessionID: info.sessionID,
+    messageID: info.id,
+    type: "text",
+    text,
+  } as TransformPart;
+}
+
+function createRenderedInputTextPart(
+  info: TransformMessage,
+  id: string,
+  text: string,
+): TransformPart {
+  return {
+    id,
+    sessionID: info.sessionID,
+    messageID: info.id,
+    type: "input_text",
+    text,
+  } as unknown as TransformPart;
+}
+
+function readMessageRole(message: TransformMessage): string | undefined {
+  const role = (message as Record<string, unknown>).role;
+  return typeof role === "string" ? role : undefined;
+}
+
 function isTextPart(
   part: TransformPart,
 ): part is TransformPart & { type: "text"; text: string } {
   return (
     part.type === "text" &&
+    typeof (part as Record<string, unknown>).text === "string"
+  );
+}
+
+function isInputTextPart(
+  part: TransformPart,
+): part is TransformPart & { type: "input_text"; text: string } {
+  const type = (part as Record<string, unknown>).type;
+  return (
+    type === "input_text" &&
     typeof (part as Record<string, unknown>).text === "string"
   );
 }
@@ -461,10 +577,10 @@ function renderPrefixedText(
   visibleMessageID: string,
   text: string | undefined,
 ): string {
-  const bareVisibleMessageID =
-    normalizeVisibleMessageIDForRender(visibleMessageID);
-  const prefix = `[${visibleState}_${bareVisibleMessageID}]`;
-  return text && text.length > 0 ? `${prefix} ${text}` : prefix;
+  return prependRenderedToken(
+    text,
+    renderVisibleIdentityToken(visibleState, visibleMessageID),
+  );
 }
 
 function normalizeVisibleMessageIDForRender(visibleMessageID: string): string {

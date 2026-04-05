@@ -26,10 +26,16 @@ test("operator docs advertise only the final repo-owned contract", async () => {
     assert.match(source, /src\/config\/runtime-config\.jsonc/u);
     assert.match(source, /src\/config\/runtime-config\.schema\.json/u);
     assert.match(source, /prompts\/compaction\.md/u);
+    assert.match(source, /prompts\/reminder-soft-compact-only\.md/u);
+    assert.match(source, /prompts\/reminder-hard-compact-only\.md/u);
+    assert.match(source, /prompts\/reminder-soft-delete-allowed\.md/u);
+    assert.match(source, /prompts\/reminder-hard-delete-allowed\.md/u);
     assert.match(source, /logs\/runtime-events\.jsonl/u);
     assert.match(source, /logs\/seam-observation\.jsonl/u);
-    assert.match(source, /route=keep/u);
-    assert.match(source, /route=delete/u);
+    assert.match(source, /allowDelete/u);
+    assert.match(source, /executionMode/u);
+    assert.match(source, /softRepeatEveryTokens/u);
+    assert.match(source, /hardRepeatEveryTokens/u);
     assert.match(source, /locks\/<session-id>\.lock/u);
   }
 
@@ -44,6 +50,24 @@ test("operator docs advertise only the final repo-owned contract", async () => {
 
   for (const source of [readme, readmeZh, liveGuide]) {
     for (const pattern of forbiddenPatterns) {
+      assert.doesNotMatch(source, pattern);
+    }
+  }
+
+  const readmeOnlyForbiddenPatterns = [
+    /OPENCODE_CONTEXT_COMPRESSION_ROUTE/u,
+    /reminder\.counter/u,
+    /prompts\/reminder-soft\.md/u,
+    /prompts\/reminder-hard\.md/u,
+    /\{\{compressible_content\}\}/u,
+    /\{\{compaction_target\}\}/u,
+    /\{\{preserved_fields\}\}/u,
+    /route=keep/u,
+    /route=delete/u,
+  ];
+
+  for (const source of [readme, readmeZh]) {
+    for (const pattern of readmeOnlyForbiddenPatterns) {
       assert.doesNotMatch(source, pattern);
     }
   }

@@ -28,6 +28,10 @@ export interface CreateMessagesTransformHookOptions {
   readonly reminder?: ReminderRuntimeConfig;
   readonly smallUserMessageThreshold?: number;
   readonly reminderModelName?: string;
+  readonly createStore?: (input: {
+    readonly pluginDirectory: string;
+    readonly sessionID: string;
+  }) => ReturnType<typeof createSqliteSessionStateStore>;
 }
 
 export function createMessagesTransformHook(
@@ -41,17 +45,22 @@ export function createMessagesTransformHook(
       return;
     }
 
-    const store = createSqliteSessionStateStore({
-      pluginDirectory: options.pluginDirectory,
-      sessionID,
-    });
+    const effectiveStore =
+      options.createStore?.({
+        pluginDirectory: options.pluginDirectory,
+        sessionID,
+      }) ??
+      createSqliteSessionStateStore({
+        pluginDirectory: options.pluginDirectory,
+        sessionID,
+      });
 
     try {
-      syncCanonicalMessages(store, canonicalMessages);
+      syncCanonicalMessages(effectiveStore, canonicalMessages);
 
       const projection = buildProjectedMessages({
         messages: canonicalMessages,
-        store,
+        store: effectiveStore,
         reminder: options.reminder,
         smallUserMessageThreshold: options.smallUserMessageThreshold,
         reminderModelName: options.reminderModelName,
@@ -63,7 +72,7 @@ export function createMessagesTransformHook(
       managedMessages.splice(0, managedMessages.length, ...projectedMessages);
       rememberCanonicalMessages(managedMessages, canonicalMessages);
     } finally {
-      store.close();
+      effectiveStore.close();
     }
   };
 }

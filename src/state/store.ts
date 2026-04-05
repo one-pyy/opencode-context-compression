@@ -1127,7 +1127,7 @@ export class SqliteSessionStateStore {
            AND replacements.invalidated_at_ms IS NULL
            AND source_snapshots.source_fingerprint = :sourceFingerprint
            AND source_snapshots.source_count = :sourceCount
-         ORDER BY replacements.committed_at_ms ASC, replacements.replacement_id ASC`,
+         ORDER BY replacements.committed_at_ms DESC, replacements.replacement_id DESC`,
       )
       .all({
         allowDelete: mark.allowDelete ? 1 : 0,

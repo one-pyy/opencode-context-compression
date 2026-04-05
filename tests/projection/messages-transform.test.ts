@@ -4,27 +4,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { persistMark } from "../../src/marks/mark-service.js";
+import { computeVisibleChecksum } from "../../src/identity/visible-sequence.js";
 import { createMessagesTransformHook } from "../../src/projection/messages-transform.js";
-import { createSqliteSessionStateStore } from "../../src/state/store.js";
 import type {
   MessagesTransformOutput,
   TransformEnvelope,
   TransformMessage,
   TransformPart,
 } from "../../src/seams/noop-observation.js";
+import { createInMemoryProjectionStoreFixture } from "./in-memory-projection-store.js";
 
 test("messages.transform mutates output.messages in place and preserves metadata across reprocessing", async () => {
-  const pluginDirectory = await mkdtemp(
-    join(tmpdir(), "opencode-context-compression-transform-"),
-  );
-  const store = createSqliteSessionStateStore({
-    pluginDirectory,
-    sessionID: "session-1",
-    now: () => 1,
-  });
-
-  try {
+  await withTempPluginDirectory(async (pluginDirectory) => {
     const canonicalMessages = [
       createEnvelope(
         createMessage({
@@ -49,43 +40,33 @@ test("messages.transform mutates output.messages in place and preserves metadata
       ),
     ];
 
-    store.syncCanonicalHostMessages({
-      revision: "rev-transform-1",
-      syncedAtMs: 1,
-      messages: canonicalMessages.map((message) => ({
-        hostMessageID: message.info.id,
-        canonicalMessageID: message.info.id,
-        role: message.info.role,
-      })),
-    });
-    persistMark({
-      store,
-      markID: "mark-1",
-      toolCallMessageID: "mark-tool-1",
-      allowDelete: false,
-      createdAtMs: 2,
-      sourceMessages: [
-        { hostMessageID: "assistant-1" },
-        { hostMessageID: "tool-1" },
-      ],
-    });
-    store.commitReplacement({
-      replacementID: "replacement-1",
-      allowDelete: false,
-      executionMode: "compact",
-      committedAtMs: 3,
-      contentText: "Compressed summary.",
-      markIDs: ["mark-1"],
-      sourceSnapshot: {
-        messages: [
-          { hostMessageID: "assistant-1", role: "assistant" },
-          { hostMessageID: "tool-1", role: "tool" },
-        ],
-      },
-    });
-
     const transform = createMessagesTransformHook({
       pluginDirectory,
+      createStore: ({ sessionID: _sessionID }) =>
+        createInMemoryProjectionStoreFixture({
+          marks: [
+            {
+              markID: "mark-1",
+              toolCallMessageID: "mark-tool-1",
+              allowDelete: false,
+              sourceMessageIDs: ["assistant-1", "tool-1"],
+              status: "consumed",
+              createdAtMs: 2,
+              consumedAtMs: 3,
+            },
+          ],
+          replacements: [
+            {
+              replacementID: "replacement-1",
+              allowDelete: false,
+              executionMode: "compact",
+              committedAtMs: 3,
+              contentText: "Compressed summary.",
+              markIDs: ["mark-1"],
+              sourceMessageIDs: ["assistant-1", "tool-1"],
+            },
+          ],
+        }),
       reminder: {
         hsoft: 10,
         hhard: 20,
@@ -140,14 +121,86 @@ test("messages.transform mutates output.messages in place and preserves metadata
     await transform({}, output);
 
     assert.equal(JSON.stringify(output.messages), firstProjection);
-    assert.equal(
-      store.getMarkByToolCallMessageID("mark-tool-1")?.toolCallMessageID,
-      "mark-tool-1",
+  });
+});
+
+test("messages.transform keeps user/system prefixes and prepends visible ids for assistant and tool text", async () => {
+  await withTempPluginDirectory(async (pluginDirectory) => {
+    const transform = createMessagesTransformHook({
+      pluginDirectory,
+      createStore: ({ sessionID: _sessionID }) =>
+        createInMemoryProjectionStoreFixture(),
+    });
+    const output = {
+      messages: [
+        createEnvelope(
+          createMessage({ id: "system-1", role: "system", created: 1 }),
+          [createTextPart("system-1", "system policy")],
+        ),
+        createEnvelope(
+          createMessage({ id: "user-1", role: "user", created: 2 }),
+          [createTextPart("user-1", "hello there")],
+        ),
+        createEnvelope(
+          createMessage({ id: "assistant-1", role: "assistant", created: 3 }),
+          [createTextPart("assistant-1", "我先查一下。")],
+        ),
+        createEnvelope(
+          createMessage({ id: "tool-1", role: "tool", created: 4 }),
+          [createTextPart("tool-1", "Search results: ...")],
+        ),
+      ],
+    } satisfies MessagesTransformOutput;
+
+    await transform({}, output);
+
+    assert.deepEqual(
+      output.messages.map((message) => readText(message)),
+      [
+        `[protected_000001_${computeVisibleChecksum("system-1")}] system policy`,
+        `[compressible_000002_${computeVisibleChecksum("user-1")}] hello there`,
+        `[compressible_000003_${computeVisibleChecksum("assistant-1")}] 我先查一下。`,
+        `[compressible_000004_${computeVisibleChecksum("tool-1")}] Search results: ...`,
+      ],
     );
-  } finally {
-    store.close();
-    await rm(pluginDirectory, { recursive: true, force: true });
-  }
+  });
+});
+
+test("messages.transform renders tool-only assistant shells and prepends tool ids into input_text arrays", async () => {
+  await withTempPluginDirectory(async (pluginDirectory) => {
+    const transform = createMessagesTransformHook({
+      pluginDirectory,
+      createStore: ({ sessionID: _sessionID }) =>
+        createInMemoryProjectionStoreFixture(),
+    });
+    const output = {
+      messages: [
+        createEnvelope(
+          createMessage({ id: "assistant-shell", role: "assistant", created: 1 }),
+          [],
+        ),
+        createEnvelope(
+          createMessage({ id: "tool-array", role: "tool", created: 2 }),
+          [
+            createInputTextPart("tool-array", "Search results: ...", 1),
+            createInputTextPart("tool-array", "More context", 2),
+          ],
+        ),
+      ],
+    } satisfies MessagesTransformOutput;
+
+    await transform({}, output);
+
+    assert.equal(
+      readText(output.messages[0]!),
+      `[compressible_000001_${computeVisibleChecksum("assistant-shell")}]`,
+    );
+    assert.deepEqual(readInputTextTexts(output.messages[1]!), [
+      `[compressible_000002_${computeVisibleChecksum("tool-array")}]`,
+      "Search results: ...",
+      "More context",
+    ]);
+  });
 });
 
 function createEnvelope(
@@ -192,9 +245,46 @@ function createTextPart(
   } as TransformPart;
 }
 
+function createInputTextPart(
+  messageID: string,
+  text: string,
+  index: number,
+): TransformPart {
+  return {
+    id: `${messageID}:input-${index}`,
+    sessionID: "session-1",
+    messageID,
+    type: "input_text",
+    text,
+  } as unknown as TransformPart;
+}
+
 function readText(message: TransformEnvelope): string {
   const textPart = message.parts.find((part) => part.type === "text") as
     | (TransformPart & { text: string })
     | undefined;
   return textPart?.text ?? "";
+}
+
+function readInputTextTexts(message: TransformEnvelope): string[] {
+  return message.parts.flatMap((part) => {
+    const candidate = part as Record<string, unknown>;
+    return candidate.type === "input_text" && typeof candidate.text === "string"
+      ? [candidate.text]
+      : [];
+  });
+}
+
+async function withTempPluginDirectory(
+  run: (pluginDirectory: string) => Promise<void>,
+): Promise<void> {
+  const pluginDirectory = await mkdtemp(
+    join(tmpdir(), "opencode-context-compression-transform-"),
+  );
+
+  try {
+    await run(pluginDirectory);
+  } finally {
+    await rm(pluginDirectory, { recursive: true, force: true });
+  }
 }

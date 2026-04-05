@@ -29,8 +29,10 @@ The canonical runtime contract ships inside this repo:
 - `src/config/runtime-config.jsonc`, canonical runtime settings file
 - `src/config/runtime-config.schema.json`, local JSON Schema for editor validation and `$schema` wiring
 - `prompts/compaction.md`, explicit compaction prompt asset
-- `prompts/reminder-soft.md`, soft reminder template asset
-- `prompts/reminder-hard.md`, hard reminder template asset
+- `prompts/reminder-soft-compact-only.md`, soft reminder text when the current context only allows compaction
+- `prompts/reminder-hard-compact-only.md`, hard reminder text when the current context only allows compaction
+- `prompts/reminder-soft-delete-allowed.md`, soft reminder text when the current context allows deletion
+- `prompts/reminder-hard-delete-allowed.md`, hard reminder text when the current context allows deletion
 - `logs/runtime-events.jsonl`, repo-owned runtime log path contract
 - `logs/seam-observation.jsonl`, repo-owned seam and debug journal path
 
@@ -45,8 +47,8 @@ The canonical config is now comment-capable and carries a local `$schema` refere
 - `markedTokenAutoCompactionThreshold`, explicit external readiness contract carried forward from older DCP work
 - `smallUserMessageThreshold`, explicit preserved user-message threshold contract for protecting short user messages in projection
 - `reminder.hsoft` and `reminder.hhard`, explicit soft and hard reminder token thresholds (repo default: `30000` / `70000`)
-- `reminder.counter.*`, preserved cadence concept that now affects deterministic reminder scheduling
-- `reminder.promptPaths.soft` and `reminder.promptPaths.hard`, repo-owned reminder template paths
+- `reminder.softRepeatEveryTokens` and `reminder.hardRepeatEveryTokens`, token-based reminder repeat cadence
+- `reminder.promptPaths.compactOnly.*` and `reminder.promptPaths.deleteAllowed.*`, repo-owned reminder text asset paths
 - `logging.level`, explicit logging control surface
 - `compressing.timeoutSeconds`, explicit compaction and lock timeout control
 - `schedulerMarkThreshold`, internal/test compatibility knob for current mark-count scheduling only
@@ -55,7 +57,7 @@ Important distinction: `schedulerMarkThreshold` is not the same contract as `mar
 
 Current enforcement boundary in this repo:
 
-- `counter.*` — enforced by deterministic reminder derivation
+- `softRepeatEveryTokens` / `hardRepeatEveryTokens` — enforced by deterministic reminder derivation
 - `smallUserMessageThreshold` — enforced by projection visibility policy for short user messages
 - `markedTokenAutoCompactionThreshold` — enforced by scheduler marked-token readiness
 - `logging.level` — enforced by the runtime event JSONL sink at `runtimeLogPath`
@@ -73,15 +75,16 @@ Runtime logging behavior in this repo:
 - `error` — persist only failure/stale runtime gate events
 - `info` and `debug` — persist normal runtime gate events as JSONL to `runtimeLogPath`
 
-### Reminder template placeholders
+### Reminder prompt assets
 
-Soft and hard reminder text now comes from repo-owned prompt assets instead of hardcoded strings. Those reminder templates must contain these placeholders:
+Reminder text now comes from four repo-owned plain-text assets instead of hardcoded strings:
 
-- `{{compressible_content}}` — current compressible projected-message snapshot
-- `{{compaction_target}}` — the currently derived compaction target span summary
-- `{{preserved_fields}}` — protected or otherwise preserved context summary
+- `prompts/reminder-soft-compact-only.md`
+- `prompts/reminder-hard-compact-only.md`
+- `prompts/reminder-soft-delete-allowed.md`
+- `prompts/reminder-hard-delete-allowed.md`
 
-If either reminder prompt asset is missing one of those placeholders, the runtime config loader fails fast.
+These reminder assets are loaded explicitly and must contain non-empty text, but they are not template files and do not require placeholder variables. `prompts/compaction.md` remains the prompt asset that carries the compaction-template role.
 
 ### Env override names and precedence
 
@@ -91,7 +94,6 @@ Precedence is deterministic:
 2. Field-specific env overrides replace values from that config file:
    - `OPENCODE_CONTEXT_COMPRESSION_PROMPT_PATH`
    - `OPENCODE_CONTEXT_COMPRESSION_MODELS`, comma-separated ordered model array
-   - `OPENCODE_CONTEXT_COMPRESSION_ROUTE`, `keep` or `delete`
    - `OPENCODE_CONTEXT_COMPRESSION_RUNTIME_LOG_PATH`
    - `OPENCODE_CONTEXT_COMPRESSION_SEAM_LOG`
    - `OPENCODE_CONTEXT_COMPRESSION_LOG_LEVEL`, `off`, `error`, `info`, or `debug`
@@ -105,9 +107,9 @@ Unset env variables mean "no override". Empty or whitespace-only env values are 
 The only public compaction tool is `compression_mark`.
 
 - `contractVersion` is `v1`
-- `route` is `keep` or `delete`
+- `allowDelete` is a boolean delete-permission bit for the selected visible span
 - `target.startVisibleMessageID` and `target.endVisibleMessageID` come from the current projected visible view
-- the tool resolves the target span against the repo-owned projection, then persists the mark in the sidecar
+- the tool resolves the target span against the repo-owned projection, then persists the mark and source snapshot in the sidecar
 
 `compression_mark` does not expose a public execute step. Batch freezing, scheduling, runner invocation, and lock handling remain plugin-owned runtime behavior behind the tool and scheduler seams.
 
@@ -149,25 +151,31 @@ The plugin is organized around four operator-visible rules:
    - committed replacements are rendered from sidecar state through `experimental.chat.messages.transform`
    - rerunning projection over the same canonical history yields the same visible output
 
-## `route=keep` and `route=delete`
+## `allowDelete` and committed `executionMode`
 
-Both routes use the same mark to source snapshot to replacement to projection pipeline. `route=delete` is not a separate deletion subsystem.
+The durable mark and source-lineage contract now records delete permission as `allowDelete`, while committed replacements record the actual outcome as `executionMode`.
 
-### `route=keep`
+### `allowDelete`
+
+- `allowDelete: false` means the marked span may be compacted but is not permitted to enter the delete branch
+- `allowDelete: true` means the marked span is allowed to enter the delete-capable branch later
+- `allowDelete` is a permission bit, not a standalone record of what the current batch actually did
+
+### committed `executionMode="compact"`
 
 - a committed replacement stays prompt-visible as the surviving referable block
 - the original source span is hidden only in the projected view
 - the replacement is not eligible for another compaction pass
 
-### `route=delete`
+### committed `executionMode="delete"`
 
 - compaction still creates a committed replacement record in SQLite
 - projection renders that committed result as a minimal delete notice instead of a reusable summary block
 - the original source span is removed from the prompt-visible projection once the delete replacement is committed
-- the delete result is still tracked through the same replacement tables, source snapshots, and consumed-mark links as `route=keep`
+- the delete result is still tracked through the same replacement tables, source snapshots, and consumed-mark links as compact outcomes
 - delete outputs are treated as terminal cleanup results, not as candidates for another compaction pass
 
-In short, `keep` leaves a compacted survivor, while `delete` leaves only a minimal referable notice.
+In short, `allowDelete` records permission, while `executionMode` records whether the committed outcome was a compacted survivor or a delete notice.
 
 ## Lock behavior and manual recovery
 
@@ -217,7 +225,7 @@ Automated proof that is in scope today:
 - `tests/cutover/legacy-independence.test.ts`, canonical execution without old runtime, tool, or provider ownership
 - `tests/cutover/docs-and-notepad-contract.test.ts`, operator docs and durable-memory contract audit
 - `tests/e2e/plugin-loading-and-compaction.test.ts`, repo-owned plugin loading, mark flow, scheduler seam, and committed replacement path with an injected safe transport fixture
-- `tests/e2e/delete-route.test.ts`, committed `route=delete` behavior under the same repo-owned fixture style
+- `tests/e2e/delete-route.test.ts`, committed delete-path behavior under the same repo-owned fixture style
 
 What this README does not claim:
 
