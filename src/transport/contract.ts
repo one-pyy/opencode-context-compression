@@ -224,7 +224,7 @@ export function assessCompactionTransport(
     reasons.push({
       code: "missing-dedicated-compaction-context",
       message:
-        "Default compaction transport must carry its own compaction prompt/context instead of reusing the ordinary session prompt payload.",
+        "Default compaction transport must carry its own compaction prompt/context, including compaction-only placeholder and output-validation rules, instead of reusing the ordinary session prompt payload.",
       evidence: withRouteEvidence(
         candidate,
         ORDINARY_SESSION_PROMPT_EVIDENCE.promptInputSchema,

@@ -36,3 +36,14 @@
 - reminder artifact 不再占用永久 visible sequence：`src/projection/reminder-service.ts` 现在生成 projection-owned reminder id（`reminder_<severity>_<anchor-checksum>`），只保留稳定锚点 checksum，不再复用消息层 `00000x_xx` 序号；最终渲染仍走 single-exit `protected_*` 前缀，但消息层不携带永久序号，符合 `DESIGN.md:356-369` / `498-500`。
 - replacement / delete notice / mark cleanup / reminder cleanup 已按窗口语义实现：成功命中的 replacement 继续以 referable block 或极简 delete notice 存活；对应 source span 被隐藏；已被 replacement 覆盖的 mark tool 调用继续从 prompt-visible view 移除；anchor 落在成功 replacement 窗口内的 reminder 不再插回 projection，避免在被 replacement 接管后残留过期 reminder，符合 `DESIGN.md:407-411` / `754-778`。
 - 张力 3 没有被误伤：本次只清理“被当前成功窗口直接接管的旧 artifact”，没有把 compact 结果扩写成“以后完全不可再被更大范围包含或 delete 覆盖”；更大范围包含/覆盖的语义仍保持给后续 replay/tree/runner 路径继续消费。
+
+## 2026-04-06 T6 Compaction 输入 / Runner / Transport / 失败语义对齐
+- `src/compaction/input-builder.ts` 现在显式接受 `opaqueReferences`，并基于 source snapshot 顺序把已存在 compact 结果块渲染为 `<opaque slot="Sx" placeholder="...">...</opaque>`；compaction 输入边界仍来自 mark/source snapshot/canonical history，不再从 projected prompt view 倒推。
+- `src/compaction/runner.ts` 不再把 `allowDelete` 直接等同于本次执行模式，而是优先读取 mark metadata 里的 `mode` 继续传递 delete/compact 意图；这保证了“compact + 当前策略允许 delete”不会被 runner 偷偷改写成 delete，同时仍保留现有兼容 `allowDelete` 承载。
+- runner 在 `compact` 模式下会基于当前 mark 的 source boundary 和已完成 result group，挑出被包含的 compact 子块作为 opaque placeholder 输入；占位符合法后再把输出 materialize 回原子块文本并统一走同一条 `commitReplacement -> result group` 提交路径，delete/compact 没有再分叉出第二套 persistence / projection 机制。
+- `src/compaction/output-validation.ts` 现在把缺失 required placeholder 判定为硬输出错误（`missing-required-placeholders`），其行为进入同一条 attempt 失败 → fallback 模型链；失败时不会提交 replacement/result group，合法 mark 继续保留给后续 retry/fallback 或下一轮运行。
+- `src/runtime/default-compaction-transport.ts` 继续保持独立于普通 `session.prompt` / `prompt_async` 的 transport 边界，并把 required placeholders / XML opaque 约束显式写进 compaction-only prompt context，避免让普通会话 prompt 路径反向定义 compaction contract。
+
+## 2026-04-06 T6 repair：same-model retry before fallback
+- verified gap: hard output errors（尤其是 `missing-required-placeholders`）虽然已经被正确归类，但 runner 仍然是“一次失败就切下一模型”；repair 后 `src/compaction/runner.ts` 会先在当前模型上做一次最小同模型重试，再进入 ordered fallback chain。
+- 这次 repair 没有引入新的 runtime config 字段；当前仓库尚无冻结好的 per-model retry surface，因此只在 runner 内部使用局部默认值，并且只对 hard output validation failure 打开同模型重试，避免把修补扩成配置系统重写。

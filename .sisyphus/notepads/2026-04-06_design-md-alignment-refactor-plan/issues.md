@@ -22,3 +22,10 @@
 ## 2026-04-06 T5 Projection / Visible ID / Reminder / 清理规则重构
 - 把 single-exit 前缀渲染真正下沉到 `messages-transform` 后，少量 cutover 测试仍在直接把 `buildProjectedMessages()` 的中间结构当成最终可见文本使用；本次已把这些测试切到 materialized output，但这也说明后续若新增测试或 helper，必须明确区分“projection 中间结构”与“最终 prompt-visible 文本”。
 - `DESIGN.md` 对 reminder 的“消息层不写永久序号”是明确的，但对最终可见 token 只给了约束没给唯一示例；本次实现选择了稳定的 projection-owned bare id（`reminder_<severity>_<anchor-checksum>`）再走 single-exit `protected_*` 渲染。若后续文档想冻结更具体 reminder 文案样式，应在 T8 文档/验收任务里显式补例子，而不是再让旧快照反向定义。
+
+## 2026-04-06 T6 Compaction 输入 / Runner / Transport / 失败语义对齐
+- 当前仓库的 projection 仍然一次只 materialize 每个 result group 的首个 item；T6 先把 opaque placeholder / hard-error / atomic commit 语义落到 input-builder、runner 和现有单-item result-group 提交上，没有在本任务内顺手把 projection 扩成完整多-item replacement materialization。这一层仍需在后续 T7/T8 或单独 result-group rendering 任务里继续收口。
+- 运行时配置面当前只有“有序模型链 fallback”，没有独立冻结好的“每模型重试次数”字段；因此 T6 已经把 placeholder 缺失归类为硬输出错误并保证进入同一条失败链、永不提交半成品，但“同模型内部重试次数”的配置化仍留待后续任务明确，不在本次临时发明新 config 字段。
+
+## 2026-04-06 T6 repair：same-model retry before fallback
+- repair 采用的最小策略是：仅对当前已验证的 hard output validation failure（`missing-required-placeholders`）启用一次同模型重试，然后才允许 fallback 到下一个模型。其他 transport / source / stale 类失败仍保持现有终止或直接 fallback 行为，避免让 repair 越界扩散到整条失败分类系统。

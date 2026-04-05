@@ -1,4 +1,8 @@
 import { freezeCurrentCompactionBatch } from "../marks/batch-freeze.js";
+import {
+  createCoverageTreeRoot,
+  insertIntoCoverageTree,
+} from "../replay/coverage-tree.js";
 import { releaseSessionFileLock } from "../runtime/file-lock.js";
 import type { RuntimeEventWriter } from "../runtime/runtime-events.js";
 import type {
@@ -24,6 +28,7 @@ import {
   revalidateCompactionSourceIdentity,
   resolveCompactionSourceSnapshot,
   type CanonicalCompactionMessage,
+  type CompactionOpaqueReference,
   type CompactionInput,
   type SourceIdentityFailure,
 } from "./input-builder.js";
@@ -34,6 +39,8 @@ import {
 } from "./output-validation.js";
 
 type Awaitable<T> = T | Promise<T>;
+
+const DEFAULT_HARD_OUTPUT_RETRY_COUNT = 1;
 
 export type CompactionTransportInvocationIssue =
   | "aborted"
@@ -72,9 +79,21 @@ export interface LoadCanonicalSourceMessagesOptions {
   readonly jobID: string;
   readonly markID: string;
   readonly allowDelete: boolean;
+  readonly executionMode: CompactionExecutionMode;
   readonly sourceSnapshotID: string;
   readonly sourceFingerprint: string;
   readonly sourceMessages: readonly SourceSnapshotMessageRecord[];
+}
+
+export interface ResolveCompactionOpaqueReferencesOptions {
+  readonly batchID: string;
+  readonly jobID: string;
+  readonly markID: string;
+  readonly executionMode: CompactionExecutionMode;
+  readonly sourceSnapshotID: string;
+  readonly sourceFingerprint: string;
+  readonly sourceMessages: readonly SourceSnapshotMessageRecord[];
+  readonly canonicalMessages: readonly CanonicalCompactionMessage[];
 }
 
 export interface CompactionRunnerIDFactory {
@@ -98,6 +117,9 @@ export interface RunCompactionBatchOptions {
   readonly loadCanonicalSourceMessages: (
     options: LoadCanonicalSourceMessagesOptions,
   ) => Awaitable<readonly CanonicalCompactionMessage[]>;
+  readonly resolveOpaqueReferences?: (
+    options: ResolveCompactionOpaqueReferencesOptions,
+  ) => Awaitable<readonly CompactionOpaqueReference[]>;
   readonly now?: () => number;
   readonly timeoutMs?: number;
   readonly note?: string;
@@ -110,7 +132,8 @@ export type CompactionJobFailureCode =
   | CompactionTransportFailure["code"]
   | "source-input-build-failed"
   | "source-revalidation-failed"
-  | "stale-attempt-result";
+  | "stale-attempt-result"
+  | "missing-required-placeholders";
 
 export interface CompactionJobFailure {
   readonly code: CompactionJobFailureCode;
@@ -124,6 +147,7 @@ export interface CompactionJobExecutionResult {
   readonly markID: string;
   readonly attempts: readonly CompactionJobAttemptRecord[];
   readonly replacement?: ReplacementRecord;
+  readonly resultGroupID?: string;
   readonly finalFailure?: CompactionJobFailure;
 }
 
@@ -273,6 +297,7 @@ export async function runCompactionBatch(
         models,
         transport: options.transport,
         loadCanonicalSourceMessages: options.loadCanonicalSourceMessages,
+        resolveOpaqueReferences: options.resolveOpaqueReferences,
         now,
         ids,
       });
@@ -370,6 +395,7 @@ interface RunCompactionJobInternalOptions {
   readonly models: readonly string[];
   readonly transport: CompactionRunnerTransport;
   readonly loadCanonicalSourceMessages: RunCompactionBatchOptions["loadCanonicalSourceMessages"];
+  readonly resolveOpaqueReferences?: RunCompactionBatchOptions["resolveOpaqueReferences"];
   readonly now: () => number;
   readonly ids: CompactionRunnerIDFactory;
 }
@@ -382,6 +408,7 @@ async function runCompactionJob(
     options.store,
     options.batchMember.sourceSnapshotID,
   );
+  const executionMode = resolveExecutionMode(options.store, options.batchMember);
 
   const initialIdentity = revalidateCompactionSourceIdentity(
     options.store,
@@ -409,16 +436,32 @@ async function runCompactionJob(
       jobID: options.job.jobID,
       markID: options.batchMember.markID,
       allowDelete: options.batchMember.allowDelete,
+      executionMode,
       sourceSnapshotID: sourceSnapshot.snapshotID,
       sourceFingerprint: sourceSnapshot.sourceFingerprint,
       sourceMessages: sourceSnapshot.messages,
     });
-    const executionMode = resolveExecutionMode(options.batchMember.allowDelete);
+    const opaqueReferences =
+      executionMode === "compact"
+        ? await (options.resolveOpaqueReferences ??
+            resolveOpaqueReferencesFromStore)({
+            batchID: options.batchID,
+            jobID: options.job.jobID,
+            markID: options.batchMember.markID,
+            executionMode,
+            sourceSnapshotID: sourceSnapshot.snapshotID,
+            sourceFingerprint: sourceSnapshot.sourceFingerprint,
+            sourceMessages: sourceSnapshot.messages,
+            canonicalMessages,
+            store: options.store,
+          })
+        : [];
     input = buildCompactionInput({
       sourceSnapshot,
       promptText: options.promptText,
       executionMode,
       canonicalMessages,
+      opaqueReferences,
     });
   } catch (error) {
     const failure: CompactionJobFailure = {
@@ -441,42 +484,111 @@ async function runCompactionJob(
   }
 
   for (const [modelIndex, modelName] of options.models.entries()) {
-    const attemptIndex = attempts.length;
-    const attemptStartedAtMs = options.now();
-    let validatedOutput: ReturnType<typeof validateCompactionOutput>;
+    const maxAttemptsForModel =
+      1 + countAdditionalSameModelRetries(input, DEFAULT_HARD_OUTPUT_RETRY_COUNT);
 
-    try {
-      const rawOutput = await options.transport.invoke({
-        model: modelName,
-        batchID: options.batchID,
-        jobID: options.job.jobID,
-        markID: options.batchMember.markID,
-        attemptIndex,
-        input,
-      });
+    for (
+      let modelAttemptOrdinal = 0;
+      modelAttemptOrdinal < maxAttemptsForModel;
+      modelAttemptOrdinal += 1
+    ) {
+      const attemptIndex = attempts.length;
+      const attemptStartedAtMs = options.now();
+      let validatedOutput: ReturnType<typeof validateCompactionOutput>;
 
-      validatedOutput = validateCompactionOutput({
-        allowDelete: options.batchMember.allowDelete,
-        executionMode: input.executionMode,
-        candidate: rawOutput,
-      });
-    } catch (error) {
-      const failure = normalizeTransportFailure(error);
-      const attempt = options.store.appendCompactionJobAttempt({
-        jobID: options.job.jobID,
-        attemptIndex,
-        modelIndex,
-        modelName,
-        status: "failed",
-        startedAtMs: attemptStartedAtMs,
-        finishedAtMs: options.now(),
-        errorCode: failure.code,
-        errorText: failure.detail,
-        metadata: buildAttemptMetadata(failure),
-      });
-      attempts.push(attempt);
+      try {
+        const rawOutput = await options.transport.invoke({
+          model: modelName,
+          batchID: options.batchID,
+          jobID: options.job.jobID,
+          markID: options.batchMember.markID,
+          attemptIndex,
+          input,
+        });
 
-      if (modelIndex === options.models.length - 1) {
+        validatedOutput = validateCompactionOutput({
+          allowDelete: options.batchMember.allowDelete,
+          executionMode: input.executionMode,
+          candidate: rawOutput,
+          requiredPlaceholders: input.requiredPlaceholders,
+        });
+      } catch (error) {
+        const failure = normalizeTransportFailure(error);
+        const attempt = options.store.appendCompactionJobAttempt({
+          jobID: options.job.jobID,
+          attemptIndex,
+          modelIndex,
+          modelName,
+          status: "failed",
+          startedAtMs: attemptStartedAtMs,
+          finishedAtMs: options.now(),
+          errorCode: failure.code,
+          errorText: failure.detail,
+          metadata: buildAttemptMetadata(failure),
+        });
+        attempts.push(attempt);
+
+        const canRetryCurrentModel =
+          isSameModelRetryEligible(failure) &&
+          modelAttemptOrdinal < maxAttemptsForModel - 1;
+        if (canRetryCurrentModel) {
+          continue;
+        }
+
+        if (modelIndex === options.models.length - 1) {
+          return {
+            job: finalizeJobFailure(
+              options.store,
+              options.job.jobID,
+              failure,
+              options.now(),
+            ),
+            markID: options.batchMember.markID,
+            attempts,
+            finalFailure: failure,
+          };
+        }
+
+        break;
+      }
+
+      if (
+        !isJobMutable(options.store, options.job.jobID) ||
+        !isBatchMutable(options.store, options.batchID)
+      ) {
+        const failure: CompactionJobFailure = {
+          code: "stale-attempt-result",
+          phase: "commit",
+          detail: `Ignored late compaction result for job '${options.job.jobID}' because a newer terminal state already exists.`,
+        };
+
+        return {
+          job: requireJob(options.store, options.job.jobID),
+          markID: options.batchMember.markID,
+          attempts,
+          finalFailure: failure,
+        };
+      }
+
+      const revalidation = revalidateCompactionSourceIdentity(
+        options.store,
+        sourceSnapshot.snapshotID,
+      );
+      if (!revalidation.matches) {
+        const failure = buildSourceRevalidationFailure(revalidation.failure);
+        const attempt = options.store.appendCompactionJobAttempt({
+          jobID: options.job.jobID,
+          attemptIndex,
+          modelIndex,
+          modelName,
+          status: "failed",
+          startedAtMs: attemptStartedAtMs,
+          finishedAtMs: options.now(),
+          errorCode: failure.code,
+          errorText: failure.detail,
+        });
+        attempts.push(attempt);
+
         return {
           job: finalizeJobFailure(
             options.store,
@@ -490,93 +602,45 @@ async function runCompactionJob(
         };
       }
 
-      continue;
-    }
+      const replacementID = options.ids.makeReplacementID(
+        options.job.jobID,
+        attemptIndex,
+      );
+      const replacement = options.store.commitReplacement({
+        replacementID,
+        allowDelete: options.batchMember.allowDelete,
+        executionMode: input.executionMode,
+        jobID: options.job.jobID,
+        committedAtMs: options.now(),
+        contentText: materializeOpaquePlaceholders(
+          validatedOutput.contentText,
+          input.opaqueReferences,
+        ),
+        contentJSON: validatedOutput.contentJSON,
+        metadata: validatedOutput.metadata,
+        markIDs: [options.batchMember.markID],
+      });
 
-    if (
-      !isJobMutable(options.store, options.job.jobID) ||
-      !isBatchMutable(options.store, options.batchID)
-    ) {
-      const failure: CompactionJobFailure = {
-        code: "stale-attempt-result",
-        phase: "commit",
-        detail: `Ignored late compaction result for job '${options.job.jobID}' because a newer terminal state already exists.`,
-      };
-
-      return {
-        job: requireJob(options.store, options.job.jobID),
-        markID: options.batchMember.markID,
-        attempts,
-        finalFailure: failure,
-      };
-    }
-
-    const revalidation = revalidateCompactionSourceIdentity(
-      options.store,
-      sourceSnapshot.snapshotID,
-    );
-    if (!revalidation.matches) {
-      const failure = buildSourceRevalidationFailure(revalidation.failure);
       const attempt = options.store.appendCompactionJobAttempt({
         jobID: options.job.jobID,
         attemptIndex,
         modelIndex,
         modelName,
-        status: "failed",
+        status: "succeeded",
         startedAtMs: attemptStartedAtMs,
         finishedAtMs: options.now(),
-        errorCode: failure.code,
-        errorText: failure.detail,
+        replacementID,
       });
       attempts.push(attempt);
 
       return {
-        job: finalizeJobFailure(
-          options.store,
-          options.job.jobID,
-          failure,
-          options.now(),
-        ),
+        job: finalizeJobSuccess(options.store, options.job.jobID, options.now()),
         markID: options.batchMember.markID,
         attempts,
-        finalFailure: failure,
+        replacement,
+        resultGroupID: replacement.replacementID,
       };
     }
-
-    const replacementID = options.ids.makeReplacementID(
-      options.job.jobID,
-      attemptIndex,
-    );
-    const replacement = options.store.commitReplacement({
-      replacementID,
-      allowDelete: options.batchMember.allowDelete,
-      executionMode: input.executionMode,
-      jobID: options.job.jobID,
-      committedAtMs: options.now(),
-      contentText: validatedOutput.contentText,
-      contentJSON: validatedOutput.contentJSON,
-      metadata: validatedOutput.metadata,
-      markIDs: [options.batchMember.markID],
-    });
-
-    const attempt = options.store.appendCompactionJobAttempt({
-      jobID: options.job.jobID,
-      attemptIndex,
-      modelIndex,
-      modelName,
-      status: "succeeded",
-      startedAtMs: attemptStartedAtMs,
-      finishedAtMs: options.now(),
-      replacementID,
-    });
-    attempts.push(attempt);
-
-    return {
-      job: finalizeJobSuccess(options.store, options.job.jobID, options.now()),
-      markID: options.batchMember.markID,
-      attempts,
-      replacement,
-    };
   }
 
   throw new Error(
@@ -585,9 +649,23 @@ async function runCompactionJob(
 }
 
 function resolveExecutionMode(
-  allowDelete: boolean,
+  store: SqliteSessionStateStore,
+  batchMember: CompactionBatchMarkRecord,
 ): CompactionExecutionMode {
-  return allowDelete ? "delete" : "compact";
+  const mark = store.getMark(batchMember.markID);
+  const markMetadata = asRecord(mark?.metadata);
+  const metadataMode = markMetadata?.mode;
+  if (metadataMode === "compact" || metadataMode === "delete") {
+    if (metadataMode === "delete" && !batchMember.allowDelete) {
+      throw new Error(
+        `Mark '${batchMember.markID}' requests delete execution mode but allowDelete is false.`,
+      );
+    }
+
+    return metadataMode;
+  }
+
+  return batchMember.allowDelete ? "delete" : "compact";
 }
 
 function normalizeModels(models: readonly string[]): readonly string[] {
@@ -601,6 +679,25 @@ function normalizeModels(models: readonly string[]): readonly string[] {
   }
 
   return normalized;
+}
+
+function countAdditionalSameModelRetries(
+  input: CompactionInput,
+  defaultHardOutputRetryCount: number,
+): number {
+  if (input.executionMode !== "compact") {
+    return 0;
+  }
+
+  if (input.requiredPlaceholders.length === 0) {
+    return 0;
+  }
+
+  return defaultHardOutputRetryCount;
+}
+
+function isSameModelRetryEligible(failure: CompactionJobFailure): boolean {
+  return failure.code === "missing-required-placeholders";
 }
 
 function resolveIDFactory(
@@ -742,6 +839,15 @@ function buildAttemptMetadata(
 
 function normalizeTransportFailure(error: unknown): CompactionJobFailure {
   if (error instanceof InvalidCompactionOutputError) {
+    if (error.missingPlaceholders.length > 0) {
+      return {
+        code: "missing-required-placeholders",
+        phase: "invocation",
+        detail: error.message,
+        normalizedIssues: error.missingPlaceholders,
+      };
+    }
+
     const failure = classifyCompactionTransportFailure({
       kind: "invocation",
       issue: "invalid-response",
@@ -792,4 +898,169 @@ function describeError(error: unknown): string {
   }
 
   return String(error);
+}
+
+function asRecord(
+  value: JsonValue | undefined,
+): Record<string, JsonValue> | undefined {
+  if (value === undefined || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value as Record<string, JsonValue>;
+}
+
+interface ResolveCompactionOpaqueReferencesInternalOptions
+  extends ResolveCompactionOpaqueReferencesOptions {
+  readonly store: SqliteSessionStateStore;
+}
+
+interface OpaqueReferenceCandidate {
+  readonly markID: string;
+  readonly resultGroupID: string;
+  readonly executionMode: CompactionExecutionMode;
+  readonly sourceSnapshotID?: string;
+  readonly startIndex: number;
+  readonly endIndex: number;
+  readonly renderedText: string;
+}
+
+async function resolveOpaqueReferencesFromStore(
+  options: ResolveCompactionOpaqueReferencesInternalOptions,
+): Promise<readonly CompactionOpaqueReference[]> {
+  const sourceIndexByHostMessageID = new Map<string, number>(
+    options.sourceMessages.map((message, index) => [message.hostMessageID, index]),
+  );
+  const root = createCoverageTreeRoot<OpaqueReferenceCandidate>();
+
+  for (const mark of options.store.listMarks()) {
+    if (mark.markID === options.markID) {
+      continue;
+    }
+
+    const resultGroup = options.store.getReplacementResultGroup(mark.markID);
+    if (resultGroup?.completeness !== "complete") {
+      continue;
+    }
+
+    const childSourceMessages = options.store.listMarkSourceMessages(mark.markID);
+    if (childSourceMessages.length === 0) {
+      continue;
+    }
+
+    const indexes: number[] = [];
+    let matchesCurrentBoundary = true;
+    for (const sourceMessage of childSourceMessages) {
+      const currentIndex = sourceIndexByHostMessageID.get(sourceMessage.hostMessageID);
+      if (currentIndex === undefined) {
+        matchesCurrentBoundary = false;
+        break;
+      }
+
+      const currentSourceMessage = options.sourceMessages[currentIndex];
+      if (
+        currentSourceMessage?.canonicalMessageID !== sourceMessage.canonicalMessageID ||
+        currentSourceMessage.hostRole !== sourceMessage.hostRole
+      ) {
+        matchesCurrentBoundary = false;
+        break;
+      }
+
+      indexes.push(currentIndex);
+    }
+
+    if (!matchesCurrentBoundary || !areContiguous(indexes)) {
+      continue;
+    }
+
+    const startIndex = indexes[0] ?? 0;
+    const endIndex = indexes[indexes.length - 1] ?? 0;
+    if (startIndex === 0 && endIndex === options.sourceMessages.length - 1) {
+      continue;
+    }
+
+    insertIntoCoverageTree(root, {
+      markID: mark.markID,
+      resultGroupID: resultGroup.resultGroupID,
+      executionMode: resultGroup.executionMode,
+      sourceSnapshotID: resultGroup.sourceSnapshotID,
+      startIndex,
+      endIndex,
+      renderedText:
+        readCommittedResultGroupText(options.store, mark.markID) ??
+        childSourceMessages
+          .map((sourceMessage) => {
+            const canonicalMessage = options.canonicalMessages.find(
+              (message) => message.hostMessageID === sourceMessage.hostMessageID,
+            );
+            return canonicalMessage?.content ?? "";
+          })
+          .join("\n")
+          .trim(),
+    });
+  }
+
+  return root.children.map((candidateNode, index) => {
+    const slot = `S${index + 1}`;
+    return {
+      slot,
+      placeholder: `[[OPAQUE_SLOT_${slot}]]`,
+      sourceMarkID: candidateNode.value.markID,
+      sourceResultGroupID: candidateNode.value.resultGroupID,
+      executionMode: candidateNode.value.executionMode,
+      sourceSnapshotID: candidateNode.value.sourceSnapshotID,
+      startSourceIndex: candidateNode.value.startIndex,
+      endSourceIndex: candidateNode.value.endIndex,
+      renderedText: candidateNode.value.renderedText,
+    } satisfies CompactionOpaqueReference;
+  });
+}
+
+function readCommittedResultGroupText(
+  store: SqliteSessionStateStore,
+  markID: string,
+): string | undefined {
+  const firstItem = store.listReplacementResultGroupItems(markID)[0];
+  if (firstItem?.contentText && firstItem.contentText.trim().length > 0) {
+    return firstItem.contentText.trim();
+  }
+
+  if (firstItem?.replacementID !== undefined) {
+    return store.getReplacement(firstItem.replacementID)?.contentText?.trim();
+  }
+
+  return undefined;
+}
+
+function areContiguous(indexes: readonly number[]): boolean {
+  if (indexes.length === 0) {
+    return false;
+  }
+
+  const sorted = [...indexes].sort((left, right) => left - right);
+  for (let index = 1; index < sorted.length; index += 1) {
+    if (sorted[index] !== sorted[index - 1] + 1) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function materializeOpaquePlaceholders(
+  contentText: string | undefined,
+  opaqueReferences: readonly CompactionOpaqueReference[],
+): string | undefined {
+  if (contentText === undefined || opaqueReferences.length === 0) {
+    return contentText;
+  }
+
+  let materialized = contentText;
+  for (const opaqueReference of opaqueReferences) {
+    materialized = materialized.split(opaqueReference.placeholder).join(
+      opaqueReference.renderedText,
+    );
+  }
+
+  return materialized;
 }

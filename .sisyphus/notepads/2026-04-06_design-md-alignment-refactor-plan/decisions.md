@@ -46,3 +46,12 @@
 - 本次裁决：reminder artifact 不再消费永久消息层 visible seq。当前实现使用 projection-owned bare id（`reminder_<severity>_<anchor-checksum>`）承载 reminder 身份，再由 single-exit 渲染成 `protected_*` 可见 token；数据库若需要 reminder 相关编号，仍应留在 sidecar/runtme state，而不是回写消息层序号。
 - 本次裁决：artifact cleanup 只做“当前成功 replacement 窗口直接接管的过期 artifact”清理，包括被 replacement 覆盖的 mark tool 调用与窗口内部已失效 reminder；不把 compact 块错误扩义成“以后完全不可再进入更大范围”，继续满足 `conflict-audit.md` 张力 3。
 - 明确保留给 T6/T7/T8 的边界：compaction input/runner 是否直接消费 replay tree、scheduler/gate 是否继续向 single-exit materialized view 收口、以及 reminder 样式示例/文档是否需要更细冻结，都不在本次 T5 实现内。
+
+## 2026-04-06 T6 Compaction 输入 / Runner / Transport / 失败语义对齐
+- 决定：T6 的 compaction input builder 继续以 mark/source snapshot/canonical history 为边界真相；当 outer compact 范围中包含已完成 compact 结果块时，不从 projected prompt view 把 referable 文本重新“洗出来”，而是在 runner 基于 result group lookup 解析这些子块，再把它们作为 explicit opaque placeholders 传入 input builder。
+- 决定：delete 与 compact 的提交继续共用现有 `commitReplacement` / result-group 原子提交机制，不新建 delete 专用 persistence / projection 子系统；差异只保留在 execution mode、prompt 指令和最终 referable/delete notice 语义上。
+- 决定：placeholder 缺失按 `missing-required-placeholders` 作为硬输出错误处理，失败 attempt 仅记录 job attempt / final failure，不写 replacement 或 result group；合法 mark 保持 active/replay 可见，等待后续 fallback 或下一轮重试。
+- 决定：本轮先把合法 compact 输出 materialize 回单个 replacement 文本并提交完整 result group，避免在 T6 顺手重写 projection 的多-item materialization；“真正多 item result-group rendering”明确留给后续任务，不在这里越界扩成 T7/T8。
+
+## 2026-04-06 T6 repair：same-model retry before fallback
+- 决定：在仓库尚未冻结 per-model retry config surface 的前提下，runner 先用局部默认值为 hard output validation failure 提供一次 same-model retry；只有当前模型重试耗尽后，才进入下一个 fallback 模型。

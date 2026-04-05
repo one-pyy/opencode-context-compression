@@ -9,17 +9,22 @@ import { pathToFileURL } from "node:url";
 
 import type { Hooks, PluginInput } from "@opencode-ai/plugin";
 
-import type { CompactionRunnerTransport } from "../../src/compaction/runner.js";
+import {
+  runCompactionBatch,
+  type CompactionRunnerTransport,
+} from "../../src/compaction/runner.js";
 import {
   loadRuntimeConfig,
   RUNTIME_CONFIG_ENV,
 } from "../../src/config/runtime-config.js";
+import { persistMark } from "../../src/marks/mark-service.js";
 import { createChatParamsSchedulerHook } from "../../src/runtime/chat-params-scheduler.js";
 import {
   readSessionFileLock,
   releaseSessionFileLock,
 } from "../../src/runtime/file-lock.js";
 import { waitForOrdinaryChatGateIfNeeded } from "../../src/runtime/send-entry-gate.js";
+import { createSqliteSessionStateStore } from "../../src/state/store.js";
 import type {
   MessagesTransformOutput,
   TransformEnvelope,
@@ -542,6 +547,151 @@ test("explicit plugin loading plus compression_mark commits delete mode through 
       );
     },
   );
+});
+
+test("compact mode treats nested compact results as opaque placeholders, retries via fallback on placeholder loss, and commits no partial result", async () => {
+  await withLoadedPluginFixture(async ({ tempDirectory, hooks }) => {
+    const sessionID = "test-session";
+    const lockDirectory = join(tempDirectory, "locks");
+    const store = createSqliteSessionStateStore({
+      pluginDirectory: tempDirectory,
+      sessionID,
+    });
+
+    try {
+      const canonicalMessages = [
+        createEnvelope(
+          createMessage({ id: "assistant-1", role: "assistant", created: 1 }),
+          [createTextPart("assistant-1", "alpha")],
+        ),
+        createEnvelope(
+          createMessage({ id: "assistant-2", role: "assistant", created: 2 }),
+          [createTextPart("assistant-2", "beta")],
+        ),
+        createEnvelope(
+          createMessage({ id: "assistant-3", role: "assistant", created: 3 }),
+          [createTextPart("assistant-3", "gamma")],
+        ),
+        createEnvelope(
+          createMessage({ id: "mark-tool-inner", role: "tool", created: 4 }),
+          [createTextPart("mark-tool-inner", "mark inner")],
+        ),
+        createEnvelope(
+          createMessage({ id: "mark-tool-outer", role: "tool", created: 5 }),
+          [createTextPart("mark-tool-outer", "mark outer")],
+        ),
+      ] as const;
+
+      store.syncCanonicalHostMessages({
+        revision: "rev-outer-opaque-1",
+        syncedAtMs: Date.now(),
+        messages: canonicalMessages.map((message) => ({
+          hostMessageID: message.info.id,
+          canonicalMessageID: message.info.id,
+          role: message.info.role,
+          hostCreatedAtMs: message.info.time?.created,
+        })),
+      });
+
+      persistMark({
+        store,
+        markID: "inner-mark",
+        toolCallMessageID: "mark-tool-inner",
+        allowDelete: true,
+        metadata: { mode: "compact" },
+        sourceMessages: [{ hostMessageID: "assistant-2" }],
+      });
+      store.commitReplacement({
+        replacementID: "inner-mark:replacement",
+        allowDelete: true,
+        executionMode: "compact",
+        contentText: "Inner compact block.",
+        markIDs: ["inner-mark"],
+        sourceSnapshot: {
+          messages: [{ hostMessageID: "assistant-2", role: "assistant" }],
+        },
+      });
+
+      persistMark({
+        store,
+        markID: "outer-mark",
+        toolCallMessageID: "mark-tool-outer",
+        allowDelete: false,
+        metadata: { mode: "compact" },
+        sourceMessages: [
+          { hostMessageID: "assistant-1" },
+          { hostMessageID: "assistant-2" },
+          { hostMessageID: "assistant-3" },
+        ],
+      });
+
+      const transform = readMessagesTransformHook(hooks);
+      const transportCalls: string[] = [];
+      const result = await runCompactionBatch({
+        store,
+        lockDirectory,
+        sessionID,
+        promptText: "Compact this span while preserving opaque blocks.",
+        models: ["openai.doro/gpt-5.4-mini", "openai.doro/gpt-5.4-nano"],
+        transport: createSafeTransport(async (request) => {
+          transportCalls.push(request.model);
+          if (request.model === "openai.doro/gpt-5.4-mini") {
+            assert.match(request.input.transcript, /<opaque slot="S1"/u);
+            assert.deepEqual(request.input.requiredPlaceholders, [
+              "[[OPAQUE_SLOT_S1]]",
+            ]);
+            return { contentText: "Outer summary without placeholder." };
+          }
+
+          return { contentText: "Outer summary [[OPAQUE_SLOT_S1]] tail." };
+        }),
+        loadCanonicalSourceMessages: async ({ sourceMessages }) =>
+          sourceMessages.map((sourceMessage) => ({
+            hostMessageID: sourceMessage.hostMessageID,
+            canonicalMessageID: sourceMessage.canonicalMessageID,
+            role: sourceMessage.hostRole,
+            content: readText(
+              canonicalMessages.find(
+                (message) => message.info.id === sourceMessage.hostMessageID,
+              )!,
+            ),
+          })),
+      });
+
+      assert.equal(result.started, true);
+      if (!result.started) {
+        assert.fail("expected compaction batch to start");
+      }
+
+      const projected = {
+        messages: canonicalMessages.map((message) => structuredClone(message)),
+      } satisfies MessagesTransformOutput;
+      await transform({}, projected);
+
+      assert.deepEqual(transportCalls, [
+        "openai.doro/gpt-5.4-mini",
+        "openai.doro/gpt-5.4-mini",
+        "openai.doro/gpt-5.4-nano",
+      ]);
+      assert.deepEqual(
+        store.listCompactionJobAttempts(result.jobs[0]!.job.jobID).map((attempt) =>
+          `${attempt.attemptIndex}|${attempt.status}|${attempt.errorCode ?? ""}`,
+        ),
+        [
+          "0|failed|missing-required-placeholders",
+          "1|failed|missing-required-placeholders",
+          "2|succeeded|",
+        ],
+      );
+      assert.equal(
+        result.jobs[0]?.replacement?.contentText,
+        "Outer summary Inner compact block. tail.",
+      );
+      assert.match(readText(projected.messages[0]), /^\[referable_[^\]]+\] Outer summary Inner compact block\. tail\.$/u);
+    } finally {
+      store.close();
+    }
+  });
 });
 
 test("ordinary chat waits during the running lock, unrelated tools continue, and lock-time marks join only the next batch", async () => {
@@ -1084,6 +1234,7 @@ function writeE2ERuntimeConfig(
     readonly reminderHsoft: number;
     readonly reminderHhard: number;
     readonly markedTokenAutoCompactionThreshold: number;
+    readonly compactionModels?: readonly string[];
   },
 ): string {
   const configPath = join(tempDirectory, "runtime-config.e2e.json");
@@ -1093,7 +1244,7 @@ function writeE2ERuntimeConfig(
       {
         version: 1,
         promptPath: "prompts/compaction.md",
-        compactionModels: ["openai.doro/gpt-5.4-mini"],
+        compactionModels: input.compactionModels ?? ["openai.doro/gpt-5.4-mini"],
         markedTokenAutoCompactionThreshold:
           input.markedTokenAutoCompactionThreshold,
         smallUserMessageThreshold: 1_024,

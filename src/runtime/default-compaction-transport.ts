@@ -214,7 +214,11 @@ function buildRequestPayload(
 
   const permissionHint = `allowDelete=${input.allowDelete ? "true" : "false"}`;
   const executionModeHint = `executionMode=${input.executionMode}`;
-  const effectivePrompt = `${input.promptText}\n\n## Runtime Instructions\n\n- Delete permission: **${permissionHint}**\n- Current execution mode: **${executionModeHint}**`;
+  const placeholderHint =
+    input.requiredPlaceholders.length > 0
+      ? `\n- Required placeholders: **${input.requiredPlaceholders.join(", ")}**\n- Preserve every required placeholder exactly as provided. Missing placeholders are a hard compaction error.`
+      : "";
+  const effectivePrompt = `${input.promptText}\n\n## Runtime Instructions\n\n- Delete permission: **${permissionHint}**\n- Current execution mode: **${executionModeHint}**${placeholderHint}`;
 
   if (endpoint === "responses") {
     payload.instructions = effectivePrompt;
@@ -372,6 +376,9 @@ function renderCompactionRequestBody(input: CompactionInput): string {
   return [
     `Delete permission: ${input.allowDelete ? "true" : "false"}`,
     `Execution mode: ${input.executionMode}`,
+    input.requiredPlaceholders.length > 0
+      ? `Required placeholders: ${input.requiredPlaceholders.join(", ")}`
+      : undefined,
     `Source snapshot id: ${input.sourceSnapshotID}`,
     `Source fingerprint: ${input.sourceFingerprint}`,
     input.canonicalRevision
@@ -384,6 +391,9 @@ function renderCompactionRequestBody(input: CompactionInput): string {
     "Canonical transcript:",
     input.transcript,
     "",
+    input.requiredPlaceholders.length > 0
+      ? "Opaque source ranges are wrapped as XML <opaque ...> blocks. You must preserve every required placeholder exactly and may not rewrite the internal content of those opaque blocks."
+      : undefined,
     "Return only the final committed replacement text. Do not return JSON, markdown fences, labels, or commentary.",
   ]
     .filter((line): line is string => typeof line === "string")

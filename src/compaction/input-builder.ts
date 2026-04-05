@@ -31,6 +31,18 @@ export interface ResolvedCompactionSourceSnapshot {
 
 export interface CompactionInputMessage extends CanonicalCompactionMessage {}
 
+export interface CompactionOpaqueReference {
+  readonly slot: string;
+  readonly placeholder: string;
+  readonly sourceMarkID: string;
+  readonly sourceResultGroupID: string;
+  readonly executionMode: CompactionExecutionMode;
+  readonly sourceSnapshotID?: string;
+  readonly startSourceIndex: number;
+  readonly endSourceIndex: number;
+  readonly renderedText: string;
+}
+
 export interface CompactionInput {
   readonly kind: "canonical-source-compaction";
   readonly promptContext: "dedicated-compaction-prompt";
@@ -41,6 +53,8 @@ export interface CompactionInput {
   readonly sourceFingerprint: string;
   readonly canonicalRevision?: string;
   readonly sourceMessages: readonly CompactionInputMessage[];
+  readonly opaqueReferences: readonly CompactionOpaqueReference[];
+  readonly requiredPlaceholders: readonly string[];
   readonly transcript: string;
   readonly metadata?: JsonValue;
 }
@@ -50,6 +64,7 @@ export interface BuildCompactionInputOptions {
   readonly promptText: string;
   readonly executionMode: CompactionExecutionMode;
   readonly canonicalMessages: readonly CanonicalCompactionMessage[];
+  readonly opaqueReferences?: readonly CompactionOpaqueReference[];
   readonly metadata?: JsonValue;
 }
 
@@ -137,6 +152,10 @@ export function buildCompactionInput(
     options.sourceSnapshot.messages,
     options.canonicalMessages,
   );
+  const opaqueReferences = normalizeOpaqueReferences(
+    options.opaqueReferences,
+    sourceMessages.length,
+  );
 
   return {
     kind: "canonical-source-compaction",
@@ -148,7 +167,11 @@ export function buildCompactionInput(
     sourceFingerprint: options.sourceSnapshot.sourceFingerprint,
     canonicalRevision: options.sourceSnapshot.canonicalRevision,
     sourceMessages,
-    transcript: renderCanonicalCompactionTranscript(sourceMessages),
+    opaqueReferences,
+    requiredPlaceholders: opaqueReferences.map(
+      (opaqueReference) => opaqueReference.placeholder,
+    ),
+    transcript: renderCanonicalCompactionTranscript(sourceMessages, opaqueReferences),
     metadata: options.metadata,
   };
 }
@@ -230,15 +253,37 @@ export function revalidateCompactionSourceIdentity(
 
 export function renderCanonicalCompactionTranscript(
   sourceMessages: readonly CanonicalCompactionMessage[],
+  opaqueReferences: readonly CompactionOpaqueReference[] = [],
 ): string {
-  return sourceMessages
-    .map((message, index) =>
+  const opaqueByStartIndex = new Map<number, CompactionOpaqueReference>();
+  for (const opaqueReference of opaqueReferences) {
+    opaqueByStartIndex.set(opaqueReference.startSourceIndex, opaqueReference);
+  }
+
+  const sections: string[] = [];
+  for (let index = 0; index < sourceMessages.length; ) {
+    const opaqueReference = opaqueByStartIndex.get(index);
+    if (opaqueReference !== undefined) {
+      sections.push(renderOpaqueReferenceSection(opaqueReference));
+      index = opaqueReference.endSourceIndex + 1;
+      continue;
+    }
+
+    const message = sourceMessages[index];
+    if (message === undefined) {
+      break;
+    }
+
+    sections.push(
       [
         `### ${index + 1}. ${message.role} ${message.hostMessageID} (${message.canonicalMessageID})`,
         message.content,
       ].join("\n"),
-    )
-    .join("\n\n");
+    );
+    index += 1;
+  }
+
+  return sections.join("\n\n");
 }
 
 function resolveCanonicalSourceMessages(
@@ -330,4 +375,70 @@ function normalizePromptText(promptText: string): string {
   }
 
   return promptText;
+}
+
+function normalizeOpaqueReferences(
+  opaqueReferences: readonly CompactionOpaqueReference[] | undefined,
+  sourceMessageCount: number,
+): readonly CompactionOpaqueReference[] {
+  if (opaqueReferences === undefined || opaqueReferences.length === 0) {
+    return [];
+  }
+
+  const normalized = [...opaqueReferences].sort(
+    (left, right) =>
+      left.startSourceIndex - right.startSourceIndex ||
+      right.endSourceIndex - left.endSourceIndex ||
+      left.placeholder.localeCompare(right.placeholder),
+  );
+  const seenPlaceholders = new Set<string>();
+  let nextAvailableIndex = 0;
+
+  for (const opaqueReference of normalized) {
+    if (opaqueReference.startSourceIndex < 0) {
+      throw new Error(
+        `Opaque placeholder '${opaqueReference.placeholder}' starts before the compaction source boundary.`,
+      );
+    }
+
+    if (opaqueReference.endSourceIndex >= sourceMessageCount) {
+      throw new Error(
+        `Opaque placeholder '${opaqueReference.placeholder}' exceeds the compaction source boundary.`,
+      );
+    }
+
+    if (opaqueReference.startSourceIndex > opaqueReference.endSourceIndex) {
+      throw new Error(
+        `Opaque placeholder '${opaqueReference.placeholder}' has an invalid source range.`,
+      );
+    }
+
+    if (opaqueReference.startSourceIndex < nextAvailableIndex) {
+      throw new Error(
+        `Opaque placeholder '${opaqueReference.placeholder}' overlaps an earlier opaque source range.`,
+      );
+    }
+
+    if (seenPlaceholders.has(opaqueReference.placeholder)) {
+      throw new Error(
+        `Duplicate opaque placeholder '${opaqueReference.placeholder}' is not allowed.`,
+      );
+    }
+
+    seenPlaceholders.add(opaqueReference.placeholder);
+    nextAvailableIndex = opaqueReference.endSourceIndex + 1;
+  }
+
+  return normalized;
+}
+
+function renderOpaqueReferenceSection(
+  opaqueReference: CompactionOpaqueReference,
+): string {
+  return [
+    `### ${opaqueReference.startSourceIndex + 1}-${opaqueReference.endSourceIndex + 1}. opaque ${opaqueReference.sourceMarkID} (${opaqueReference.sourceResultGroupID})`,
+    `<opaque slot="${opaqueReference.slot}" placeholder="${opaqueReference.placeholder}" executionMode="${opaqueReference.executionMode}">`,
+    opaqueReference.renderedText,
+    `</opaque>`,
+  ].join("\n");
 }

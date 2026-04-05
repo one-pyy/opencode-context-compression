@@ -128,7 +128,7 @@
 - [x] **T3 Sidecar 数据模型与 Schema 重构**
 - [x] **T4 历史重放 / 覆盖树 / replacement 结果组主链路**
 - [x] **T5 Projection / Visible ID / Reminder / 清理规则重构**
-- [ ] **T6 Compaction 输入、Runner、Transport、失败语义重构**
+- [x] **T6 Compaction 输入、Runner、Transport、失败语义重构**
 - [ ] **T7 Scheduler / Gate / Batch Freeze / 运行时门闩对齐**
 - [ ] **T8 测试、文档、遗留资产统一收口**
 依赖关系：

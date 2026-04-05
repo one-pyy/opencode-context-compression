@@ -8,3 +8,7 @@
 ## 2026-04-06 T5 Projection / Visible ID / Reminder / 清理规则重构
 - reminder 的“最终可见 token 长什么样”在 `DESIGN.md` 中仍是约束多、示例少的区域；本次实现已经确保“不占永久序号 + 走 single-exit + 可被成功 replacement 窗口清理”，但如果后续希望把 reminder 的 bare id 文案冻结成更具体字符串，需要由后续文档/验收任务补正式例子，而不是在运行时代码里再猜一次。
 - 当前仓库里已有部分外层测试/工具 helper 默认把 `buildProjectedMessages()` 结果直接当最终文本消费；T5 已把仓库内已知用例切到 materialized output，但这个边界仍需在后续 T6/T7/T8 工作中持续保持，避免新的代码再次绕过 single-exit renderer。
+
+## 2026-04-06 T6 Compaction 输入 / Runner / Transport / 失败语义对齐
+- 新增 e2e 一开始尝试通过公共 `compression_mark` 工具构造“outer compact 覆盖 inner compact referable block”场景，但当前公共工具契约只允许选择连续 `compressible` canonical span，不能直接选 referable compact block 本身；为避免把 T6 误扩成 T2/T7 工具契约重写，最终改为 sidecar 预置 inner committed result + outer active mark 的 integration-style e2e，直接验证 runner/input/placeholder/failure contract。
+- 为了不偷裁决 `allowDelete` 的长期语义，runner 执行模式改为优先读取 mark metadata 里的 `mode`；这要求测试夹具显式给 mark metadata 补 mode，否则旧夹具会继续落回 `allowDelete -> executionMode` 的兼容回退路径。
