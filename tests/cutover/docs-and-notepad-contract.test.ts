@@ -23,6 +23,8 @@ test("operator docs advertise only the final repo-owned contract", async () => {
 
   for (const source of [readme, readmeZh]) {
     assert.match(source, /compression_mark/u);
+    assert.match(source, /DESIGN\.md/u);
+    assert.match(source, /DESIGN-CHANGELOG\.zh\.md/u);
     assert.match(source, /src\/config\/runtime-config\.jsonc/u);
     assert.match(source, /src\/config\/runtime-config\.schema\.json/u);
     assert.match(source, /prompts\/compaction\.md/u);
@@ -34,6 +36,8 @@ test("operator docs advertise only the final repo-owned contract", async () => {
     assert.match(source, /logs\/seam-observation\.jsonl/u);
     assert.match(source, /allowDelete/u);
     assert.match(source, /executionMode/u);
+    assert.match(source, /truth source|真相源/u);
+    assert.match(source, /change hint|变更提示/u);
     assert.match(source, /softRepeatEveryTokens/u);
     assert.match(source, /hardRepeatEveryTokens/u);
     assert.match(source, /locks\/<session-id>\.lock/u);
@@ -54,11 +58,15 @@ test("operator docs advertise only the final repo-owned contract", async () => {
     }
   }
 
+  const stripQuotedDesignExcerpts = (source: string) =>
+    source
+      .split(/\r?\n/u)
+      .filter((line) => !line.startsWith("> "))
+      .join("\n");
+
   const readmeOnlyForbiddenPatterns = [
     /OPENCODE_CONTEXT_COMPRESSION_ROUTE/u,
     /reminder\.counter/u,
-    /prompts\/reminder-soft\.md/u,
-    /prompts\/reminder-hard\.md/u,
     /\{\{compressible_content\}\}/u,
     /\{\{compaction_target\}\}/u,
     /\{\{preserved_fields\}\}/u,
@@ -67,8 +75,9 @@ test("operator docs advertise only the final repo-owned contract", async () => {
   ];
 
   for (const source of [readme, readmeZh]) {
+    const sourceWithoutDesignQuotes = stripQuotedDesignExcerpts(source);
     for (const pattern of readmeOnlyForbiddenPatterns) {
-      assert.doesNotMatch(source, pattern);
+      assert.doesNotMatch(sourceWithoutDesignQuotes, pattern);
     }
   }
 
@@ -85,7 +94,10 @@ test("operator docs advertise only the final repo-owned contract", async () => {
     liveGuide,
     /tests\/e2e\/plugin-loading-and-compaction\.test\.ts/u,
   );
-  assert.match(liveGuide, /tests\/e2e\/delete-route\.test\.ts/u);
+  assert.match(
+    liveGuide,
+    /tests\/e2e\/allow-delete-delete-style\.test\.ts/u,
+  );
   assert.match(liveGuide, /legacy DCP 工具/u);
   assert.match(liveGuide, /默认生产 compaction executor transport/u);
   assert.match(

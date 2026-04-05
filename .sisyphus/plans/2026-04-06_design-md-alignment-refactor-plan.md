@@ -130,7 +130,7 @@
 - [x] **T5 Projection / Visible ID / Reminder / 清理规则重构**
 - [x] **T6 Compaction 输入、Runner、Transport、失败语义重构**
 - [x] **T7 Scheduler / Gate / Batch Freeze / 运行时门闩对齐**
-- [ ] **T8 测试、文档、遗留资产统一收口**
+- [x] **T8 测试、文档、遗留资产统一收口**
 依赖关系：
 - `T0` 是所有任务前置
 - `T1` 与 `T2` 可以并行准备，但 `T2` 合并前要读取 `T0`

@@ -13,12 +13,13 @@ The user message below contains a canonical transcript of the session messages m
 
 Roles are `user`, `assistant`, or `tool`. The content is the raw text of each message in chronological order.
 
-## Route
+## Runtime mode and delete permission
 
-The compaction route is injected at runtime. Follow the route directive appended below this prompt.
+The runtime injects both the current delete-permission bit and the current execution mode. Follow those directives exactly.
 
-- `keep` — produce a concise reusable replacement block that preserves factual details and referable context from the marked messages.
-- `delete` — produce a concise delete notice that makes the removal explicit without inventing new facts.
+- `executionMode=compact` — produce a concise reusable replacement block that preserves factual details and referable context from the marked messages.
+- `executionMode=delete` — produce a concise delete notice that makes the removal explicit without inventing new facts.
+- `allowDelete=true|false` — tells you whether delete-style behavior is currently permitted for this batch.
 
 ## Requirements
 

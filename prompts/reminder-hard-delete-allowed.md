@@ -1,1 +1,1 @@
-Hard reminder: reduce older compressible context now. If the target span is no longer needed, you may either keep a compact referable replacement or delete it directly.
+Hard reminder: reduce older compressible context now. If the target span is no longer needed, you may either produce a compact referable replacement or use delete-style cleanup directly.

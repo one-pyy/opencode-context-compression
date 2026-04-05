@@ -23,7 +23,7 @@ import type {
   TransformPart,
 } from "../../src/seams/noop-observation.js";
 
-test("delete route commits through the same replacement framework, projects a delete notice, and persists SQLite sidecar state", async () => {
+test("allowDelete=true delete-style behavior commits through the same replacement framework, projects a delete notice, and persists SQLite sidecar state", async () => {
   await withTempEnvironment(
     async ({ projectDirectory, lockDirectory, store, clock }) => {
       const canonicalMessages = [
@@ -84,7 +84,7 @@ test("delete route commits through the same replacement framework, projects a de
 
       assert.equal(result.started, true);
       if (!result.started) {
-        assert.fail("expected delete-route compaction to start");
+          assert.fail("expected allowDelete delete-style compaction to start");
       }
 
       assert.equal(result.finalStatus, "succeeded");

@@ -33,3 +33,6 @@
 ## 2026-04-06 T7 Scheduler / Gate / Batch Freeze / 运行时门闩对齐
 - T7 对齐后，等待中的普通对话既可能在“lock 文件仍处于 `succeeded` / `failed` 终态时”解除等待，也可能在“lock 文件已清、send-entry gate 回看 persisted batch 状态时”解除等待；这是 runner 先 settle 再 clear 带来的合法 race，不应再让测试把来源硬编码成唯一的 `compaction-batch` 分支。
 - 当前仓库依然没有 build script；T7 的验证已按现状使用 `lsp_diagnostics`、相关 runtime/e2e tests、`npm run typecheck` 和 `npm test`，没有把“补 build 命令”顺手并进本任务。
+
+## 2026-04-06 T8 测试 / 文档 / 遗留资产统一收口
+- `DESIGN.md:939-943` 仍用 `tests/e2e/delete-route.test.ts` 作为说明锚点，因此仓库虽然已经把测试入口重命名为 `tests/e2e/allow-delete-delete-style.test.ts`，文档中仍必须明确说明“这是设计里提到的旧文件名”，否则容易让读者误以为仓库偏离了设计锚点。

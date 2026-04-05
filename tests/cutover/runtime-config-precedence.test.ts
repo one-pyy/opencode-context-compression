@@ -60,7 +60,7 @@ test("repo-owned runtime config, prompt assets, and docs resolve from this repo 
   assert.match(runtimeConfig.reminder.prompts.compactOnly.soft.text, /Compress material/u);
   assert.match(
     runtimeConfig.reminder.prompts.deleteAllowed.hard.text,
-    /delete it directly/u,
+    /delete-style cleanup directly/u,
   );
   assert.equal(runtimeConfig.logging.level, "off");
   assert.equal(runtimeConfig.compressing.timeoutSeconds, 600);

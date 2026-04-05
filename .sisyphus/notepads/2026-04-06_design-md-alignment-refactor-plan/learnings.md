@@ -53,3 +53,11 @@
 - lock 生命周期已经按 `DESIGN.md:618-642` 落到运行时顺序：后台 batch 真正 dispatch 时建 lock；runner 结束时先把 lock 写成 `succeeded` / `failed` 终态，再清掉 lock 文件；后续普通请求因此可以因为“终态 lock 仍短暂可见”或“文件已清理并从 persisted batch 读出终态”两种路径继续，但两者的外部语义都一致地表示“已经不再被 live lock 阻塞”。
 - batch freeze 的关键不是 runtime 里给 late mark 写 special-case，而是把 dispatch 时间钉死到 `frozenAtMs`：`freezeCurrentCompactionBatch()` 先建立 dispatch/lock，再按 `createdAtMs <= frozenAtMs` 过滤持久 active mark 集持久化当前 batch；lock 期间新写入的 mark 自然留在下一轮，不会混入当前 batch 成员表。
 - 针对 T7，测试断言也从“必须经某条内部来源命中”收敛为“等待直到终态/超时/手工恢复后放行”的外部行为证明，避免让旧测试反向把 runtime 语义钉死成某个内部 race 顺序。
+
+## 2026-04-06 T8 测试 / 文档 / 遗留资产统一收口
+- `README.md`、`readme.zh.md`、`docs/live-verification-with-mitmproxy-and-debug-log.zh.md` 现在统一先声明 `DESIGN.md` 是真相源，`DESIGN-CHANGELOG.zh.md` 只是变更提示，不再让 changelog 或 live guide 反向定义当前公开契约。
+- `DESIGN.md:939-943` 里点名的 `tests/e2e/delete-route.test.ts` 被明确视为“旧文件名”；仓库入口现已重命名为 `tests/e2e/allow-delete-delete-style.test.ts`，并在 README / live guide / cutover 审计中同步解释成 `allowDelete=true` / delete-style 覆盖，而不是继续把旧 route 说法包装成当前 contract。
+- prompt 资产叙述也完成统一：文档与 `prompts/compaction.md` 都改为围绕 `mode`、`executionMode` 和 `allowDelete` 描述运行时语义，不再把 `keep route` 当成当前对外名词；delete-allowed reminder 文案也同步改成 compact referable replacement / delete-style cleanup 的新口径。
+
+## 2026-04-06 T8 repair：README route 词汇彻底移除
+- README 与中文 README 最后一处 “`allowDelete` 不是 keep/delete route 名称” 也已改成中性当前口径：`mode` 是公开动作字段，`allowDelete` 只是运行时删除许可 seam；这样 operator-facing README 层不再在正反句里复用旧 route 词汇。

@@ -146,7 +146,7 @@ test("explicit absolute-path plugin loading initializes hooks for a temp project
   }
 });
 
-test("keep route persists committed sidecar state and projects deterministically across reruns", async () => {
+test("compact mode persists committed sidecar state and projects deterministically across reruns", async () => {
   await withTempEnvironment(
     async ({ projectDirectory, lockDirectory, store, clock }) => {
       const canonicalMessages = [
@@ -175,7 +175,7 @@ test("keep route persists committed sidecar state and projects deterministically
       syncMessages(store, clock, canonicalMessages);
       persistMark({
         store,
-        markID: "mark-keep-1",
+        markID: "mark-compact-1",
         toolCallMessageID: "mark-tool-1",
         allowDelete: false,
         createdAtMs: clock.tick(),
@@ -190,7 +190,7 @@ test("keep route persists committed sidecar state and projects deterministically
         lockDirectory,
         sessionID: store.sessionID,
         promptText: "Summarize the selected canonical span.",
-        models: ["model-keep"],
+        models: ["model-compact"],
         transport: createSafeTransport(async (request) => {
           assert.equal(request.input.allowDelete, false);
           assert.equal(request.input.executionMode, "compact");
@@ -211,7 +211,7 @@ test("keep route persists committed sidecar state and projects deterministically
 
       assert.equal(result.started, true);
       if (!result.started) {
-        assert.fail("expected keep-route compaction to start");
+          assert.fail("expected compact-mode compaction to start");
       }
 
       assert.equal(result.finalStatus, "succeeded");
@@ -246,7 +246,7 @@ test("keep route persists committed sidecar state and projects deterministically
           store.databasePath,
           "SELECT mark_id || '|' || status FROM marks ORDER BY mark_id;",
         ),
-        ["mark-keep-1|consumed"],
+        ["mark-compact-1|consumed"],
       );
       assert.deepEqual(
         querySqlite(
@@ -269,7 +269,7 @@ test("send-entry gate waits on the live lock and resumes from persisted batch st
 
       assert.equal(frozen.started, true);
       if (!frozen.started) {
-        assert.fail("expected frozen keep batch to start");
+          assert.fail("expected frozen compact batch to start");
       }
 
       store.updateCompactionBatchStatus({
@@ -320,7 +320,7 @@ async function withTempEnvironment(
   }) => Promise<void>,
 ): Promise<void> {
   const projectDirectory = await mkdtemp(
-    join(tmpdir(), "opencode-context-compression-e2e-keep-"),
+    join(tmpdir(), "opencode-context-compression-e2e-compact-"),
   );
   const lockDirectory = join(projectDirectory, "locks");
   const clock = createClock();

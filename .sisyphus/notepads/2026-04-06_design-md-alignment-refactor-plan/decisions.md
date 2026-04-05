@@ -61,3 +61,10 @@
 - 决定：lock 生命周期以 file-lock 为实时权威，但终态语义允许有“先 settle 再 clear”的短窗口。也就是说，普通对话只要观察到 live lock 已进入 `succeeded` / `failed`、超时 stale、手工清锁、或文件已移除且 batch 已终态，就都可以继续；测试不得再把“必须先删 lock 文件”当作额外契约。
 - 决定：dispatch freeze 边界以 `frozenAtMs` 为准，而不是以调度前拿到的一份内存数组快照为准。实现上先建立 dispatch/lock，再从持久 active mark 集中筛出 `createdAtMs <= frozenAtMs` 的成员写入 `compaction_batch_marks`；late mark 不需要额外 branching，自然进入下一批。
 - 决定：T7 不扩展到 T8 文档统一收口。README / 设计文档措辞统一、更多操作员说明示例、以及对“终态 lock 窗口”的文档化表述仍明确留给 T8，而不是在本任务里继续改文档面。
+
+## 2026-04-06 T8 测试 / 文档 / 遗留资产统一收口
+- 决定：仓库入口文档、cutover 审计、e2e 测试名和 prompt 资产说明统一以 `DESIGN.md` 为真相源；`DESIGN-CHANGELOG.zh.md` 只允许作为变更提示，不再被写成高于设计原文的“当前行为裁决器”。
+- 决定：所有 operator-facing 叙述都不再把旧 route / keep wording 包装成当前 public contract。测试若仍需承接设计锚点中的旧名字，必须明确标注“旧文件名”或“legacy-facing wording”，再给出当前应理解的 `allowDelete=true` / delete-style 语义。
+
+## 2026-04-06 T8 repair：README route 词汇彻底移除
+- 决定：README 层即使是在否定句中，也不再复用旧 route 词汇。涉及 `allowDelete` 的 operator-facing 解释统一写成“不是公开动作字段；公开动作字段是 `mode`”，避免旧 contract framing 继续挂在入口文档上。

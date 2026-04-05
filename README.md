@@ -4,6 +4,32 @@ Standalone OpenCode plugin workspace for the canonical-history plus SQLite-sidec
 
 The plugin keeps OpenCode host history as the canonical source of truth, stores plugin-owned state in a per-session SQLite sidecar, projects prompt-visible replacements through `experimental.chat.messages.transform`, and uses a file lock as the operator-visible live compaction gate. Its only public compaction tool is `compression_mark`.
 
+## `DESIGN.md` is the truth source
+
+`DESIGN.md` is the truth source for this repo. `DESIGN-CHANGELOG.zh.md` is only a change hint. It helps explain what moved, but it does not override the design text.
+
+Direct design excerpts this repo follows:
+
+> `DESIGN.md:819-821`
+> - `prompts/compaction.md` — 压缩模板，已到位
+> - `prompts/reminder-soft.md` — 旧版 soft reminder，需要被 `reminder-soft-compact-only.md` 和 `reminder-soft-delete-allowed.md` 替代
+> - `prompts/reminder-hard.md` — 旧版 hard reminder，需要被 `reminder-hard-compact-only.md` 和 `reminder-hard-delete-allowed.md` 替代
+
+> `DESIGN.md:939-943`
+> - `tests/cutover/runtime-config-precedence.test.ts` — 配置、prompt、日志、env 优先级
+> - `tests/cutover/legacy-independence.test.ts` — 无旧 runtime/tool/provider 所有权下的规范执行
+> - `tests/cutover/docs-and-notepad-contract.test.ts` — 操作员文档和持久记忆契约审计
+> - `tests/e2e/plugin-loading-and-compaction.test.ts` — 插件加载、mark 流、scheduler seam、committed replacement 路径
+> - `tests/e2e/delete-route.test.ts` — 旧文件名；当前应理解为 `allowDelete=true` / delete-style 行为覆盖
+
+> `DESIGN.md:947-967`
+> - 宿主暴露的 legacy 工具已能在真实会话里提供 keep 与 delete 的端到端证明
+> - 仓库已提供默认生产 compaction executor transport
+>
+> 但完整的 keep / delete 成功路径仍以仓库自动化测试为准，不能把“看见了模型流量”误写成“真实会话已完成 keep / delete 证明”。
+
+Accordingly, the active reminder assets are the four split files listed below, and the DESIGN entry that still says `tests/e2e/delete-route.test.ts` is carried in this repo as `tests/e2e/allow-delete-delete-style.test.ts`.
+
 ## Load the plugin explicitly
 
 Use an explicit plugin entry in `opencode.json` or `opencode.jsonc`. In this workspace, explicit config loading is the supported activation path.
@@ -107,11 +133,13 @@ Unset env variables mean "no override". Empty or whitespace-only env values are 
 The only public compaction tool is `compression_mark`.
 
 - `contractVersion` is `v1`
-- `allowDelete` is a boolean delete-permission bit for the selected visible span
+- `mode` is `"compact"` or `"delete"`
 - `target.startVisibleMessageID` and `target.endVisibleMessageID` come from the current projected visible view
 - the tool resolves the target span against the repo-owned projection, then persists the mark and source snapshot in the sidecar
 
 `compression_mark` does not expose a public execute step. Batch freezing, scheduling, runner invocation, and lock handling remain plugin-owned runtime behavior behind the tool and scheduler seams.
+
+`allowDelete` is not the public action field. `mode` is the public action field, while `allowDelete` is the current delete-permission seam the runtime uses when deciding whether `mode: "delete"` may proceed.
 
 ## Run it as the only active compaction system
 
@@ -151,31 +179,16 @@ The plugin is organized around four operator-visible rules:
    - committed replacements are rendered from sidecar state through `experimental.chat.messages.transform`
    - rerunning projection over the same canonical history yields the same visible output
 
-## `allowDelete` and committed `executionMode`
+## Delete permission, tool mode, and committed outcome
 
-The durable mark and source-lineage contract now records delete permission as `allowDelete`, while committed replacements record the actual outcome as `executionMode`.
+The operator-visible contract separates the request, the runtime permission, and the committed result:
 
-### `allowDelete`
+- `mode="compact"` asks for a compact referable replacement block
+- `mode="delete"` asks for delete-style behavior, but only when the current runtime permission allows it
+- `allowDelete=true|false` is the runtime delete-permission bit surfaced in prompts, logs, tests, and delete-style admission behavior
+- committed replacements record `executionMode="compact"` or `executionMode="delete"`
 
-- `allowDelete: false` means the marked span may be compacted but is not permitted to enter the delete branch
-- `allowDelete: true` means the marked span is allowed to enter the delete-capable branch later
-- `allowDelete` is a permission bit, not a standalone record of what the current batch actually did
-
-### committed `executionMode="compact"`
-
-- a committed replacement stays prompt-visible as the surviving referable block
-- the original source span is hidden only in the projected view
-- the replacement is not eligible for another compaction pass
-
-### committed `executionMode="delete"`
-
-- compaction still creates a committed replacement record in SQLite
-- projection renders that committed result as a minimal delete notice instead of a reusable summary block
-- the original source span is removed from the prompt-visible projection once the delete replacement is committed
-- the delete result is still tracked through the same replacement tables, source snapshots, and consumed-mark links as compact outcomes
-- delete outputs are treated as terminal cleanup results, not as candidates for another compaction pass
-
-In short, `allowDelete` records permission, while `executionMode` records whether the committed outcome was a compacted survivor or a delete notice.
+For deeper internal semantics, treat `DESIGN.md` as the source of truth. Do not use `DESIGN-CHANGELOG.zh.md` as a stronger source.
 
 ## Lock behavior and manual recovery
 
@@ -225,14 +238,14 @@ Automated proof that is in scope today:
 - `tests/cutover/legacy-independence.test.ts`, canonical execution without old runtime, tool, or provider ownership
 - `tests/cutover/docs-and-notepad-contract.test.ts`, operator docs and durable-memory contract audit
 - `tests/e2e/plugin-loading-and-compaction.test.ts`, repo-owned plugin loading, mark flow, scheduler seam, and committed replacement path with an injected safe transport fixture
-- `tests/e2e/delete-route.test.ts`, committed delete-path behavior under the same repo-owned fixture style
+- `tests/e2e/allow-delete-delete-style.test.ts`, `allowDelete=true` delete-style behavior under the same repo-owned fixture style
 
 What this README does not claim:
 
-- that host-exposed legacy tools already provide valid end-to-end keep and delete proof for this plugin in a real session
+- that host-exposed legacy tools already provide valid end-to-end compact and delete-style proof for this plugin in a real session
 - that the repo already ships a default production compaction executor transport
 
-For current manual guidance, read `docs/live-verification-with-mitmproxy-and-debug-log.zh.md`. That guide keeps the same truth boundary: real-session checks may confirm plugin load, seam logging, sidecar creation, and other observable runtime effects, but full keep and delete proof still comes from the repo-owned automated suite above.
+For current manual guidance, read `docs/live-verification-with-mitmproxy-and-debug-log.zh.md`. That guide keeps the same truth boundary: real-session checks may confirm plugin load, seam logging, sidecar creation, and other observable runtime effects, but full `executionMode=compact` and `executionMode=delete` proof still comes from the repo-owned automated suite above.
 
 ## Seam probe
 
@@ -261,5 +274,5 @@ node --import tsx --test tests/cutover/runtime-config-precedence.test.ts
 node --import tsx --test tests/cutover/legacy-independence.test.ts
 node --import tsx --test tests/cutover/docs-and-notepad-contract.test.ts
 node --import tsx --test tests/e2e/plugin-loading-and-compaction.test.ts
-node --import tsx --test tests/e2e/delete-route.test.ts
+node --import tsx --test tests/e2e/allow-delete-delete-style.test.ts
 ```

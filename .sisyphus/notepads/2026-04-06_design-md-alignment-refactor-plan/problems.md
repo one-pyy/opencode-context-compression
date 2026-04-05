@@ -16,3 +16,6 @@
 ## 2026-04-06 T7 Scheduler / Gate / Batch Freeze / 运行时门闩对齐
 - T7 已把 send-entry wait / batch freeze / lock lifecycle 收到当前 DESIGN 语义，但“这些 runtime 细节如何在 README / 设计辅助文档里统一讲清楚”仍未在本任务内处理；尤其是“lock 终态短暂可见后再 clear”的 operator-facing 说明，明确留给 T8 文档统一收口。
 - 当前 batch freeze 仍依赖持久 mark `createdAtMs` 作为 dispatch cut line，而不是完全从宿主历史 replay 时间戳直接导出；这满足 T7 的运行时门控行为，但若后续要把 mark membership 的时间边界也彻底统一到 replay 主链，需要在不回退当前行为的前提下另开后续任务处理。
+
+## 2026-04-06 T8 测试 / 文档 / 遗留资产统一收口
+- 仍需谨慎表述的边界：虽然文档与测试入口已经改成 `compact` / `delete-style` / `allowDelete` 口径，但 `DESIGN.md` 内部对 `allowDelete` 的长期持久语义仍保留 `conflict-audit.md` 记录的张力。因此 T8 只收口 operator-facing narrative，不把该内部冲突包装成已彻底裁决的实现声明。

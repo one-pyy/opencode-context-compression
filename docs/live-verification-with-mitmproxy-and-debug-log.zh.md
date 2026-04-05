@@ -2,6 +2,8 @@
 
 这份文档只描述当前已经验证过的 repo-owned 合同，以及真实会话里可以诚实观察到的现象。它不讲迁移历史，也不把旧 host 工具包装成这份插件的证明路径。
 
+`DESIGN.md` 是真相源，`DESIGN-CHANGELOG.zh.md` 只作为变更提示。这里的 live verification 说明不得高于 `DESIGN.md`。
+
 ## 1. 先说清楚，今天到底能证明什么
 
 当前可重复、已经自动化覆盖的证明边界是：
@@ -9,14 +11,14 @@
 1. `tests/cutover/runtime-config-precedence.test.ts` 证明仓库自有的 `src/config/runtime-config.jsonc`、`src/config/runtime-config.schema.json`、`prompts/compaction.md`、日志路径和环境变量优先级契约成立。
 2. `tests/cutover/legacy-independence.test.ts` 证明规范插件合同不依赖旧 runtime、旧工具名或旧 provider-side DCP 字段。
 3. `tests/cutover/docs-and-notepad-contract.test.ts` 证明 README、中文 README、这份 live verification 指南，以及目标仓库 notepad 记录的是同一份 final repo-owned 合同。
-4. `tests/e2e/plugin-loading-and-compaction.test.ts` 与 `tests/e2e/delete-route.test.ts` 证明仓库自有插件入口、`compression_mark`、scheduler seam、keep 与 delete 提交路径在注入 safe transport fixture 时可以稳定工作。
+4. `tests/e2e/plugin-loading-and-compaction.test.ts` 与 `tests/e2e/allow-delete-delete-style.test.ts` 证明仓库自有插件入口、`compression_mark`、scheduler seam，以及 `executionMode=compact` 和 `allowDelete=true` delete-style 提交路径在注入 safe transport fixture 时可以稳定工作。
 
 当前**没有**被这份文档声称已经证明的内容：
 
-- 真实会话里，靠宿主当前暴露的 legacy DCP 工具，就已经能为这个插件提供 keep 与 delete 的端到端证明。
+- 真实会话里，靠宿主当前暴露的 legacy DCP 工具，就已经能为这个插件提供 compact 与 delete-style 的端到端证明。
 - 这个仓库已经自带默认生产 compaction executor transport。
 
-换句话说，真实会话里的 live verification 目前适合确认“插件确实加载了，副作用确实落在 repo-owned 路径里”，而完整 keep 与 delete 成功路径仍以仓库自动化测试为准。
+换句话说，真实会话里的 live verification 目前适合确认“插件确实加载了，副作用确实落在 repo-owned 路径里”，而完整 compact 与 delete-style 成功路径仍以仓库自动化测试为准。
 
 ## 2. 当前 repo-owned 路径
 
@@ -60,11 +62,11 @@ node --import tsx --test tests/cutover/legacy-independence.test.ts
 node --import tsx --test tests/cutover/docs-and-notepad-contract.test.ts
 ```
 
-如果你还想把 keep 与 delete 的已提交路径一起跑一遍，再加上：
+如果你还想把 compact 与 delete-style 的已提交路径一起跑一遍，再加上：
 
 ```bash
 node --import tsx --test tests/e2e/plugin-loading-and-compaction.test.ts
-node --import tsx --test tests/e2e/delete-route.test.ts
+node --import tsx --test tests/e2e/allow-delete-delete-style.test.ts
 ```
 
 这里有个关键真相边界必须保留：上述 e2e 成功路径依赖注入的 safe transport fixture。它们证明的是 repo-owned 插件入口、`compression_mark`、scheduler seam、锁语义、SQLite 提交和投射路径成立，不等于仓库已经提供默认生产 executor。
@@ -142,7 +144,7 @@ sqlite3 "/root/_/opencode/opencode-context-compression/state/<session-id>.db" "S
 
 当前不可接受的外推方式：
 
-- 只因为代理里有模型流量，就断言 keep 或 delete 已经通过真实会话证明
+- 只因为代理里有模型流量，就断言 compact 或 delete-style 已经通过真实会话证明
 - 只因为某个 host tool 返回成功，就断言它走的是这份 repo-owned 插件的最终合同
 - 只因为锁文件消失，就断言批次成功完成
 
@@ -166,7 +168,7 @@ sqlite3 "/root/_/opencode/opencode-context-compression/state/<session-id>.db" "S
 - seam probe 没有留下关键 seam
 - 真实会话没有 sidecar DB，或者只有空壳没有本次会话痕迹
 - 你只能依赖代理流量猜测插件是否真正进入了 repo-owned 逻辑
-- 你试图把宿主当前暴露的 legacy DCP 工具当成 keep 或 delete 的证明驱动
+- 你试图把宿主当前暴露的 legacy DCP 工具当成 compact 或 delete-style 的证明驱动
 - 你试图把“锁没了”直接解释为成功
 
 ## 6. mitmproxy 在这里的正确定位
@@ -183,13 +185,13 @@ mitmproxy --listen-host 127.0.0.1 --listen-port 41641
 2. 再对齐 `logs/seam-observation.jsonl`
 3. 最后到 SQLite 里确认同一时间窗口是否真的发生了 sidecar 变化
 
-只有三者对齐，代理观察才有解释力。任何单独一面都不应被当成“完整 keep 与 delete 已在真实会话证明”的依据。
+只有三者对齐，代理观察才有解释力。任何单独一面都不应被当成“完整 compact 与 delete-style 已在真实会话证明”的依据。
 
 ## 7. 这份文档未来什么时候该更新
 
 只有在下面任意一项真的被实现并自动化证明后，才应该扩展这份文档的成功口径：
 
 - 仓库新增了默认生产 compaction executor transport，并有对应自动化证明
-- 真实会话存在 repo-owned 的最终执行路径，能在不借助 legacy host 工具的前提下稳定产出 keep 与 delete 结果
+- 真实会话存在 repo-owned 的最终执行路径，能在不借助 legacy host 工具的前提下稳定产出 compact 与 delete-style 结果
 
-在那之前，这份文档的职责就是守住真相边界，不把“插件已加载”误写成“真实会话完整 keep 与 delete 已被证明”。
+在那之前，这份文档的职责就是守住真相边界，不把“插件已加载”误写成“真实会话完整 compact 与 delete-style 已被证明”。
