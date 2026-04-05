@@ -34,6 +34,9 @@ export interface CreateMessagesTransformHookOptions {
   readonly reminder?: ReminderRuntimeConfig;
   readonly smallUserMessageThreshold?: number;
   readonly reminderModelName?: string;
+  readonly isDeleteModeAllowed?: (input: {
+    readonly messages: readonly TransformEnvelope[];
+  }) => boolean;
   readonly createStore?: (input: {
     readonly pluginDirectory: string;
     readonly sessionID: string;
@@ -70,6 +73,9 @@ export function createMessagesTransformHook(
         reminder: options.reminder,
         smallUserMessageThreshold: options.smallUserMessageThreshold,
         reminderModelName: options.reminderModelName,
+        deleteModeAllowed: options.isDeleteModeAllowed?.({
+          messages: canonicalMessages,
+        }),
       });
       const projectedMessages = materializeProjectedMessages(
         projection.projectedMessages,

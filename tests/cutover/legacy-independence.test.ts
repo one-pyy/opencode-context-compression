@@ -257,7 +257,7 @@ test("canonical execution does not require old provider DCP fields", async () =>
     }
 
     const finalProjection = {
-      messages: canonicalMessages.map((message) => structuredClone(message)),
+      messages: sessionHistory.map((message) => structuredClone(message)),
     } satisfies MessagesTransformOutput;
     await transform({}, finalProjection);
 

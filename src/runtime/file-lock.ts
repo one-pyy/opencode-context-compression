@@ -1,6 +1,11 @@
 import { mkdir, open, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 
+import {
+  assertSafeSessionIDSegment,
+  resolvePathWithinDirectory,
+} from "./path-safety.js";
+
 export const DEFAULT_LOCK_DIRECTORY_NAME = "locks";
 export const DEFAULT_LOCK_TIMEOUT_MS = 10 * 60 * 1000;
 export const DEFAULT_LOCK_POLL_INTERVAL_MS = 25;
@@ -149,7 +154,12 @@ export function resolveSessionFileLockPath(
   lockDirectory: string,
   sessionID: string,
 ): string {
-  return join(lockDirectory, `${sessionID}.lock`);
+  const safeSessionID = assertSafeSessionIDSegment(sessionID);
+  return resolvePathWithinDirectory(
+    lockDirectory,
+    `${safeSessionID}.lock`,
+    "session lock",
+  );
 }
 
 export async function acquireSessionFileLock(

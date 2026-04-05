@@ -50,6 +50,7 @@ const plugin: Plugin = async (ctx) => {
     reminder: runtimeConfig.reminder,
     smallUserMessageThreshold: runtimeConfig.smallUserMessageThreshold,
     reminderModelName: runtimeConfig.models[0],
+    isDeleteModeAllowed: () => false,
   });
   hooks["chat.params"] = async (input, output) => {
     await chatParamsScheduler(input, output);

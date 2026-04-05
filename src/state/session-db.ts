@@ -1,6 +1,10 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  assertSafeSessionIDSegment,
+  resolvePathWithinDirectory,
+} from "../runtime/path-safety.js";
 import { applyStateSchemaMigrations } from "./schema.js";
 import { createSqliteDatabase, type SqliteDatabase } from "./sqlite-runtime.js";
 
@@ -34,7 +38,12 @@ export function resolveSessionDatabasePath(
   sessionID: string,
   stateDirectoryName = DEFAULT_SESSION_DATABASE_DIRECTORY_NAME,
 ): string {
-  return join(resolvePluginStateDirectory(pluginDirectory, stateDirectoryName), `${sessionID}.db`);
+  const safeSessionID = assertSafeSessionIDSegment(sessionID);
+  return resolvePathWithinDirectory(
+    resolvePluginStateDirectory(pluginDirectory, stateDirectoryName),
+    `${safeSessionID}.db`,
+    "session database",
+  );
 }
 
 export function openSessionDatabase(options: OpenSessionDatabaseOptions): SessionDatabaseHandle {

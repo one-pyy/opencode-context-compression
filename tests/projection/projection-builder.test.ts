@@ -552,6 +552,141 @@ test("projection builder renders reminder artifacts from plain-text reminder con
   });
 });
 
+test("projection builder chooses delete-allowed reminder prompts from the current runtime permission seam, not persisted mark bits", async () => {
+  await withTempStore(async (store, clock) => {
+    const messages = [
+      createEnvelope(
+        createMessage({ id: "user-1", role: "user", created: 1 }),
+        [createTextPart("user-1", "alpha")],
+      ),
+      createEnvelope(
+        createMessage({ id: "assistant-1", role: "assistant", created: 2 }),
+        [createTextPart("assistant-1", "beta")],
+      ),
+      createEnvelope(
+        createMessage({ id: "mark-tool-1", role: "tool", created: 3 }),
+        [createTextPart("mark-tool-1", "m_keep")],
+      ),
+    ];
+
+    syncMessages(store, clock, messages);
+    persistMark({
+      store,
+      markID: "m_keep",
+      toolCallMessageID: "mark-tool-1",
+      allowDelete: false,
+      createdAtMs: clock.tick(),
+      sourceMessages: [{ hostMessageID: "assistant-1" }],
+    });
+
+    const deleteAllowedProjection = buildProjectedMessages({
+      messages,
+      store,
+      reminder: {
+        ...createReminderConfigFixture(),
+        hsoft: 2,
+        hhard: 99,
+      },
+      reminderModelName: "gpt-5",
+      deleteModeAllowed: true,
+    });
+    const compactOnlyProjection = buildProjectedMessages({
+      messages,
+      store,
+      reminder: {
+        ...createReminderConfigFixture(),
+        hsoft: 2,
+        hhard: 99,
+      },
+      reminderModelName: "gpt-5",
+      deleteModeAllowed: false,
+    });
+
+    assert.equal(deleteAllowedProjection.reminder?.text, "Soft delete-allowed reminder.");
+    assert.equal(compactOnlyProjection.reminder?.text, "Soft reminder text.");
+  });
+});
+
+test("projection builder replays mark precedence by canonical transcript order instead of host timestamp sorting", async () => {
+  await withTempStore(async (store, clock) => {
+    const messages = [
+      createEnvelope(
+        createMessage({ id: "user-1", role: "user", created: 100 }),
+        [createTextPart("user-1", "alpha")],
+      ),
+      createEnvelope(
+        createMessage({ id: "assistant-1", role: "assistant", created: 200 }),
+        [createTextPart("assistant-1", "beta")],
+      ),
+      createEnvelope(
+        createMessage({ id: "mark-tool-earlier", role: "tool", created: 999 }),
+        [createTextPart("mark-tool-earlier", "m_earlier")],
+      ),
+      createEnvelope(
+        createMessage({ id: "mark-tool-later", role: "tool", created: 1 }),
+        [createTextPart("mark-tool-later", "m_later")],
+      ),
+    ];
+
+    syncMessages(store, clock, messages);
+    persistMark({
+      store,
+      markID: "m_earlier",
+      toolCallMessageID: "mark-tool-earlier",
+      allowDelete: false,
+      createdAtMs: clock.tick(),
+      sourceMessages: [{ hostMessageID: "assistant-1" }],
+    });
+    persistMark({
+      store,
+      markID: "m_later",
+      toolCallMessageID: "mark-tool-later",
+      allowDelete: false,
+      createdAtMs: clock.tick(),
+      sourceMessages: [{ hostMessageID: "assistant-1" }],
+    });
+    store.commitReplacementResultGroup({
+      primaryMarkID: "m_earlier",
+      executionMode: "compact",
+      committedAtMs: clock.tick(),
+      items: [
+        {
+          contentText: "Earlier transcript summary should not win.",
+          sourceSnapshot: {
+            messages: [{ hostMessageID: "assistant-1", role: "assistant" }],
+          },
+        },
+      ],
+    });
+    store.commitReplacementResultGroup({
+      primaryMarkID: "m_later",
+      executionMode: "compact",
+      committedAtMs: clock.tick(),
+      items: [
+        {
+          contentText: "Later transcript summary wins.",
+          sourceSnapshot: {
+            messages: [{ hostMessageID: "assistant-1", role: "assistant" }],
+          },
+        },
+      ],
+    });
+
+    const renderedMessages = materializeProjectedMessages(
+      buildProjectedMessages({
+        messages,
+        store,
+        reminder: undefined,
+      }).projectedMessages,
+    );
+
+    assert.deepEqual(renderedMessages.map((message) => readText(message)), [
+      `[compressible_000001_${computeVisibleChecksum("user-1")}] alpha`,
+      `[referable_000002_${computeVisibleChecksum("assistant-1")}] Later transcript summary wins.`,
+    ]);
+  });
+});
+
 test("projection builder protects short user messages via smallUserMessageThreshold", async () => {
   await withTempStore(async (store, clock) => {
     const messages = [

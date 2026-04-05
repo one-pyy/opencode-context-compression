@@ -333,6 +333,77 @@ test("final materialized output removes reminders whose anchor falls inside a co
   ]);
 });
 
+test("messages.transform uses the current runtime delete-permission seam for reminder prompt selection", async () => {
+  await withTempPluginDirectory(async (pluginDirectory) => {
+    const canonicalMessages = [
+      createEnvelope(
+        createMessage({ id: "user-1", role: "user", created: 1 }),
+        [createTextPart("user-1", "hello")],
+      ),
+      createEnvelope(
+        createMessage({ id: "assistant-1", role: "assistant", created: 2 }),
+        [createTextPart("assistant-1", "world")],
+      ),
+    ];
+
+    const createTransform = (deleteAllowed: boolean) =>
+      createMessagesTransformHook({
+        pluginDirectory,
+        createStore: ({ sessionID: _sessionID }) =>
+          createInMemoryProjectionStoreFixture(),
+        reminder: {
+          hsoft: 2,
+          hhard: 20,
+          softRepeatEveryTokens: 2,
+          hardRepeatEveryTokens: 10,
+          prompts: {
+            compactOnly: {
+              soft: {
+                path: "/tmp/reminder-soft-compact-only.md",
+                text: "Soft compact-only reminder.",
+              },
+              hard: {
+                path: "/tmp/reminder-hard-compact-only.md",
+                text: "Hard compact-only reminder.",
+              },
+            },
+            deleteAllowed: {
+              soft: {
+                path: "/tmp/reminder-soft-delete-allowed.md",
+                text: "Soft delete-allowed reminder.",
+              },
+              hard: {
+                path: "/tmp/reminder-hard-delete-allowed.md",
+                text: "Hard delete-allowed reminder.",
+              },
+            },
+          },
+        },
+        reminderModelName: "gpt-5",
+        isDeleteModeAllowed: () => deleteAllowed,
+      });
+
+    const compactOnlyOutput = {
+      messages: canonicalMessages.map((message) => structuredClone(message)),
+    } satisfies MessagesTransformOutput;
+    const deleteAllowedOutput = {
+      messages: canonicalMessages.map((message) => structuredClone(message)),
+    } satisfies MessagesTransformOutput;
+
+    await createTransform(false)({}, compactOnlyOutput);
+    await createTransform(true)({}, deleteAllowedOutput);
+
+    assert.match(
+      readText(compactOnlyOutput.messages.at(-1)!),
+      /Soft compact-only reminder\.$/u,
+    );
+    assert.match(
+      readText(deleteAllowedOutput.messages.at(-1)!),
+      /Soft delete-allowed reminder\.$/u,
+    );
+  });
+});
+
 function createEnvelope(
   info: TransformMessage,
   parts: TransformPart[],

@@ -27,6 +27,14 @@ type SchedulerSessionMessage = {
   readonly parts: readonly Record<string, unknown>[];
 };
 
+type SchedulerMessagesResponse = {
+  readonly data: readonly unknown[];
+  readonly before?: string;
+  readonly nextBefore?: string;
+  readonly hasMore?: boolean;
+  readonly has_more?: boolean;
+};
+
 type SchedulerClient = PluginInput["client"] & {
   session?: {
     messages?: (input: {
@@ -65,19 +73,19 @@ function dispatchSchedulerRun(
   options: CreateChatParamsSchedulerHookOptions,
   input: Parameters<ChatParamsHook>[0],
 ): Promise<void> {
-  const sessionID = input.sessionID;
-  const current = ACTIVE_SCHEDULER_RUNS.get(sessionID);
+  const runKey = buildSchedulerRunKey(options.pluginDirectory, input.sessionID);
+  const current = ACTIVE_SCHEDULER_RUNS.get(runKey);
   if (current) {
     return current;
   }
 
   const run = runSchedulerOnce(options, input).finally(() => {
-    if (ACTIVE_SCHEDULER_RUNS.get(sessionID) === run) {
-      ACTIVE_SCHEDULER_RUNS.delete(sessionID);
+    if (ACTIVE_SCHEDULER_RUNS.get(runKey) === run) {
+      ACTIVE_SCHEDULER_RUNS.delete(runKey);
     }
   });
 
-  ACTIVE_SCHEDULER_RUNS.set(sessionID, run);
+  ACTIVE_SCHEDULER_RUNS.set(runKey, run);
 
   if (options.runInBackground !== false) {
     void run.catch((error) => {
@@ -86,6 +94,10 @@ function dispatchSchedulerRun(
   }
 
   return run;
+}
+
+function buildSchedulerRunKey(pluginDirectory: string, sessionID: string): string {
+  return `${pluginDirectory}::${sessionID}`;
 }
 
 async function runSchedulerOnce(
@@ -218,35 +230,107 @@ async function readSessionMessages(
     );
   }
 
-  const response = await sessionClient.messages({ sessionID, limit: 500 });
-  const data = Array.isArray(response)
-    ? response
-    : isRecord(response) && Array.isArray(response.data)
-      ? response.data
-      : undefined;
+  const messages: SchedulerSessionMessage[] = [];
+  const seenHostMessageIDs = new Set<string>();
+  const seenCursors = new Set<string>();
+  let before: string | undefined;
 
-  if (!Array.isArray(data)) {
+  while (true) {
+    const normalized = normalizeSessionMessagesResponse(
+      await sessionClient.messages({ sessionID, limit: 500, before }),
+    );
+
+    for (const message of normalized.data) {
+      const hostMessageID = readSessionMessageID(message);
+      if (seenHostMessageIDs.has(hostMessageID)) {
+        continue;
+      }
+
+      seenHostMessageIDs.add(hostMessageID);
+      messages.push(toSchedulerSessionMessage(message));
+    }
+
+    const nextBefore = normalized.nextBefore;
+    if (nextBefore === undefined) {
+      if (normalized.hasMore === true) {
+        throw new Error(
+          "client.session.messages() indicated additional canonical history but did not provide a pagination cursor. Refusing partial canonical resync.",
+        );
+      }
+      break;
+    }
+
+    if (nextBefore === before || seenCursors.has(nextBefore)) {
+      throw new Error(
+        "client.session.messages() returned a non-advancing pagination cursor. Refusing partial canonical resync.",
+      );
+    }
+
+    seenCursors.add(nextBefore);
+    before = nextBefore;
+  }
+
+  return messages;
+}
+
+function normalizeSessionMessagesResponse(
+  response: unknown,
+): SchedulerMessagesResponse {
+  if (Array.isArray(response)) {
+    return { data: response };
+  }
+
+  if (!isRecord(response) || !Array.isArray(response.data)) {
     throw new Error(
       "client.session.messages() did not return an array of session messages.",
     );
   }
 
-  return data.map((message) => {
-    if (
-      !isRecord(message) ||
-      !isRecord(message.info) ||
-      !Array.isArray(message.parts)
-    ) {
-      throw new Error(
-        "client.session.messages() returned an invalid session message envelope.",
-      );
-    }
+  return {
+    data: response.data,
+    before: readOptionalNonEmptyString(response.before),
+    nextBefore: readOptionalNonEmptyString(response.nextBefore)
+      ?? readOptionalNonEmptyString(response.before),
+    hasMore: readOptionalBoolean(response.hasMore) ?? readOptionalBoolean(response.has_more),
+  };
+}
 
-    return {
-      info: message.info,
-      parts: message.parts.filter(isRecord),
-    } satisfies SchedulerSessionMessage;
-  });
+function toSchedulerSessionMessage(message: unknown): SchedulerSessionMessage {
+  if (!isRecord(message) || !isRecord(message.info) || !Array.isArray(message.parts)) {
+    throw new Error(
+      "client.session.messages() returned an invalid session message envelope.",
+    );
+  }
+
+  return {
+    info: message.info,
+    parts: message.parts.filter(isRecord),
+  } satisfies SchedulerSessionMessage;
+}
+
+function readSessionMessageID(message: unknown): string {
+  if (!isRecord(message) || !isRecord(message.info)) {
+    throw new Error(
+      "client.session.messages() returned an invalid session message envelope.",
+    );
+  }
+
+  const id = message.info.id;
+  if (typeof id !== "string" || id.length === 0) {
+    throw new Error(
+      "client.session.messages() returned a session message without a stable info.id.",
+    );
+  }
+
+  return id;
+}
+
+function readOptionalNonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function readOptionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function createCanonicalSourceLoader(

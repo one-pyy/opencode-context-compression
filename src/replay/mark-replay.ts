@@ -97,31 +97,7 @@ function readHistoryHostMessageIDs(input: {
   readonly policy: ProjectionPolicy;
   readonly store: SqliteSessionStateStore;
 }): readonly string[] {
-  const listHostMessages = (
-    input.store as SqliteSessionStateStore & {
-      listHostMessages?: () => Array<{
-        hostMessageID: string;
-        hostCreatedAtMs?: number;
-        firstSeenAtMs: number;
-      }>;
-    }
-  ).listHostMessages;
-
-  if (typeof listHostMessages !== "function") {
-    return input.policy.messages.map((message) => message.identity.hostMessageID);
-  }
-
-  return listHostMessages
-    .call(input.store)
-    .slice()
-    .sort(
-      (left, right) =>
-        (left.hostCreatedAtMs ?? left.firstSeenAtMs) -
-          (right.hostCreatedAtMs ?? right.firstSeenAtMs) ||
-        left.firstSeenAtMs - right.firstSeenAtMs ||
-        left.hostMessageID.localeCompare(right.hostMessageID),
-    )
-    .map((message) => message.hostMessageID);
+  return input.policy.messages.map((message) => message.identity.hostMessageID);
 }
 
 export function flattenReplayTree(

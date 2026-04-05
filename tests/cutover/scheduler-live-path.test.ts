@@ -29,6 +29,15 @@ import { OpencodeContextCompressionTokenEstimationError } from "../../src/token-
 type ChatParamsInput = Parameters<NonNullable<Hooks["chat.params"]>>[0];
 type ChatParamsOutput = Parameters<NonNullable<Hooks["chat.params"]>>[1];
 type PluginClient = PluginInput["client"];
+type SessionMessagesFixture = readonly {
+  readonly info: ReturnType<typeof createMessage>;
+  readonly parts: readonly ReturnType<typeof createTextPart>[];
+}[];
+type SessionMessagesRequest = {
+  readonly sessionID: string;
+  readonly limit?: number;
+  readonly before?: string;
+};
 
 test("live plugin wiring reaches repo-owned mark persistence and compaction runner paths", async () => {
   const entrypointSource = await readRepoFile("src/index.ts");
@@ -207,6 +216,102 @@ test("scheduler waits for marked-token readiness before running compaction", asy
       assert.equal(
           store.findLatestCommittedReplacementForMark("mark-1")?.contentText,
         "Compressed summary.",
+      );
+    },
+  );
+});
+
+test("scheduler paginates canonical session history before destructive sync", async () => {
+  await withSchedulerEnvironment(
+    async ({
+      pluginDirectory,
+      store,
+      clock,
+      runtimeConfig,
+    }) => {
+      const sessionMessages = createPaginatedSessionMessagesFixture(503);
+      seedMarkedSession(store, clock, {
+        sessionMessages,
+      });
+      const requests: Array<{ limit?: number; before?: string }> = [];
+      const hook = createChatParamsSchedulerHook({
+        pluginDirectory,
+        client: createClientFixture(sessionMessages, {
+          onRequest(input) {
+            requests.push({ limit: input.limit, before: input.before });
+          },
+        }),
+        runtimeConfig,
+        runInBackground: false,
+        now: () => clock.tick(),
+        transport: createSafeTransport(async () => ({
+          contentText: "Compressed summary.",
+        })),
+      });
+
+      await hook(
+        createChatParamsInput(store.sessionID, "user-trigger-1"),
+        createChatParamsOutput(),
+      );
+
+      assert.equal(store.listHostMessages({ presentOnly: true }).length, 503);
+      assert.deepEqual(requests, [
+        { limit: 500, before: undefined },
+        { limit: 500, before: "history-004" },
+      ]);
+    },
+  );
+});
+
+test("scheduler fails closed when canonical history reports truncation without a usable pagination cursor", async () => {
+  await withSchedulerEnvironment(
+    async ({
+      pluginDirectory,
+      store,
+      clock,
+      runtimeConfig,
+    }) => {
+      const sessionMessages = createPaginatedSessionMessagesFixture(503);
+      seedMarkedSession(store, clock, {
+        sessionMessages,
+      });
+      const beforeSyncHostIDs = store
+        .listHostMessages({ presentOnly: true })
+        .map((message) => message.hostMessageID);
+      const hook = createChatParamsSchedulerHook({
+        pluginDirectory,
+        client: {
+          session: {
+            async messages() {
+              return {
+                data: sessionMessages.slice(0, 500).map((message) => structuredClone(message)),
+                hasMore: true,
+              };
+            },
+          },
+        } as unknown as PluginClient,
+        runtimeConfig,
+        runInBackground: false,
+        now: () => clock.tick(),
+        transport: createSafeTransport(async () => ({
+          contentText: "Compressed summary.",
+        })),
+      });
+
+      await assert.rejects(
+        () =>
+          hook(
+            createChatParamsInput(store.sessionID, "user-trigger-1"),
+            createChatParamsOutput(),
+          ),
+        /Refusing partial canonical resync/u,
+      );
+
+      assert.deepEqual(
+        store
+          .listHostMessages({ presentOnly: true })
+          .map((message) => message.hostMessageID),
+        beforeSyncHostIDs,
       );
     },
   );
@@ -655,7 +760,7 @@ async function withSchedulerEnvironment(
     store: SqliteSessionStateStore;
     clock: ReturnType<typeof createClock>;
     runtimeConfig: RuntimeConfig;
-    sessionMessages: ReturnType<typeof createSessionMessagesFixture>;
+    sessionMessages: SessionMessagesFixture;
   }) => Promise<void>,
 ): Promise<void> {
   const pluginDirectory = await mkdtemp(
@@ -690,9 +795,16 @@ async function withSchedulerEnvironment(
 function seedMarkedSession(
   store: SqliteSessionStateStore,
   clock: ReturnType<typeof createClock>,
-  fixtureOptions?: Parameters<typeof createSessionMessagesFixture>[0],
+  fixtureOptions?: {
+    readonly assistantText?: string;
+    readonly toolText?: string;
+    readonly assistantTokenCount?: number;
+    readonly toolTokenCount?: number;
+    readonly sessionMessages?: SessionMessagesFixture;
+  },
 ): void {
-  const sessionMessages = createSessionMessagesFixture(fixtureOptions);
+  const sessionMessages =
+    fixtureOptions?.sessionMessages ?? createSessionMessagesFixture(fixtureOptions);
   store.syncCanonicalHostMessages({
     revision: `rev-${clock.tick()}`,
     syncedAtMs: clock.current,
@@ -769,15 +881,66 @@ function createRuntimeConfigFixture(): RuntimeConfig {
 }
 
 function createClientFixture(
-  sessionMessages: ReturnType<typeof createSessionMessagesFixture>,
+  sessionMessages: SessionMessagesFixture,
+  options?: {
+    readonly onRequest?: (input: {
+      readonly sessionID: string;
+      readonly limit?: number;
+      readonly before?: string;
+    }) => void;
+  },
 ): PluginClient {
   return {
     session: {
-      async messages() {
+      async messages(input: SessionMessagesRequest) {
+        options?.onRequest?.(input);
+        const page = readPaginatedSessionPage(sessionMessages, input.before);
+        if (page !== undefined) {
+          return page;
+        }
         return sessionMessages.map((message) => structuredClone(message));
       },
     },
   } as unknown as PluginClient;
+}
+
+function createPaginatedSessionMessagesFixture(total: number) {
+  const retainedMessages = createSessionMessagesFixture();
+  const fillerCount = Math.max(total - retainedMessages.length, 0);
+  const fillerMessages = Array.from({ length: fillerCount }, (_value, index) => {
+    const ordinal = index + 1;
+    const id = `history-${String(ordinal).padStart(3, "0")}`;
+    return createEnvelope(
+      createMessage({ id, role: ordinal % 2 === 0 ? "assistant" : "user", created: ordinal }),
+      [createTextPart(id, `history ${ordinal}`)],
+    );
+  });
+
+  return [...fillerMessages, ...retainedMessages] as const;
+}
+
+function readPaginatedSessionPage(
+  sessionMessages: SessionMessagesFixture,
+  before: string | undefined,
+): { data: SessionMessagesFixture; before?: string } | undefined {
+  if (sessionMessages.length !== 503) {
+    return undefined;
+  }
+
+  if (before === undefined) {
+    return {
+      data: sessionMessages.slice(3).map((message) => structuredClone(message)),
+      before: "history-004",
+    };
+  }
+
+  if (before !== "history-004") {
+    return undefined;
+  }
+
+  return {
+    data: sessionMessages.slice(0, 3).map((message) => structuredClone(message)),
+  };
 }
 
 function createSessionMessagesFixture(options?: {

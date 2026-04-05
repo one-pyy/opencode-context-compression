@@ -32,6 +32,7 @@ export interface ProjectionBuilderOptions {
   readonly reminder?: ReminderRuntimeConfig;
   readonly smallUserMessageThreshold?: number;
   readonly reminderModelName?: string;
+  readonly deleteModeAllowed?: boolean;
 }
 
 export interface ProjectionBuildResult {
@@ -68,12 +69,15 @@ export function buildProjectedMessages(
   syncReplayRuntimeState(options.store, replay);
 
   const reminder = options.reminder
-    ? deriveReminder({
-        policy,
-        cadence: options.reminder,
-        texts: selectReminderTexts(replay.validNodes, options.reminder),
-        modelName: options.reminderModelName,
-      })
+      ? deriveReminder({
+          policy,
+          cadence: options.reminder,
+          texts: selectReminderTexts({
+            deleteModeAllowed: options.deleteModeAllowed,
+            reminder: options.reminder,
+          }),
+          modelName: options.reminderModelName,
+        })
     : undefined;
   const appliedSpans = collectAppliedReplacementSpans({
     policy,
@@ -179,16 +183,13 @@ function syncReplayRuntimeState(
   }
 }
 
-function selectReminderTexts(
-  validNodes: readonly CoverageTreeNode<ReplayedMark>[],
-  reminder: ReminderRuntimeConfig,
-): { soft: string; hard: string } {
-  const hasDeleteAllowedContext = validNodes.some(
-    (node) => node.value.mark.allowDelete,
-  );
-  const promptSet = hasDeleteAllowedContext
-    ? reminder.prompts.deleteAllowed
-    : reminder.prompts.compactOnly;
+function selectReminderTexts(input: {
+  readonly deleteModeAllowed?: boolean;
+  readonly reminder: ReminderRuntimeConfig;
+}): { soft: string; hard: string } {
+  const promptSet = input.deleteModeAllowed
+    ? input.reminder.prompts.deleteAllowed
+    : input.reminder.prompts.compactOnly;
 
   return {
     soft: promptSet.soft.text,

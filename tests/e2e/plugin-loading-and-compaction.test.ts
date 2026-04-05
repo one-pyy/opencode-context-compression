@@ -282,17 +282,21 @@ test("explicit plugin loading plus compression_mark drives the repo-owned compac
       );
 
       const finalProjection = {
-        messages: canonicalMessages.map((message) => structuredClone(message)),
+        messages: sessionHistory.map((message) => structuredClone(message)),
       } satisfies MessagesTransformOutput;
       await transform({}, finalProjection);
       const projectedTexts = finalProjection.messages.map(readText);
-      assert.equal(projectedTexts.length, 3);
+      assert.equal(projectedTexts.length, 4);
       assert.match(projectedTexts[0] ?? "", /^\[protected_[^\]]+\] hello$/u);
       assert.match(
         projectedTexts[1] ?? "",
         /^\[referable_[^\]]+\] Compressed summary\.$/u,
       );
       assert.match(projectedTexts[2] ?? "", /^\[protected_[^\]]+\] next$/u);
+      assert.match(
+        projectedTexts[3] ?? "",
+        /^\[protected_[^\]]+\] please continue$/u,
+      );
 
       const observations = parseObservationLog(
         await readFile(seamLogPath, "utf8"),
@@ -535,10 +539,10 @@ test("explicit plugin loading plus compression_mark commits delete mode through 
       );
 
       const finalProjection = {
-        messages: canonicalMessages.map((message) => structuredClone(message)),
+        messages: sessionHistory.map((message) => structuredClone(message)),
       } satisfies MessagesTransformOutput;
       await transform({}, finalProjection);
-      assert.equal(finalProjection.messages.length, 2);
+      assert.equal(finalProjection.messages.length, 3);
       assert.match(
         readText(finalProjection.messages[0]),
         /^\[protected_[^\]]+\] tiny$/u,
@@ -546,6 +550,10 @@ test("explicit plugin loading plus compression_mark commits delete mode through 
       assert.match(
         readText(finalProjection.messages[1]),
         /^\[referable_[^\]]+\] Deleted source span notice\.$/u,
+      );
+      assert.match(
+        readText(finalProjection.messages[2]),
+        /^\[protected_[^\]]+\] please continue$/u,
       );
     },
   );

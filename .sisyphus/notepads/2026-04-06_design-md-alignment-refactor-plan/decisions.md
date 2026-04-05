@@ -68,3 +68,6 @@
 
 ## 2026-04-06 T8 repair：README route 词汇彻底移除
 - 决定：README 层即使是在否定句中，也不再复用旧 route 词汇。涉及 `allowDelete` 的 operator-facing 解释统一写成“不是公开动作字段；公开动作字段是 `mode`”，避免旧 contract framing 继续挂在入口文档上。
+
+## 2026-04-06 security repair：sessionID filesystem boundary
+- 决定：`sessionID` 不再允许以原始值直接成为数据库或锁文件路径片段；运行时现在要求它必须是单一、非空、非绝对路径的安全 path segment，且最终解析出的 `*.db` / `*.lock` 路径必须继续留在 plugin-owned `state/` / `locks/` 目录内。

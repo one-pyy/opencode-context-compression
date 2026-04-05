@@ -36,3 +36,12 @@
 
 ## 2026-04-06 T8 测试 / 文档 / 遗留资产统一收口
 - `DESIGN.md:939-943` 仍用 `tests/e2e/delete-route.test.ts` 作为说明锚点，因此仓库虽然已经把测试入口重命名为 `tests/e2e/allow-delete-delete-style.test.ts`，文档中仍必须明确说明“这是设计里提到的旧文件名”，否则容易让读者误以为仓库偏离了设计锚点。
+
+## 2026-04-06 QA hands-on verification
+- 本轮 QA 未观察到新的 P0/P1 行为阻断；repo-wide 与 targeted 行为验证均为通过状态。
+- 一个非阻断记录项：计划/需求要求覆盖“replay/coverage tree behavior”，但仓库当前并没有单独命名为 `tests/replay/coverage-tree.test.ts` 的测试文件；对应可观察证明目前体现在 `tests/projection/projection-builder.test.ts` 的覆盖树/重放场景，以及相关 e2e/cutover 路径中。
+
+## 2026-04-06 runtime correctness repair: canonical sync / replay order / reminder permission seam
+- `chat-params-scheduler` 不再对 `client.session.messages()` 的前 500 条结果做破坏性 canonical resync：现在会继续按 cursor 拉取完整历史；若响应声明仍有更多历史但不给可推进的 pagination cursor，则直接 fail closed，避免把未取回的旧消息误标成 `canonical_present=0`。
+- `replayMarkHistory` 的 precedence 已收口到当前 canonical transcript 顺序（`ProjectionPolicy.messages`）本身，不再从 sidecar `listHostMessages()` 的时间戳 / id 排序去推断“更早/更晚”的 mark tool 调用次序；对应 projection/e2e 测试也改成用真实 transcript 输入证明这一点。
+- reminder delete-allowed prompt 选择已改为显式 current-runtime seam：projection/messages-transform 现在接收当前 delete permission 信号并据此选 `reminder.prompts.deleteAllowed` 或 `compactOnly`，不再从历史 mark 持久 `allowDelete` 位回推当前权限。当前 repo 入口仍只提供最小 seam（默认 `false`）；若后续有已定版的 live delete-policy source，应把它接到这个 seam，而不是再读旧 mark 持久位。

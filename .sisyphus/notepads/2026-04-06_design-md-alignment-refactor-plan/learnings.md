@@ -61,3 +61,8 @@
 
 ## 2026-04-06 T8 repair：README route 词汇彻底移除
 - README 与中文 README 最后一处 “`allowDelete` 不是 keep/delete route 名称” 也已改成中性当前口径：`mode` 是公开动作字段，`allowDelete` 只是运行时删除许可 seam；这样 operator-facing README 层不再在正反句里复用旧 route 词汇。
+
+## 2026-04-06 QA hands-on verification
+- 仓库级验证已实跑通过：`npm run typecheck`、`npm test`（102/102 通过）以及 `npm run probe:seams` 均成功；当前仓库没有 `build` script，因此 QA 以计划约束里声明的 `typecheck`、`test` 与 seam probe 为实际验证边界。
+- 配置/契约/运行时高风险路径已通过定向实跑再次覆盖：`tests/cutover/runtime-config-precedence.test.ts`、`tests/cutover/compression-mark-contract.test.ts`、`tests/projection/projection-builder.test.ts`、`tests/projection/reminder-service.test.ts`、`tests/compaction/compaction-runner.test.ts`、`tests/cutover/scheduler-live-path.test.ts`、`tests/runtime/send-entry-wait.test.ts`、`tests/cutover/docs-and-notepad-contract.test.ts`、`tests/e2e/plugin-loading-and-compaction.test.ts`、`tests/e2e/allow-delete-delete-style.test.ts` 全部通过。
+- seam probe 生成了可观察工件 `logs/seam-observation.jsonl`；文件中可见 `tool.execute.before` 与 `experimental.chat.messages.transform` 的实际观测记录，说明 repo-owned seam logging 路径当前可运行，而不是只停留在文档声明。
