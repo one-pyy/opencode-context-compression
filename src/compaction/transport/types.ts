@@ -7,6 +7,9 @@ export interface CompactionTransportTranscriptEntry {
   readonly role: CompactionTransportTranscriptRole;
   readonly hostMessageID: string;
   readonly canonicalMessageID: string;
+  readonly sourceStartSeq: number;
+  readonly sourceEndSeq: number;
+  readonly opaquePlaceholderSlot?: string;
   readonly contentText: string;
 }
 

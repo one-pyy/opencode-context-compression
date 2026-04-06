@@ -4,10 +4,17 @@ import type {
   CompactionTransportTranscriptRole,
 } from "./transport/types.js";
 
+export interface CompactionOpaquePlaceholder {
+  readonly slot: string;
+}
+
 export interface CompactionBuildTranscriptEntry {
   readonly role: CompactionTransportTranscriptRole;
   readonly hostMessageId: string;
   readonly canonicalMessageId: string;
+  readonly sourceStartSeq?: number;
+  readonly sourceEndSeq?: number;
+  readonly opaquePlaceholder?: CompactionOpaquePlaceholder;
   readonly contentText: string;
 }
 
@@ -40,6 +47,14 @@ export interface ValidatedCompactionOutput {
 
 export interface RunCompactionInput {
   readonly build: CompactionBuildInput;
+  readonly compactionModels?: readonly string[];
+  readonly maxAttemptsPerModel?: number;
+  readonly resultGroup?: {
+    readonly sourceStartSeq?: number;
+    readonly sourceEndSeq?: number;
+    readonly createdAt?: string;
+    readonly committedAt?: string;
+  };
 }
 
 export interface RunCompactionResult {

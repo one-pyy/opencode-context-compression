@@ -9,6 +9,7 @@ import type { SafeTransportAdapter } from "../runtime/compaction-transport.js";
 import type { ResultGroupRepository } from "../state/result-group-repository.js";
 import type { CompactionInputBuilder } from "./input-builder.js";
 import type { OutputValidator } from "./output-validation.js";
+import { createContractLevelCompactionRunnerImplementation } from "./runner/internal-runner.js";
 import type {
   RunCompactionInput,
   RunCompactionResult,
@@ -23,6 +24,10 @@ export interface InternalCompactionRunnerDependencies {
   readonly transport: SafeTransportAdapter;
   readonly outputValidator: OutputValidator;
   readonly resultGroupRepository: ResultGroupRepository;
+}
+
+export interface ContractLevelCompactionRunnerOptions {
+  readonly now?: () => string;
 }
 
 export const COMPACTION_RUNNER_INTERNAL_CONTRACT =
@@ -57,25 +62,12 @@ export const COMPACTION_RUNNER_INTERNAL_CONTRACT =
 
 export function createContractLevelCompactionRunner(
   dependencies: InternalCompactionRunnerDependencies,
+  options: ContractLevelCompactionRunnerOptions = {},
 ): InternalCompactionRunner {
-  return {
-    async run(input) {
-      const request = await dependencies.inputBuilder.build(input.build);
-      const response = await dependencies.transport.execute(request);
-      const validatedOutput = await dependencies.outputValidator.validate({
-        request,
-        response,
-      });
-
-      void dependencies.resultGroupRepository;
-
-      return {
-        request,
-        response,
-        validatedOutput,
-      } satisfies RunCompactionResult;
-    },
-  } satisfies InternalCompactionRunner;
+  return createContractLevelCompactionRunnerImplementation(
+    dependencies,
+    options,
+  );
 }
 
 export type { RunCompactionInput, RunCompactionResult } from "./types.js";

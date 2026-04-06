@@ -979,7 +979,7 @@ node --import tsx --test tests/e2e/**/*.test.ts && node scripts/run-seam-probe.m
 
   **Commit**: YES | Message: `feat(interfaces): add replay projection and visible id contracts` | Files: `src/projection/**`, `src/identity/**`, `tests/e2e/interfaces/**`
 
-- [ ] 9. 收敛 compaction 输入、输出校验与 runner 接口
+- [x] 9. 收敛 compaction 输入、输出校验与 runner 接口
 
   **What to do**: 设计并实现 `CompactionInputBuilder`、`OutputValidator`、`CompactionRunner` 的详细接口：输入消息冻结、opaque placeholder 保留、delete/compact 模式切换、同模型重试与 `compactionModels` fallback 顺序、成功/失败后的 result-group 写入规则，以及 invalid output / malformed payload / timeout 时的状态保持策略。
   **Must NOT do**: 不得让 compaction runner 直接修改 host history；不得接受缺失 placeholder 的 compact 输出；不得在失败后留下部分 result-group 可见状态。

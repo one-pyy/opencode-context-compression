@@ -4,6 +4,7 @@ export {
   type BuildCompactionTransportTranscriptEntryInput,
 } from "./transport/request.js";
 import { defineInternalModuleContract } from "../internal/module-contract.js";
+import { renderOpaquePlaceholder } from "./opaque-placeholders.js";
 import { buildCompactionTransportRequest } from "./transport/request.js";
 import type {
   CompactionBuildInput,
@@ -47,7 +48,16 @@ export function createCompactionInputBuilder(): CompactionInputBuilder {
           role: entry.role,
           hostMessageID: entry.hostMessageId,
           canonicalMessageID: entry.canonicalMessageId,
-          contentText: entry.contentText,
+          sourceStartSeq: entry.sourceStartSeq,
+          sourceEndSeq: entry.sourceEndSeq,
+          opaquePlaceholderSlot: entry.opaquePlaceholder?.slot,
+          contentText:
+            entry.opaquePlaceholder === undefined
+              ? entry.contentText
+              : renderOpaquePlaceholder(
+                  entry.opaquePlaceholder.slot,
+                  entry.contentText,
+                ),
         })),
       });
     },

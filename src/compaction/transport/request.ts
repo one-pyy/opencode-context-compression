@@ -13,6 +13,9 @@ export interface BuildCompactionTransportTranscriptEntryInput {
   readonly role: CompactionTransportTranscriptRole;
   readonly hostMessageID: string;
   readonly canonicalMessageID: string;
+  readonly sourceStartSeq?: number;
+  readonly sourceEndSeq?: number;
+  readonly opaquePlaceholderSlot?: string;
   readonly contentText: string;
 }
 
@@ -61,6 +64,21 @@ export function buildCompactionTransportRequest(
           entry.canonicalMessageID,
           `transcript[${index}].canonicalMessageID`,
         ),
+        sourceStartSeq: ensurePositiveInteger(
+          entry.sourceStartSeq ?? index + 1,
+          `transcript[${index}].sourceStartSeq`,
+        ),
+        sourceEndSeq: ensurePositiveInteger(
+          entry.sourceEndSeq ?? entry.sourceStartSeq ?? index + 1,
+          `transcript[${index}].sourceEndSeq`,
+        ),
+        opaquePlaceholderSlot:
+          entry.opaquePlaceholderSlot === undefined
+            ? undefined
+            : ensureNonEmptyString(
+                entry.opaquePlaceholderSlot,
+                `transcript[${index}].opaquePlaceholderSlot`,
+              ),
         contentText: ensureNonEmptyString(
           entry.contentText,
           `transcript[${index}].contentText`,
@@ -68,6 +86,14 @@ export function buildCompactionTransportRequest(
       }) satisfies CompactionTransportTranscriptEntry,
     ),
   );
+
+  transcript.forEach((entry, index) => {
+    if (entry.sourceEndSeq < entry.sourceStartSeq) {
+      throw new CompactionTransportConfigurationError(
+        `Compaction transport field 'transcript[${index}].sourceEndSeq' must be greater than or equal to sourceStartSeq.`,
+      );
+    }
+  });
 
   return Object.freeze({
     sessionID,
