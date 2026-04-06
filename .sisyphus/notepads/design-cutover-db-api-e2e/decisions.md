@@ -31,3 +31,9 @@
 - Chose runtime fail-fast over implicit defaults: `requireCompactionTransport()` throws a `CompactionTransportConfigurationError` that explicitly says injected safe transport is mandatory and a live executor is unavailable.
 - Made malformed output a validation error instead of a transport error. The transport may return any raw payload, but only `validateCompactionTransportPayload()` can turn that into committed compaction content, which preserves the boundary between model execution and repo-owned output rules.
 - Standardized recorded call outcomes as repo-owned primitives instead of leaking provider error objects: timeouts carry `timeoutMs`, retryables carry a stable `code?`, and abort/cancel are separated by origin (`caller` vs `transport`).
+
+## 2026-04-06 Task 6 external contract decisions
+- Implemented the Task 6 plugin entry as a thin adapter only: `src/index.ts` now loads runtime config and delegates all seam construction to `src/runtime/plugin-hooks.ts`, rather than embedding hook logic or tool admission directly in the entry file.
+- Chose explicit external contract descriptor objects for each public seam (`messages.transform`, `chat.params`, `tool.execute.before`, `compression_mark`) so tests can lock call timing, visible side effects, error semantics, and replay/result-group/scheduler relationships without prematurely defining the full Task 7 internal architecture.
+- Kept the default `compression_mark` admission conservative: `compact` is allowed, `delete` returns `DELETE_NOT_ALLOWED` unless a later runtime policy adapter is injected. This preserves the DESIGN admission boundary without inventing a new repo-owned config surface in Task 6.
+- Made `messages.transform` own the in-place array mutation at the adapter layer even when the injected projector returns a fresh array. That keeps the host hook contract correct while still allowing later projection logic to live outside the seam adapter.

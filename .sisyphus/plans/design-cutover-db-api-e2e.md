@@ -841,7 +841,7 @@ node --import tsx --test tests/e2e/**/*.test.ts && node scripts/run-seam-probe.m
 
   **Commit**: YES | Message: `feat(interfaces): define safe transport adapter contract` | Files: `src/compaction/**`, `src/runtime/**`, `tests/e2e/interfaces/**`, `tests/e2e/runtime/**`
 
-- [ ] 6. 设计插件外部 hook/tool 契约
+- [x] 6. 设计插件外部 hook/tool 契约
 
   **What to do**: 针对 `experimental.chat.messages.transform`、`chat.params`、`tool.execute.before`、`compression_mark` 形成明确外部合同：输入形状、输出形状、错误语义、调用时机、可见副作用、与 replay/result-group/scheduler 的关系；其中 `compression_mark` 的输入字段必须使用 `target.startVisibleMessageID` / `target.endVisibleMessageID`；要求 plugin entry 只是薄适配层，把业务逻辑下沉到内部模块接口。
   **Must NOT do**: 不得把 hook 契约写成实现细节清单；不得让 `chat.params` 承担 projection/rendering 主职责；不得把 `compression_mark` 设计成多范围批处理。

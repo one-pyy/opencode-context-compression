@@ -1,11 +1,29 @@
-/**
- * TODO(new-project): rewrite compression_mark from DESIGN.md.
- *
- * Direction:
- * - treat history tool calls as the mark intent source of truth
- * - accept mode=compact|delete with delete admission checked only at call time
- * - stop persisting mark/source snapshot truth into SQLite
- * - return mark id for replay/result-group lookup instead of building legacy mark records
- * - resolve visible targets against the current projected transcript without compatibility selectors
- */
-export {};
+export {
+  COMPRESSION_MARK_CONTRACT_VERSION,
+  COMPRESSION_MARK_EXTERNAL_CONTRACT,
+  COMPRESSION_MARK_TOOL_NAME,
+  createCompressionMarkFailure,
+  deserializeCompressionMarkResult,
+  serializeCompressionMarkResult,
+  toCompressionMarkToolInvocationContext,
+  validateCompressionMarkInput,
+  type CompressionMarkErrorCode,
+  type CompressionMarkExternalContract,
+  type CompressionMarkFailure,
+  type CompressionMarkInputV1,
+  type CompressionMarkMode,
+  type CompressionMarkResult,
+  type CompressionMarkSuccess,
+  type CompressionMarkTarget,
+  type CompressionMarkToolInvocationContext,
+} from "./compression-mark/contract.js";
+export {
+  createCompressionMarkAdmission,
+  createCompressionMarkTool,
+  executeCompressionMark,
+  generateCompressionMarkID,
+  type CompressionMarkAdmission,
+  type CompressionMarkAdmissionInput,
+  type CompressionMarkAdmissionResult,
+  type CompressionMarkToolOptions,
+} from "./compression-mark/tool.js";

@@ -28,3 +28,9 @@
 - Missing transport is treated as a deterministic configuration error in `src/runtime/compaction-transport.ts`, and `createCompactionRunner` refuses to expose any fallback live executor path.
 - Call recording stores a clone of the request plus a normalized outcome union (`success`, `retryable-error`, `fatal-error`, `timeout`, `aborted`), which gives later E2E and recovery tasks stable assertion material without coupling to provider SDK error shapes.
 - Caller-driven aborts do not consume scripted transport steps, while transport-origin cancellation is recorded as a distinct aborted outcome; that split keeps cancellation semantics explicit for later lock/scheduler recovery tests.
+
+## 2026-04-06 Task 6 external plugin seams
+- The plugin surface is now locked to four external seams only: `experimental.chat.messages.transform`, `chat.params`, `tool.execute.before`, and the `compression_mark` tool. `chat.message` was removed from the entry wiring so later runtime work cannot quietly treat it as part of the public contract.
+- `compression_mark` now has an explicit repo-owned contract module that validates only one target object with `target.startVisibleMessageID` / `target.endVisibleMessageID`; legacy `range` shapes and batch targets fail as `INVALID_RANGE` before any admission logic runs.
+- Keeping `index.ts` as pure wiring works well with the current cutover skeleton: seam logging stays in the hook factory, while tool validation/admission and chat/tool hook behavior live in dedicated modules that later tasks can replace without growing the plugin entry into a monolith.
+- `chat.params` is easiest to keep narrow by writing one namespaced metadata object under `output.options` and asserting the absence of transcript/projection keys in contract tests; this prevents the seam from slowly absorbing rendering responsibilities.

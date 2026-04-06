@@ -1,19 +1,34 @@
 import type { Plugin } from "@opencode-ai/plugin";
 
-/**
- * TODO(new-project): rewrite plugin wiring to match DESIGN.md.
- *
- * Direction:
- * - register the new DESIGN-driven compression_mark tool
- * - rebuild messages.transform around history-first replay, not DB-first marks
- * - keep chat.params as a narrow scheduler seam only
- * - rebuild send-entry gating around the new runtime model
- * - do not restore route-era or allowDelete compatibility behavior
- */
+import { loadRuntimeConfig } from "./config/runtime-config.js";
+import {
+  createStaticChatParamsScheduler,
+} from "./runtime/chat-params-scheduler.js";
+import { createContextCompressionHooks } from "./runtime/plugin-hooks.js";
+import { createDefaultToolExecutionGate } from "./runtime/send-entry-gate.js";
+import {
+  createCompressionMarkAdmission,
+} from "./tools/compression-mark.js";
+
 const plugin: Plugin = async () => {
-  throw new Error(
-    "TODO(new-project): src/index.ts was intentionally stripped. Rebuild the plugin entry from DESIGN.md instead of restoring the legacy wiring.",
-  );
+  const runtimeConfig = loadRuntimeConfig();
+
+  return createContextCompressionHooks({
+    seamLogPath: runtimeConfig.seamLogPath,
+    chatParamsScheduler: createStaticChatParamsScheduler(),
+    toolExecutionGate: createDefaultToolExecutionGate(),
+    compressionMark: {
+      admission: createCompressionMarkAdmission({
+        allowDelete: false,
+      }),
+    },
+  });
 };
 
 export default plugin;
+
+export {
+  ALLOWED_PLUGIN_EXTERNAL_HOOKS,
+  ALLOWED_PLUGIN_EXTERNAL_TOOLS,
+  createContextCompressionHooks,
+} from "./runtime/plugin-hooks.js";
