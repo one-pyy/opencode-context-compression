@@ -37,6 +37,14 @@
 ## 2026-04-06 T8 测试 / 文档 / 遗留资产统一收口
 - `DESIGN.md:939-943` 仍用 `tests/e2e/delete-route.test.ts` 作为说明锚点，因此仓库虽然已经把测试入口重命名为 `tests/e2e/allow-delete-delete-style.test.ts`，文档中仍必须明确说明“这是设计里提到的旧文件名”，否则容易让读者误以为仓库偏离了设计锚点。
 
+## 2026-04-06 T9 replay-first integration/e2e cleanup
+- 最后一次 failure-fixing里最容易漂移的风险点是“让当前实现重新定义测试”。本轮已明确避免这一点：剩余 compact-path failure 不是通过放松设计断言解决，而是通过修正 replay-first test setup（统一 clock domain、让 nested opaque scenario 先提出 outer/inner mark proposal 再注入 inner result）解决。
+- repo-wide verification 期间暴露的 `tests/marks/batch-freeze.test.ts` 不仅仍处于 unit-heavy marks boundary，而且还保留了已不值得维护的 low-level helper drift（例如 orphaned `hostMessage` reference）。按用户最新边界，该文件被删除而不是继续修补；真正需要的 batch-freeze / late-mark proof 已由 surviving cutover/runtime/e2e tests 覆盖。
+
+## 2026-04-06 T10 surviving-test design audit follow-up
+- audit 里最重要的“测试不只要绿，还要能指导未来按 DESIGN 重写代码”风险已经实锤过一次：`tests/e2e/plugin-loading-and-projection.test.ts` 原本把短 user 断言成 `compressible`，而当前 runtime helper 默认值也恰好让这个错误断言通过。最终处理不是把测试改回现状，而是让测试显式走 repo runtime threshold seam，并用它暴露/验证 design-required short-user protection。
+- `tests/cutover/cutover-test-helpers.ts` 仍保留一个已知折中：`appendReplayFirstCompressionMark()` 回写 transcript 时，历史里仍只追加当前 runtime 实际消费的 tool-call host message id 文本，而没有引入仓库尚未冻结的更丰富 tool-result envelope 语义。鉴于 `src/replay/mark-replay.ts` 当前明确以 `toolCallMessageID` 查 mark，这个 helper 仍是“最小不撒谎”的 shared basis；若后续 runtime 固定了更完整的宿主 tool message contract，再统一升级 helper，而不是在测试层先发明一个 runtime 不认识的新 transcript shape。
+
 ## 2026-04-06 QA hands-on verification
 - 本轮 QA 未观察到新的 P0/P1 行为阻断；repo-wide 与 targeted 行为验证均为通过状态。
 - 一个非阻断记录项：计划/需求要求覆盖“replay/coverage tree behavior”，但仓库当前并没有单独命名为 `tests/replay/coverage-tree.test.ts` 的测试文件；对应可观察证明目前体现在 `tests/projection/projection-builder.test.ts` 的覆盖树/重放场景，以及相关 e2e/cutover 路径中。
@@ -45,3 +53,16 @@
 - `chat-params-scheduler` 不再对 `client.session.messages()` 的前 500 条结果做破坏性 canonical resync：现在会继续按 cursor 拉取完整历史；若响应声明仍有更多历史但不给可推进的 pagination cursor，则直接 fail closed，避免把未取回的旧消息误标成 `canonical_present=0`。
 - `replayMarkHistory` 的 precedence 已收口到当前 canonical transcript 顺序（`ProjectionPolicy.messages`）本身，不再从 sidecar `listHostMessages()` 的时间戳 / id 排序去推断“更早/更晚”的 mark tool 调用次序；对应 projection/e2e 测试也改成用真实 transcript 输入证明这一点。
 - reminder delete-allowed prompt 选择已改为显式 current-runtime seam：projection/messages-transform 现在接收当前 delete permission 信号并据此选 `reminder.prompts.deleteAllowed` 或 `compactOnly`，不再从历史 mark 持久 `allowDelete` 位回推当前权限。当前 repo 入口仍只提供最小 seam（默认 `false`）；若后续有已定版的 live delete-policy source，应把它接到这个 seam，而不是再读旧 mark 持久位。
+
+## 2026-04-06 T9 inventory：剩余测试设计错位边界
+- 依据 `DESIGN.md` 第 15 章，真正的剩余设计错位是“旧场景入口 seam”而不是“所有内部观察都不允许”：`persistMark(...)`、`seedKeepMark(...)`、`seedDeleteMark(...)` 仍把 durable mark/source snapshot 行当作测试起点，这与“历史里的 mark tool 调用 + replay-first 解释”主语义冲突。
+- `querySqlite(...)`、`getReplacementResultGroup(...)`、`findLatestCommittedReplacementForMark(...)` 在当前盘点里多数只是对 repo-owned 派生结果的内部观测；若测试入口已经改成 `compression_mark` / transcript-first，这类观测本身不应单独算 violation。
+- 目前最需要整段重写的是直接用 `persistMark` / `seed*Mark` 伪造运行时场景的 projection / scheduler / runner / freeze / e2e 测试；已经通过公共 `compression_mark` 驱动场景的 cutover/e2e 测试，多数只需把残余持久 seam 夹具替换掉，或保留内部结果观察断言。
+
+## 2026-04-06 T10 surviving-test design audit gaps
+- 共享 helper `tests/cutover/cutover-test-helpers.ts:167-245` 仍是 surviving tests 的最大设计缺口：`appendReplayFirstCompressionMark()` 通过真实 public tool 建 mark，但回写 transcript 时只追加 assistant 文本形式的 mark id，没有把 tool 调用参数与返回值按更完整的历史语义写回。这会让测试继续依赖“tool-call message id + sidecar source span”这条当前实现折中，而不是纯粹的 transcript replay truth。
+- `tests/cutover/legacy-independence.test.ts:117-136` / `212-266` 的 `canonical execution does not require old provider DCP fields` 明确不是 fully design-faithful：`sessionHistory` 里先写入占位 `m_history_seed_1`，后续真实 `compression_mark` 返回值没有回填进 transcript，但 scheduler / projection 仍然被断言为成功。这说明该测试容忍“历史结果不是真实 mark id”，仍在吃当前 sidecar anchoring 假设。
+- `tests/e2e/plugin-loading-and-projection.test.ts:238-242` 有明确设计冲突：它把短 user `hello` 断言成 `[compressible_*]`，与 `DESIGN.md:144-145` / `749-750` 的 `smallUserMessageThreshold` 保护规则相反。这是本轮最直接的 design mismatch。
+- `tests/cutover/compression-mark-contract.test.ts:399-487` 的 lock 场景，以及 `tests/e2e/allow-delete-delete-style.test.ts:29-133` 的 delete-style 场景，都没有显式建立“当前 runtime delete admission seam”；它们直接期待 `mode=delete` 成功，因此仍带有“当前 fixture / 默认实现允许 delete”的实现假设，不足以独立证明 `DESIGN.md:1140-1146` 的 seam 语义。
+- `tests/cutover/compression-mark-contract.test.ts:125-141` 对 `host_messages` 行的逐字段断言、`tests/cutover/scheduler-live-path.test.ts:271-407` 与 `tests/e2e/plugin-loading-and-compaction.test.ts:241-286,506-542` 对 prompt body 具体标题/字段文案的断言，属于过度冻结当前 serializer / store shape。设计确实要求 compaction input 边界清晰、mode 与 allowDelete 被传达，但没有冻结这些精确字符串与表级实现细节。
+- `tests/e2e/plugin-loading-and-compaction.test.ts:214-234,470-490` / `tests/e2e/plugin-loading-and-projection.test.ts:243-263` / `tests/e2e/allow-delete-delete-style.test.ts:112-132` 对 SQLite 行与 result-group link 的观测大多仍可接受，因为它们是在 public-entry setup 之后观测派生结果；真正的问题不是“看数据库”，而是当这些断言与上游简化 transcript fixture 组合在一起时，会掩盖 replay 是否真的只靠历史语义成立。

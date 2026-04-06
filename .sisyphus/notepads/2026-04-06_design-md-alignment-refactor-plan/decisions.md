@@ -71,3 +71,14 @@
 
 ## 2026-04-06 security repair：sessionID filesystem boundary
 - 决定：`sessionID` 不再允许以原始值直接成为数据库或锁文件路径片段；运行时现在要求它必须是单一、非空、非绝对路径的安全 path segment，且最终解析出的 `*.db` / `*.lock` 路径必须继续留在 plugin-owned `state/` / `locks/` 目录内。
+
+## 2026-04-06 T9 replay-first integration/e2e proof boundary cleanup
+- 决定：在用户最新边界下，保留的证明面只剩 cutover / runtime / e2e；`tests/compaction/compaction-input.test.ts`、`tests/compaction/compaction-runner.test.ts`、`tests/projection/messages-transform.test.ts`、`tests/projection/projection-builder.test.ts`、`tests/marks/batch-freeze.test.ts` 这类以 durable mark seams 或 internal unit geometry 为主的测试全部删除，不再作为当前设计验收面。
+- 决定：保留的 surviving tests 一律改为 replay-first 入口：先 materialize 当前 transcript、从 public/projection visible ids 调用 `compression_mark`、把返回的 mark id 作为真实 transcript message 写回 history，再驱动 scheduler / runner / transform / gate 观察结果。内部 SQLite 查询只允许作为 derived outcome 观察，不再作为场景入口。
+- 决定：本轮最后一个 compact-path survivor（`tests/e2e/plugin-loading-and-compaction.test.ts` 首个 compact scheduler path）的修复被裁定为 test-setup correction，而不是新的 design-required runtime change。根因是 replay-first public tool 创建 mark 时使用真实当前时钟，而旧测试夹具仍用过小的 synthetic `now()` 做 freeze/scheduler cut line，导致 active mark 被错误排除在 batch 之外；修复方式是把相关 surviving test clocks 移到现实时间之后，并把 nested opaque e2e 调整为符合 chapter 15 的 transcript-order proposal flow。
+
+## 2026-04-06 T10 surviving-test design-faithfulness repair
+- 决定：`tests/e2e/plugin-loading-and-projection.test.ts` 的 short-user visibility 不能再沿用 direct helper 默认值；该测试现在显式通过 `createMessagesTransformHook({ smallUserMessageThreshold: 1024 })` 走与 repo-owned runtime config 一致的 threshold seam，并按 `DESIGN.md:143-145` / `749-750` 断言短 user 为 `protected`。这是 design-required runtime correction 的验证点，而不是对当前错误行为让步。
+- 决定：`tests/cutover/legacy-independence.test.ts` 不再允许占位 mark id（如 `m_history_seed_1`）预写进 transcript。该 cutover proof 现在必须先通过真实 `compression_mark` 得到 mark id，再把真实返回值写回 `sessionHistory`，然后才跑 scheduler / projection；这样它证明的是 chapter 15 的 replay-first history truth，而不是 sidecar-only anchoring 假设。
+- 决定：delete-style success proofs 需要显式 live admission seam，而不能依赖 fixture 默认允许。`tests/e2e/allow-delete-delete-style.test.ts` 与 delete success path 现在通过 `createCompressionMarkToolForTest({ isDeleteModeAllowed: () => true })` 明确建立 allow seam；相应地，只冻结“delete admitted 后的 observable outcome”，不再把默认实现路径误写成设计。
+- 决定：对 `host_messages` 行结构和 prompt serializer 精确文案的断言继续收窄，只保留 design 真正要求的 observable contract（如 host message presence、mode/delete permission being conveyed、replacement/result-group outcome），删除或弱化纯实现形状断言。
