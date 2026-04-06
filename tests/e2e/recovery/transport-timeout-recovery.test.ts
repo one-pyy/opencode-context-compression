@@ -30,7 +30,6 @@ import {
   bootstrapSessionSidecar,
   openSessionSidecarRepository,
 } from "../../../src/state/sidecar-store.js";
-import { createSqliteDatabase } from "../../../src/state/sqlite-runtime.js";
 import { createHermeticE2EFixture } from "../harness/fixture.js";
 
 test(
@@ -101,7 +100,7 @@ test(
     );
 
     assert.equal(await resultGroups.getCompleteGroup("mark-timeout-001"), null);
-    assert.deepEqual(readMarkPersistenceCounts(databasePath, "mark-timeout-001"), {
+    assert.deepEqual(await readCommittedMarkCounts(resultGroups, "mark-timeout-001"), {
       groupCount: 0,
       fragmentCount: 0,
     });
@@ -154,10 +153,13 @@ test(
     );
 
     assert.equal(await resultGroups.getCompleteGroup("mark-malformed-001"), null);
-    assert.deepEqual(readMarkPersistenceCounts(databasePath, "mark-malformed-001"), {
+    assert.deepEqual(
+      await readCommittedMarkCounts(resultGroups, "mark-malformed-001"),
+      {
       groupCount: 0,
       fragmentCount: 0,
-    });
+      },
+    );
     assert.deepEqual(
       await buildProjectionSnapshot({
         sessionId: fixture.sessionID,
@@ -183,8 +185,14 @@ test(
         baselineProjection,
         timeoutCalls: timeoutTransport.calls,
         malformedCalls: malformedTransport.calls,
-        timeoutCounts: readMarkPersistenceCounts(databasePath, "mark-timeout-001"),
-        malformedCounts: readMarkPersistenceCounts(databasePath, "mark-malformed-001"),
+        timeoutCounts: await readCommittedMarkCounts(
+          resultGroups,
+          "mark-timeout-001",
+        ),
+        malformedCounts: await readCommittedMarkCounts(
+          resultGroups,
+          "mark-malformed-001",
+        ),
       },
     );
     assert.match(evidencePath, /transport-timeout-recovery-failure-cases\.json$/u);
@@ -264,7 +272,7 @@ test(
     scriptedTransport.assertConsumed();
     assert.equal(result.validatedOutput.contentText, "Assistant and tool context were compacted into one stable summary.");
     assert.equal(scriptedTransport.calls.length, 2);
-    assert.deepEqual(readMarkPersistenceCounts(databasePath, "mark-retry-001"), {
+    assert.deepEqual(await readCommittedMarkCounts(resultGroups, "mark-retry-001"), {
       groupCount: 1,
       fragmentCount: 1,
     });
@@ -452,30 +460,15 @@ function createCompactMarkToolEntry(input: {
   };
 }
 
-function readMarkPersistenceCounts(databasePath: string, markId: string) {
-  const database = createSqliteDatabase(databasePath, {
-    enableForeignKeyConstraints: true,
-  });
-
-  try {
-    const groupCount = database
-      .prepare<{ readonly count: number }>(
-        `SELECT COUNT(*) AS count FROM result_groups WHERE mark_id = :mark_id`,
-      )
-      .get({ mark_id: markId })?.count;
-    const fragmentCount = database
-      .prepare<{ readonly count: number }>(
-        `SELECT COUNT(*) AS count FROM result_fragments WHERE mark_id = :mark_id`,
-      )
-      .get({ mark_id: markId })?.count;
-
-    return {
-      groupCount: groupCount ?? 0,
-      fragmentCount: fragmentCount ?? 0,
-    };
-  } finally {
-    database.close();
-  }
+async function readCommittedMarkCounts(
+  resultGroups: ReturnType<typeof createResultGroupRepository>,
+  markId: string,
+) {
+  const group = await resultGroups.getCompleteGroup(markId);
+  return {
+    groupCount: group ? 1 : 0,
+    fragmentCount: group?.fragmentCount ?? 0,
+  };
 }
 
 function hostEntry(sequence: number, message: CanonicalHostMessage) {

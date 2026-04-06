@@ -26,7 +26,6 @@ import {
   bootstrapSessionSidecar,
   openSessionSidecarRepository,
 } from "../../../src/state/sidecar-store.js";
-import { createSqliteDatabase } from "../../../src/state/sqlite-runtime.js";
 import {
   createCompressionMarkAdmission,
   executeCompressionMark,
@@ -104,7 +103,7 @@ test(
     });
 
     assert.equal((await resultGroups.listGroupsOverlappingRange(1, 3)).length, 0);
-    assert.deepEqual(readAllResultGroupCounts(databasePath), {
+    assert.deepEqual(await readCommittedRangeCounts(resultGroups, 1, 3), {
       groupCount: 0,
       fragmentCount: 0,
     });
@@ -119,7 +118,7 @@ test(
       {
         blockedResult,
         projection,
-        counts: readAllResultGroupCounts(databasePath),
+        counts: await readCommittedRangeCounts(resultGroups, 1, 3),
       },
     );
     assert.match(evidencePath, /delete-admission-blocked\.json$/u);
@@ -242,10 +241,13 @@ test(
     const stored = await resultGroups.getCompleteGroup("mark-delete-allowed-001");
     assert.ok(stored);
     assert.equal(stored.mode, "delete");
-    assert.deepEqual(readMarkPersistenceCounts(databasePath, "mark-delete-allowed-001"), {
+    assert.deepEqual(
+      await readCommittedMarkCounts(resultGroups, "mark-delete-allowed-001"),
+      {
       groupCount: 1,
       fragmentCount: 1,
-    });
+      },
+    );
 
     const afterProjection = await buildProjectionSnapshot({
       sessionId: fixture.sessionID,
@@ -400,52 +402,30 @@ function createToolContext(sessionID: string) {
   };
 }
 
-function readAllResultGroupCounts(databasePath: string) {
-  const database = createSqliteDatabase(databasePath, {
-    enableForeignKeyConstraints: true,
-  });
-
-  try {
-    const groupCount = database
-      .prepare<{ readonly count: number }>(`SELECT COUNT(*) AS count FROM result_groups`)
-      .get()?.count;
-    const fragmentCount = database
-      .prepare<{ readonly count: number }>(`SELECT COUNT(*) AS count FROM result_fragments`)
-      .get()?.count;
-
-    return {
-      groupCount: groupCount ?? 0,
-      fragmentCount: fragmentCount ?? 0,
-    };
-  } finally {
-    database.close();
-  }
+async function readCommittedRangeCounts(
+  resultGroups: ReturnType<typeof createResultGroupRepository>,
+  startSeq: number,
+  endSeq: number,
+) {
+  const groups = await resultGroups.listGroupsOverlappingRange(startSeq, endSeq);
+  return {
+    groupCount: groups.length,
+    fragmentCount: groups.reduce(
+      (total, group) => total + group.fragmentCount,
+      0,
+    ),
+  };
 }
 
-function readMarkPersistenceCounts(databasePath: string, markId: string) {
-  const database = createSqliteDatabase(databasePath, {
-    enableForeignKeyConstraints: true,
-  });
-
-  try {
-    const groupCount = database
-      .prepare<{ readonly count: number }>(
-        `SELECT COUNT(*) AS count FROM result_groups WHERE mark_id = :mark_id`,
-      )
-      .get({ mark_id: markId })?.count;
-    const fragmentCount = database
-      .prepare<{ readonly count: number }>(
-        `SELECT COUNT(*) AS count FROM result_fragments WHERE mark_id = :mark_id`,
-      )
-      .get({ mark_id: markId })?.count;
-
-    return {
-      groupCount: groupCount ?? 0,
-      fragmentCount: fragmentCount ?? 0,
-    };
-  } finally {
-    database.close();
-  }
+async function readCommittedMarkCounts(
+  resultGroups: ReturnType<typeof createResultGroupRepository>,
+  markId: string,
+) {
+  const group = await resultGroups.getCompleteGroup(markId);
+  return {
+    groupCount: group ? 1 : 0,
+    fragmentCount: group?.fragmentCount ?? 0,
+  };
 }
 
 function hostEntry(sequence: number, message: CanonicalHostMessage) {

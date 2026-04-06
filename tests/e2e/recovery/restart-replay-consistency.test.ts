@@ -29,7 +29,6 @@ import {
   bootstrapSessionSidecar,
   openSessionSidecarRepository,
 } from "../../../src/state/sidecar-store.js";
-import { createSqliteDatabase } from "../../../src/state/sqlite-runtime.js";
 import { createHermeticE2EFixture } from "../harness/fixture.js";
 
 test(
@@ -152,10 +151,13 @@ test(
 
     assert.deepEqual(afterRestartProjection, beforeRestartProjection);
     assert.equal(await secondResultGroups.getCompleteGroup("mark-parent-001"), null);
-    assert.deepEqual(readMarkPersistenceCounts(databasePath, "mark-parent-001"), {
+    assert.deepEqual(
+      await readCommittedMarkCounts(secondResultGroups, "mark-parent-001"),
+      {
       groupCount: 0,
       fragmentCount: 0,
-    });
+      },
+    );
     assert.ok(afterRestartProjection.some((message) => message.includes("Assistant summary survives restart")));
     assert.ok(afterRestartProjection.some((message) => message.includes("Tool details remain visible as the original gap")));
 
@@ -165,7 +167,10 @@ test(
         lockStateOnRestart,
         beforeRestartProjection,
         afterRestartProjection,
-        parentCounts: readMarkPersistenceCounts(databasePath, "mark-parent-001"),
+        parentCounts: await readCommittedMarkCounts(
+          secondResultGroups,
+          "mark-parent-001",
+        ),
       },
     );
     assert.match(evidencePath, /restart-replay-consistency\.json$/u);
@@ -373,30 +378,15 @@ function createCompactMarkToolEntry(input: {
   };
 }
 
-function readMarkPersistenceCounts(databasePath: string, markId: string) {
-  const database = createSqliteDatabase(databasePath, {
-    enableForeignKeyConstraints: true,
-  });
-
-  try {
-    const groupCount = database
-      .prepare<{ readonly count: number }>(
-        `SELECT COUNT(*) AS count FROM result_groups WHERE mark_id = :mark_id`,
-      )
-      .get({ mark_id: markId })?.count;
-    const fragmentCount = database
-      .prepare<{ readonly count: number }>(
-        `SELECT COUNT(*) AS count FROM result_fragments WHERE mark_id = :mark_id`,
-      )
-      .get({ mark_id: markId })?.count;
-
-    return {
-      groupCount: groupCount ?? 0,
-      fragmentCount: fragmentCount ?? 0,
-    };
-  } finally {
-    database.close();
-  }
+async function readCommittedMarkCounts(
+  resultGroups: ReturnType<typeof createResultGroupRepository>,
+  markId: string,
+) {
+  const group = await resultGroups.getCompleteGroup(markId);
+  return {
+    groupCount: group ? 1 : 0,
+    fragmentCount: group?.fragmentCount ?? 0,
+  };
 }
 
 function hostEntry(sequence: number, message: CanonicalHostMessage) {
