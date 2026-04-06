@@ -43,6 +43,11 @@ export interface ContextCompressionPluginHooksOptions {
   readonly compressionMark?: CompressionMarkToolOptions;
 }
 
+export interface RuntimePluginSeamServices {
+  readonly chatParamsScheduler: ChatParamsSchedulerService;
+  readonly toolExecutionGate: ToolExecutionGateService;
+}
+
 export function createContextCompressionHooks(
   options: ContextCompressionPluginHooksOptions = {},
 ): Hooks {

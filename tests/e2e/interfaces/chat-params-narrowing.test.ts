@@ -26,6 +26,8 @@ test(
               schedulerState: "eligible",
               scheduled: false,
               reason: "waiting for later scheduler/runtime tasks",
+              activeCompactionLock: false,
+              pendingMarkCount: 0,
             },
           };
         },
@@ -84,6 +86,8 @@ test(
       schedulerState: "eligible",
       scheduled: false,
       reason: "waiting for later scheduler/runtime tasks",
+      activeCompactionLock: false,
+      pendingMarkCount: 0,
     });
 
     const forbiddenKeys = [

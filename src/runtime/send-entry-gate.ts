@@ -1,6 +1,11 @@
 import type { Hooks } from "@opencode-ai/plugin";
 
 import { defineInternalModuleContract } from "../internal/module-contract.js";
+import {
+  waitForSessionFileLock,
+  type SessionFileLockWaitOutcome,
+  type WaitForSessionFileLockOptions,
+} from "./file-lock.js";
 
 type ToolExecuteBeforeHook = NonNullable<Hooks["tool.execute.before"]>;
 
@@ -42,7 +47,12 @@ export interface ToolExecuteBeforeExternalContract {
 
 export interface GateResult {
   readonly waited: boolean;
-  readonly releasedBy: "no-lock" | "lock-cleared" | "timeout";
+  readonly releasedBy:
+    | "no-lock"
+    | "lock-succeeded"
+    | "lock-failed"
+    | "lock-cleared"
+    | "timeout";
   readonly reason: string;
 }
 
@@ -112,6 +122,33 @@ export function createStaticSendEntryGate(
   } satisfies SendEntryGate;
 }
 
+export interface FileLockBackedSendEntryGateOptions {
+  readonly lockDirectory: string;
+  readonly timeoutMs?: number;
+  readonly now?: WaitForSessionFileLockOptions["now"];
+  readonly pollIntervalMs?: WaitForSessionFileLockOptions["pollIntervalMs"];
+  readonly sleep?: WaitForSessionFileLockOptions["sleep"];
+}
+
+export function createFileLockBackedSendEntryGate(
+  options: FileLockBackedSendEntryGateOptions,
+): SendEntryGate {
+  return {
+    async waitIfNeeded(sessionId) {
+      const outcome = await waitForSessionFileLock({
+        lockDirectory: options.lockDirectory,
+        sessionID: sessionId,
+        timeoutMs: options.timeoutMs,
+        now: options.now,
+        pollIntervalMs: options.pollIntervalMs,
+        sleep: options.sleep,
+      });
+
+      return toGateResult(outcome);
+    },
+  } satisfies SendEntryGate;
+}
+
 export function createToolExecuteBeforeHook(options: {
   readonly gate?: ToolExecutionGateService;
 } = {}): ToolExecuteBeforeHook {
@@ -128,4 +165,39 @@ export function createSendEntryGateHooks(options: {
   return {
     "tool.execute.before": createToolExecuteBeforeHook(options),
   };
+}
+
+function toGateResult(outcome: SessionFileLockWaitOutcome): GateResult {
+  switch (outcome.outcome) {
+    case "unlocked":
+      return {
+        waited: false,
+        releasedBy: "no-lock",
+        reason: "no active compaction lock",
+      };
+    case "succeeded":
+      return {
+        waited: true,
+        releasedBy: "lock-succeeded",
+        reason: "active compaction lock settled successfully",
+      };
+    case "failed":
+      return {
+        waited: true,
+        releasedBy: "lock-failed",
+        reason: "active compaction lock reached a terminal failure state",
+      };
+    case "timed-out":
+      return {
+        waited: true,
+        releasedBy: "timeout",
+        reason: "active compaction lock exceeded the configured timeout",
+      };
+    case "manually-cleared":
+      return {
+        waited: true,
+        releasedBy: "lock-cleared",
+        reason: "active compaction lock was cleared before settlement",
+      };
+  }
 }
