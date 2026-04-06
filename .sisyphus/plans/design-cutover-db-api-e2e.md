@@ -801,7 +801,7 @@ node --import tsx --test tests/e2e/**/*.test.ts && node scripts/run-seam-probe.m
 
   **Commit**: YES | Message: `feat(interfaces): define runtime config and prompt contracts` | Files: `src/config/**`, `tests/e2e/interfaces/**`
 
-- [ ] 5. 定义 injected safe transport 适配器合同
+- [x] 5. 定义 injected safe transport 适配器合同
 
   **What to do**: 详细设计 safe transport adapter 的内部接口：请求输入、脚本化响应、timeout、malformed payload、retryable error、call recording、abort/cancel 语义；明确 compaction runner 只能通过该接口访问模型执行能力，且未注入 transport 时立即报配置错误。
   **Must NOT do**: 不得引入默认 live executor；不得直接耦合外部 provider SDK；不得把 transport 接口扩展成通用 workflow engine。

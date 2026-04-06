@@ -21,3 +21,10 @@
 - Result-group persistence remains all-or-nothing per `mark_id`: the `result_groups` row and every `result_fragments` row are inserted in one transaction, and any mid-write failure leaves both tables with zero visible rows for that mark id.
 - Idempotent result-group upsert is content-stable, not last-write-wins: replaying the same committed payload returns `unchanged`, while reusing a committed `mark_id` with different durable content fails fast.
 - Read-model completeness is strict at repository read time: if `fragment_count` does not match the number of persisted fragments, or fragment indexes are not contiguous from `0`, the repository throws a corruption error instead of returning a partial replacement.
+
+## 2026-04-06 Task 5 safe transport contract
+- The compaction seam now has a repo-owned injected contract under `src/compaction/transport/`: request building, payload validation, typed timeout/retryable/fatal/abort errors, and scripted call recording all live there so later scheduler/runner work can stay hermetic without importing test-only helpers.
+- The request builder intentionally carries `promptText`, `executionMode`, `allowDelete`, `timeoutMs`, and a numbered transcript slice; this mirrors `prompts/compaction.md` and makes malformed payload or retry logic assert against the exact compaction request that was sent.
+- Missing transport is treated as a deterministic configuration error in `src/runtime/compaction-transport.ts`, and `createCompactionRunner` refuses to expose any fallback live executor path.
+- Call recording stores a clone of the request plus a normalized outcome union (`success`, `retryable-error`, `fatal-error`, `timeout`, `aborted`), which gives later E2E and recovery tasks stable assertion material without coupling to provider SDK error shapes.
+- Caller-driven aborts do not consume scripted transport steps, while transport-origin cancellation is recorded as a distinct aborted outcome; that split keeps cancellation semantics explicit for later lock/scheduler recovery tests.
