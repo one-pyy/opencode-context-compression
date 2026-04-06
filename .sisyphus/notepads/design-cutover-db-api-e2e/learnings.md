@@ -59,3 +59,7 @@
 - The real `chat.params` path can stay narrow while still being replay-backed: it reads host session history just far enough to reconstruct replayable `compression_mark` intents, compute currently eligible mark IDs, and emit small runtime metadata under `output.options`, without rendering messages or owning ordinary-chat waiting.
 - Batch-freeze semantics are naturally testable without new persistence by freezing `eligibleMarkIds` at dispatch time and then refusing to redispatch while a live lock is running; marks replayed during that lock remain visible as queued metadata for the next batch instead of being pulled into the active one.
 - The host session API only exposes `user` / `assistant` message infos, with `compression_mark` replay coming from assistant `tool` parts. Task 10 runtime tests should therefore build replay fixtures from assistant tool parts rather than assuming standalone host `tool` messages exist in session history.
+
+## 2026-04-06 Task 10 verification follow-up
+- `src/index.ts` thinness is enforced by the interface suite, not just by style preference. When runtime behavior grows, move assembly into a dedicated runtime wiring helper rather than letting the plugin entry absorb host-client reads or gate construction details.
+- Transport call-recording tests should track the full current request contract. Once compaction transcript entries gain stable fields like source sequence bounds or optional placeholder metadata, the hermetic assertions should explicitly include them instead of silently pinning an outdated subset.

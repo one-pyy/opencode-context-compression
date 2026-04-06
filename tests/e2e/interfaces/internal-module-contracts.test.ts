@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { rm } from "node:fs/promises";
 import test from "node:test";
 
 import { bootstrapSessionSidecar, openSessionSidecarRepository } from "../../../src/state/sidecar-store.js";
@@ -95,6 +96,7 @@ test(
     );
     const stateDirectory = resolvePluginStateDirectory(fixture.repoRoot);
     const databasePath = resolveSessionDatabasePath(stateDirectory, fixture.sessionID);
+    await rm(databasePath, { force: true });
     await bootstrapSessionSidecar({ databasePath });
 
     const sidecar = await openSessionSidecarRepository({ databasePath });
