@@ -1022,7 +1022,7 @@ node --import tsx --test tests/e2e/**/*.test.ts && node scripts/run-seam-probe.m
 
   **Commit**: YES | Message: `feat(compaction): define input validation and runner contracts` | Files: `src/compaction/**`, `tests/e2e/compaction/**`
 
-- [ ] 10. 实现 send-entry gate 与 chat.params 调度接口
+- [x] 10. 实现 send-entry gate 与 chat.params 调度接口
 
   **What to do**: 详细设计并实现 `SendEntryGate` 与 `ChatParamsScheduler` 的责任分离：ordinary chat 在 active compaction lock 下的等待/超时/手动解锁退出；`chat.params` 仅做 narrow scheduling 与必要 runtime metadata 注入；非 DCP tool 不阻塞；active batch 冻结 mark 集，新增 mark 延迟到下一批。
   **Must NOT do**: 不得让 `chat.params` 负责 projection/rendering；不得让普通聊天永久阻塞；不得在非 DCP tool 路径上错误阻塞。
@@ -1064,7 +1064,7 @@ node --import tsx --test tests/e2e/**/*.test.ts && node scripts/run-seam-probe.m
 
   **Commit**: YES | Message: `feat(runtime): add send gate and narrow scheduler contracts` | Files: `src/runtime/**`, `tests/e2e/runtime/**`
 
-- [ ] 11. 打通失败恢复、重启重放与删除准入 E2E
+- [x] 11. 打通失败恢复、重启重放与删除准入 E2E
 
   **What to do**: 在 hermetic safe transport 下实现 failure-path E2E：transport timeout、malformed output、retry 后成功、restart during in-flight compaction、delete admission blocked/allowed、stale lock/manual unlock；确保失败不会前移错误 watermark、不会留下 partial result group、不会错误修改 projection。
   **Must NOT do**: 不得把失败恢复做成人工步骤；不得允许 stale lock 永远悬挂；不得在 delete blocked 时仍返回成功 result。
@@ -1106,7 +1106,7 @@ node --import tsx --test tests/e2e/**/*.test.ts && node scripts/run-seam-probe.m
 
   **Commit**: YES | Message: `test(e2e): add recovery and delete admission scenarios` | Files: `tests/e2e/recovery/**`, `src/runtime/**`, `src/compaction/**`, `src/tools/**`
 
-- [ ] 12. 打通首条完整成功路径 E2E 与 seam probe 收口
+- [x] 12. 打通首条完整成功路径 E2E 与 seam probe 收口
 
   **What to do**: 基于前述数据库、接口、projection、compaction、runtime gate 任务，完成首条完整成功路径：`compression_mark` → history replay → compaction input → safe transport success → output validation → atomic result-group persist → projection update → seam probe 验证 plugin load / seam logging。将该路径作为“数据库 + 接口 + E2E”三大目标的最终收口。
   **Must NOT do**: 不得将 seam probe 视为唯一正确性证明；不得跳过前序 contract/E2E 测试直接只跑 happy path；不得启用 live network。
@@ -1152,10 +1152,10 @@ node --import tsx --test tests/e2e/**/*.test.ts && node scripts/run-seam-probe.m
 > 4 review agents run in PARALLEL. ALL must APPROVE. Present consolidated results to user and get explicit "okay" before completing.
 > **Do NOT auto-proceed after verification. Wait for user's explicit approval before marking work complete.**
 > **Never mark F1-F4 as checked before getting user's okay.** Rejection or user feedback -> fix -> re-run -> present again -> wait for okay.
-- [ ] F1. Plan Compliance Audit — oracle
-- [ ] F2. Code Quality Review — unspecified-high
-- [ ] F3. Real Manual QA — unspecified-high（本计划中以 agent-executed manual-style QA 方式执行；当前无 UI，不使用 Playwright）
-- [ ] F4. Scope Fidelity Check — deep
+- [x] F1. Plan Compliance Audit — oracle
+- [x] F2. Code Quality Review — unspecified-high
+- [x] F3. Real Manual QA — unspecified-high（本计划中以 agent-executed manual-style QA 方式执行；当前无 UI，不使用 Playwright）
+- [x] F4. Scope Fidelity Check — deep
 
 ## Commit Strategy
 - 使用小步可中断提交；每个任务默认一提交，必要时 1-2 个相邻任务合并，但不得跨 wave 合并
