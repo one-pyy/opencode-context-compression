@@ -1,5 +1,7 @@
 import type { Hooks } from "@opencode-ai/plugin";
 
+import { defineInternalModuleContract } from "../internal/module-contract.js";
+
 type ToolExecuteBeforeHook = NonNullable<Hooks["tool.execute.before"]>;
 
 export type ToolExecuteBeforeInput = Parameters<ToolExecuteBeforeHook>[0];
@@ -38,6 +40,32 @@ export interface ToolExecuteBeforeExternalContract {
   };
 }
 
+export interface GateResult {
+  readonly waited: boolean;
+  readonly releasedBy: "no-lock" | "lock-cleared" | "timeout";
+  readonly reason: string;
+}
+
+export interface SendEntryGate {
+  waitIfNeeded(sessionId: string): Promise<GateResult>;
+}
+
+export const SEND_ENTRY_GATE_INTERNAL_CONTRACT = defineInternalModuleContract({
+  module: "SendEntryGate",
+  inputs: ["sessionId"],
+  outputs: ["GateResult"],
+  mutability: "read-only",
+  reads: ["runtime lock state"],
+  writes: [],
+  errorTypes: ["LOCK_TIMEOUT", "SESSION_NOT_READY"],
+  idempotency:
+    "Observationally idempotent for the same lock state snapshot, though elapsed waiting time may differ.",
+  dependencyDirection: {
+    inboundFrom: ["external-adapters"],
+    outboundTo: [],
+  },
+});
+
 export const TOOL_EXECUTE_BEFORE_EXTERNAL_CONTRACT = Object.freeze({
   seam: "tool.execute.before",
   inputShape: "tool name sessionID callID and mutable args output",
@@ -68,6 +96,20 @@ export function createDefaultToolExecutionGate(): ToolExecutionGateService {
       };
     },
   } satisfies ToolExecutionGateService;
+}
+
+export function createStaticSendEntryGate(
+  result: GateResult = {
+    waited: false,
+    releasedBy: "no-lock",
+    reason: "no active compaction lock",
+  },
+): SendEntryGate {
+  return {
+    async waitIfNeeded() {
+      return result;
+    },
+  } satisfies SendEntryGate;
 }
 
 export function createToolExecuteBeforeHook(options: {

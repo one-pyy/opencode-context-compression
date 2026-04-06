@@ -884,7 +884,7 @@ node --import tsx --test tests/e2e/**/*.test.ts && node scripts/run-seam-probe.m
 
   **Commit**: YES | Message: `feat(interfaces): define external plugin hook contracts` | Files: `src/index.ts`, `src/runtime/**`, `src/tools/**`, `tests/e2e/interfaces/**`
 
-- [ ] 7. 设计插件内部模块接口图与类型合同
+- [x] 7. 设计插件内部模块接口图与类型合同
 
   **What to do**: 详细设计内部模块边界与类型合同：`RuntimeConfigLoader`、`PromptResolver`、`CanonicalIdentityService`、`HistoryReplayReader`、`ResultGroupRepository`、`ProjectionBuilder`、`PolicyEngine`、`ReminderService`、`CompactionInputBuilder`、`CompactionRunner`、`OutputValidator`、`SendEntryGate`、`ChatParamsScheduler`、`SafeTransportAdapter`。为每个模块定义输入/输出、只读/可变职责、错误类型、幂等语义、与其他模块依赖方向。
   **Must NOT do**: 不得形成循环依赖；不得把内部模块接口写成“由实现决定”；不得让 plugin entry 直接串联所有业务逻辑。

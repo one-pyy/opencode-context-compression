@@ -1,5 +1,7 @@
 import type { Hooks } from "@opencode-ai/plugin";
 
+import { defineInternalModuleContract } from "../internal/module-contract.js";
+
 type ChatParamsHook = NonNullable<Hooks["chat.params"]>;
 
 export type ChatParamsInput = Parameters<ChatParamsHook>[0];
@@ -46,6 +48,33 @@ export interface ChatParamsExternalContract {
   };
 }
 
+export interface SchedulerDecision {
+  readonly scheduled: boolean;
+  readonly reason: string;
+  readonly metadata?: ChatParamsSchedulingMetadata;
+}
+
+export interface ChatParamsScheduler {
+  scheduleIfNeeded(sessionId: string): Promise<SchedulerDecision>;
+}
+
+export const CHAT_PARAMS_SCHEDULER_INTERNAL_CONTRACT =
+  defineInternalModuleContract({
+    module: "ChatParamsScheduler",
+    inputs: ["sessionId"],
+    outputs: ["SchedulerDecision"],
+    mutability: "read-only",
+    reads: ["runtime config thresholds", "replay-derived eligibility signals"],
+    writes: [],
+    errorTypes: ["SESSION_NOT_READY"],
+    idempotency:
+      "Deterministic for the same scheduler inputs and current runtime state.",
+    dependencyDirection: {
+      inboundFrom: ["external-adapters"],
+      outboundTo: [],
+    },
+  });
+
 export const CHAT_PARAMS_EXTERNAL_CONTRACT = Object.freeze({
   seam: "chat.params",
   inputShape: "session metadata plus host message context",
@@ -79,6 +108,19 @@ export function createStaticChatParamsScheduler(
       return { metadata };
     },
   } satisfies ChatParamsSchedulerService;
+}
+
+export function createStaticInternalChatParamsScheduler(
+  decision: SchedulerDecision = {
+    scheduled: false,
+    reason: "scheduler contract not yet executing runtime scheduling semantics",
+  },
+): ChatParamsScheduler {
+  return {
+    async scheduleIfNeeded() {
+      return decision;
+    },
+  } satisfies ChatParamsScheduler;
 }
 
 export function createChatParamsSchedulerHook(options: {

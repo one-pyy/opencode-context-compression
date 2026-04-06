@@ -1,10 +1,31 @@
-/**
- * TODO(new-project): rewrite reminder-service from DESIGN.md.
- *
- * Direction:
- * - compute reminders from compressible-token totals only
- * - keep token-based soft/hard cadence
- * - anchor reminders at the message that crosses the milestone
- * - emit projection artifacts only; do not depend on legacy reminder state flow
- */
-export {};
+import { defineInternalModuleContract } from "../internal/module-contract.js";
+import type { ProjectionState, ReminderArtifact } from "./types.js";
+
+export interface ReminderService {
+  compute(state: ProjectionState): readonly ReminderArtifact[];
+}
+
+export const REMINDER_SERVICE_INTERNAL_CONTRACT = defineInternalModuleContract({
+  module: "ReminderService",
+  inputs: ["ProjectionState"],
+  outputs: ["ReminderArtifact[]"],
+  mutability: "read-only",
+  reads: ["projection state", "policy-derived token totals and anchors"],
+  writes: [],
+  errorTypes: [],
+  idempotency: "Pure and deterministic for the same projection state.",
+  dependencyDirection: {
+    inboundFrom: ["ProjectionBuilder"],
+    outboundTo: [],
+  },
+});
+
+export function createStaticReminderService(
+  reminders: readonly ReminderArtifact[] = Object.freeze([]),
+): ReminderService {
+  return {
+    compute() {
+      return reminders;
+    },
+  } satisfies ReminderService;
+}
