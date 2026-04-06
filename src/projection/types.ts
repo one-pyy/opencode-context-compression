@@ -14,12 +14,16 @@ export interface MarkTreeNode {
   readonly startVisibleMessageId: string;
   readonly endVisibleMessageId: string;
   readonly sourceMessageId: string;
+  readonly sourceSequence: number;
+  readonly startSequence: number;
+  readonly endSequence: number;
   readonly depth: number;
   readonly children: readonly MarkTreeNode[];
 }
 
 export interface MarkTree {
   readonly marks: readonly MarkTreeNode[];
+  readonly conflicts: readonly ConflictRecord[];
 }
 
 export interface ConflictRecord {
@@ -31,6 +35,18 @@ export interface ConflictRecord {
 export interface MessageProjectionPolicy {
   readonly canonicalId: string;
   readonly sequence: number;
+  readonly role: "system" | "user" | "assistant" | "tool";
+  readonly visibleKind: VisibleKind;
+  readonly tokenCount: number;
+  readonly visibleId: string;
+  readonly visibleSeq: number;
+  readonly visibleBase62: string;
+}
+
+export interface MessageProjectionPolicySeed {
+  readonly canonicalId: string;
+  readonly sequence: number;
+  readonly role: "system" | "user" | "assistant" | "tool";
   readonly visibleKind: VisibleKind;
   readonly tokenCount: number;
 }
@@ -38,6 +54,8 @@ export interface MessageProjectionPolicy {
 export interface ReminderArtifact {
   readonly kind: ReminderKind;
   readonly anchorCanonicalId: string;
+  readonly anchorVisibleId: string;
+  readonly visibleId: string;
   readonly contentText: string;
 }
 
@@ -57,7 +75,9 @@ export interface ProjectionBuildInput {
 
 export interface ProjectedPromptMessage {
   readonly source: "canonical" | "result-group" | "reminder";
+  readonly role: "system" | "user" | "assistant" | "tool";
   readonly canonicalId?: string;
+  readonly sourceMarkId?: string;
   readonly visibleKind?: VisibleKind;
   readonly visibleId?: string;
   readonly contentText: string;

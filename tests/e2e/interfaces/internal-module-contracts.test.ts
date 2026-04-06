@@ -170,9 +170,14 @@ test(
       sessionId: fixture.sessionID,
     });
     assert.equal(projection.sessionId, fixture.sessionID);
-    assert.deepEqual(projection.messages, []);
     assert.deepEqual(projection.reminders, []);
     assert.equal(projection.state.history.messages.length, 1);
+    assert.equal(projection.messages.length, 1);
+    assert.equal(projection.messages[0]?.source, "canonical");
+    assert.equal(
+      projection.messages[0]?.contentText,
+      `[${firstAllocation.assignedVisibleId}] hello`,
+    );
 
     const scriptedTransport = createScriptedCompactionTransport([
       {
@@ -230,6 +235,7 @@ test(
           mutability: contract.mutability,
         })),
         visibleId: firstAllocation.assignedVisibleId,
+        projectedMessageText: projection.messages[0]?.contentText,
         compactionRequestMarkId: compactionResult.request.markID,
       },
     );

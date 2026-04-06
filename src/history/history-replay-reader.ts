@@ -1,4 +1,8 @@
 import { defineInternalModuleContract } from "../internal/module-contract.js";
+import type {
+  CompressionMarkInputV1,
+  CompressionMarkResult,
+} from "../tools/compression-mark/contract.js";
 
 export type CanonicalHostMessageRole = "system" | "user" | "assistant" | "tool";
 
@@ -30,6 +34,7 @@ export interface ReplayedMarkIntent {
   readonly startVisibleMessageId: string;
   readonly endVisibleMessageId: string;
   readonly sourceMessageId: string;
+  readonly sourceSequence: number;
 }
 
 export interface ReplayedHistory {
@@ -40,6 +45,25 @@ export interface ReplayedHistory {
 
 export interface HistoryReplayReader {
   read(sessionId: string): Promise<ReplayedHistory>;
+}
+
+export interface ReplayableHostHistoryEntry {
+  readonly sequence: number;
+  readonly message: CanonicalHostMessage;
+}
+
+export interface ReplayableCompressionMarkToolEntry {
+  readonly sequence: number;
+  readonly sourceMessageId: string;
+  readonly toolName: "compression_mark";
+  readonly input: CompressionMarkInputV1;
+  readonly result: CompressionMarkResult;
+}
+
+export interface ReplayHistorySources {
+  readonly sessionId: string;
+  readonly hostHistory: readonly ReplayableHostHistoryEntry[];
+  readonly toolHistory: readonly ReplayableCompressionMarkToolEntry[];
 }
 
 export const HISTORY_REPLAY_READER_INTERNAL_CONTRACT =
@@ -67,4 +91,74 @@ export function createHistoryReplayReader(
       return read(sessionId);
     },
   } satisfies HistoryReplayReader;
+}
+
+export function createHistoryReplayReaderFromSources(
+  readSources:
+    | ((sessionId: string) => Promise<ReplayHistorySources> | ReplayHistorySources)
+    | ReplayHistorySources,
+): HistoryReplayReader {
+  return createHistoryReplayReader(async (sessionId) => {
+    const sources =
+      typeof readSources === "function" ? await readSources(sessionId) : readSources;
+    return replayHistoryFromSources(sources);
+  });
+}
+
+export function replayHistoryFromSources(
+  sources: ReplayHistorySources,
+): ReplayedHistory {
+  const hostHistory = [...sources.hostHistory].sort(
+    (left, right) => left.sequence - right.sequence,
+  );
+  const toolHistory = [...sources.toolHistory].sort(
+    (left, right) => left.sequence - right.sequence,
+  );
+
+  return Object.freeze({
+    sessionId: sources.sessionId,
+    messages: Object.freeze(
+      hostHistory.map((entry) => {
+        const canonicalId = entry.message.info.id.trim();
+        if (canonicalId.length === 0) {
+          throw new Error(
+            "History replay requires every host message to expose a non-empty info.id.",
+          );
+        }
+
+        return Object.freeze({
+          sequence: entry.sequence,
+          canonicalId,
+          role: entry.message.info.role,
+          contentText: readCanonicalMessageText(entry.message),
+          hostMessage: entry.message,
+        } satisfies ReplayedHistoryMessage);
+      }),
+    ),
+    marks: Object.freeze(
+      toolHistory.flatMap((entry) => {
+        if (entry.result.ok !== true) {
+          return [];
+        }
+
+        return [
+          Object.freeze({
+            markId: entry.result.markId,
+            mode: entry.input.mode,
+            startVisibleMessageId: entry.input.target.startVisibleMessageID,
+            endVisibleMessageId: entry.input.target.endVisibleMessageID,
+            sourceMessageId: entry.sourceMessageId,
+            sourceSequence: entry.sequence,
+          } satisfies ReplayedMarkIntent),
+        ];
+      }),
+    ),
+  } satisfies ReplayedHistory);
+}
+
+function readCanonicalMessageText(message: CanonicalHostMessage): string {
+  return message.parts
+    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .join("\n")
+    .trim();
 }

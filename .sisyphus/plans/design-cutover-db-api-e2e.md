@@ -934,7 +934,7 @@ node --import tsx --test tests/e2e/**/*.test.ts && node scripts/run-seam-probe.m
 
   **Commit**: YES | Message: `feat(interfaces): define internal module contracts` | Files: `src/**`, `tests/e2e/interfaces/**`
 
-- [ ] 8. 实现历史重放、可见 ID 与 projection 合同
+- [x] 8. 实现历史重放、可见 ID 与 projection 合同
 
   **What to do**: 基于 history replay 真值模型，设计并实现最小 projection 链路：读取 host/tool history、重放 `compression_mark`、构建合法覆盖树、按 result-group fallback 生成 projection、通过 visible-id 映射生成稳定 `type_000001_base62` 风格 ID、渲染 assistant/tool/reminder 的可见 ID。确保 reminder 是 projection artifact，不进入 durable host history。
   **Must NOT do**: 不得让 SQLite 成为 mark/source truth；不得对 compact result 进行内部再压缩；不得让 reminder 消耗 message-layer visible-id sequence。

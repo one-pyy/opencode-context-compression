@@ -1,5 +1,7 @@
 import type { Hooks } from "@opencode-ai/plugin";
 
+import type { ProjectedMessageSet } from "../projection/types.js";
+
 type MessagesTransformHook = NonNullable<
   Hooks["experimental.chat.messages.transform"]
 >;
@@ -70,6 +72,18 @@ export function createPassThroughMessagesTransformProjector(): MessagesTransform
   } satisfies MessagesTransformProjector;
 }
 
+export function createProjectionBackedMessagesTransformProjector(options: {
+  readonly buildProjection: (
+    input: MessagesTransformProjectionInput,
+  ) => Promise<ProjectedMessageSet> | ProjectedMessageSet;
+}): MessagesTransformProjector {
+  return {
+    async project(input) {
+      return projectProjectionToEnvelopes(await options.buildProjection(input));
+    },
+  } satisfies MessagesTransformProjector;
+}
+
 export function createMessagesTransformHook(options: {
   readonly projector?: MessagesTransformProjector;
 } = {}): MessagesTransformHook {
@@ -88,4 +102,40 @@ export function createMessagesTransformHook(options: {
 
     output.messages.splice(0, output.messages.length, ...nextMessages);
   };
+}
+
+export function projectProjectionToEnvelopes(
+  projection: ProjectedMessageSet,
+): readonly MessagesTransformEnvelope[] {
+  return Object.freeze(
+    projection.messages.map((message, index) => {
+      const messageId =
+        message.canonicalId ??
+        message.visibleId ??
+        `${message.source}-${projection.sessionId}-${index + 1}`;
+
+      return {
+        info: {
+          id: messageId,
+          sessionID: projection.sessionId,
+          role: message.role,
+          time: { created: index + 1 },
+          agent: "atlas",
+          model: {
+            providerID: "opencode-context-compression",
+            modelID: "projection-replay",
+          },
+        },
+        parts: [
+          {
+            id: `${messageId}:text`,
+            sessionID: projection.sessionId,
+            messageID: messageId,
+            type: "text",
+            text: message.contentText,
+          },
+        ],
+      } as MessagesTransformEnvelope;
+    }),
+  );
 }
