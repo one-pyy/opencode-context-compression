@@ -17,7 +17,7 @@ const plugin: Plugin = async (input) => {
     ...seamServices,
     compressionMark: {
       admission: createCompressionMarkAdmission({
-        allowDelete: false,
+        allowDelete: runtimeConfig.allowDelete,
       }),
     },
   });

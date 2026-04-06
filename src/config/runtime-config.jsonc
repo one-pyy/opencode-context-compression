@@ -5,6 +5,7 @@
   // `markedTokenAutoCompactionThreshold` is the real readiness threshold by marked token total.
   // Reminder repeat cadence is token-based only; legacy counter-driven reminder fields are not part of this contract.
   "version": 1,
+  "allowDelete": false,
   "promptPath": "prompts/compaction.md",
   "compactionModels": [
     "openai.right/gpt-5.4-mini",

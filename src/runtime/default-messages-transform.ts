@@ -64,7 +64,7 @@ export function createDefaultMessagesTransformProjector(
               options.runtimeConfig.reminder.softRepeatEveryTokens,
             hardRepeatEveryTokens:
               options.runtimeConfig.reminder.hardRepeatEveryTokens,
-            allowDelete: false,
+            allowDelete: options.runtimeConfig.allowDelete,
             promptTextByKind: {
               "soft-compact":
                 options.runtimeConfig.reminder.prompts.compactOnly.soft.text,

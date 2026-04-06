@@ -76,3 +76,7 @@
 ## 2026-04-06 Task 12 full success path
 - The anti-fake-green shape for Task 12 is to derive compaction input from replayed projection state itself, not to hand-author a transcript in the happy-path E2E. `src/compaction/replay-run-input.ts` now turns a replayed legal mark node back into the frozen compaction transcript, so the test proves the real `compression_mark -> replay -> compaction input -> validated commit -> projection update` chain instead of a parallel shortcut.
 - The default plugin wiring now attaches a real sidecar-backed `messages.transform` projector through `src/runtime/default-messages-transform.ts`, while `chat.params` stays narrow and file-lock-backed gate behavior stays separate. This keeps `index.ts` thin and preserves the DESIGN boundary that prompt projection belongs only to `messages.transform`.
+
+## 2026-04-06 Final Wave blocker follow-up
+- The shipped runtime replay adapter must treat top-level host `tool` messages as canonical history, not as helper-only test data. Filtering them out in `src/runtime/session-history.ts` silently breaks projection/token semantics while leaving narrower unit-style coverage green.
+- Delete admission needed a real runtime/config policy path in the default plugin wiring. A small repo-owned `allowDelete` runtime-config flag was enough to restore DESIGN-aligned blocked/allowed behavior without widening `chat.params`, changing projection ownership, or adding new persistence.

@@ -20,6 +20,10 @@
       "const": 1,
       "description": "Current runtime config contract version."
     },
+    "allowDelete": {
+      "type": "boolean",
+      "description": "Runtime delete-admission gate for compression_mark and allowDelete-aware reminder wording."
+    },
     "promptPath": {
       "type": "string",
       "minLength": 1,

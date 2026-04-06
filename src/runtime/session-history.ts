@@ -145,9 +145,18 @@ export function collectReplayableCompressionMarkHistory(
 }
 
 function isCanonicalHostMessageRole(
-  role: Message["role"],
-): role is Extract<CanonicalHostMessage["info"]["role"], "user" | "assistant"> {
-  return role === "user" || role === "assistant";
+  role: unknown,
+): role is CanonicalHostMessage["info"]["role"] {
+  if (typeof role !== "string") {
+    return false;
+  }
+
+  return (
+    role === "system" ||
+    role === "user" ||
+    role === "assistant" ||
+    role === "tool"
+  );
 }
 
 function isCompressionMarkToolPart(part: Part): part is ToolPart {

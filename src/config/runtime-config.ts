@@ -32,6 +32,7 @@ interface ReminderPromptPathsInput {
 interface RuntimeConfigInput {
   readonly $schema?: unknown;
   readonly version?: unknown;
+  readonly allowDelete?: unknown;
   readonly promptPath?: unknown;
   readonly compactionModels?: unknown;
   readonly markedTokenAutoCompactionThreshold?: unknown;
@@ -86,6 +87,7 @@ export interface RuntimeConfigCompactionThresholds {
 export interface LoadedRuntimeConfig {
   readonly repoRoot: string;
   readonly configPath: string;
+  readonly allowDelete: boolean;
   readonly promptPath: string;
   readonly promptText: string;
   readonly models: readonly string[];
@@ -131,6 +133,7 @@ const DEFAULT_RUNTIME_CONFIG_PATH = join(
 );
 
 const DEFAULTS = {
+  allowDelete: false,
   markedTokenAutoCompactionThreshold: 20_000,
   smallUserMessageThreshold: 1_024,
   schedulerMarkThreshold: 1,
@@ -161,6 +164,7 @@ const DEFAULTS = {
 const ALLOWED_ROOT_KEYS = new Set([
   "$schema",
   "version",
+  "allowDelete",
   "promptPath",
   "compactionModels",
   "markedTokenAutoCompactionThreshold",
@@ -319,6 +323,10 @@ export function loadRuntimeConfig(
   const loaded: LoadedRuntimeConfig = {
     repoRoot,
     configPath,
+    allowDelete: readBoolean(
+      parsed.allowDelete ?? DEFAULTS.allowDelete,
+      "allowDelete",
+    ),
     promptPath: prompt.path,
     promptText: prompt.text,
     models,
@@ -627,6 +635,16 @@ function readPositiveInteger(value: unknown, fieldPath: string): number {
   }
 
   return parsed;
+}
+
+function readBoolean(value: unknown, fieldPath: string): boolean {
+  if (typeof value !== "boolean") {
+    throw new OpencodeContextCompressionRuntimeConfigError(
+      `${fieldPath} must be a boolean.`,
+    );
+  }
+
+  return value;
 }
 
 function readRequiredString(value: unknown, fieldPath: string): string {
