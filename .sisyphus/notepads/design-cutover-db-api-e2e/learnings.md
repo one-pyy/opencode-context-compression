@@ -63,3 +63,8 @@
 ## 2026-04-06 Task 10 verification follow-up
 - `src/index.ts` thinness is enforced by the interface suite, not just by style preference. When runtime behavior grows, move assembly into a dedicated runtime wiring helper rather than letting the plugin entry absorb host-client reads or gate construction details.
 - Transport call-recording tests should track the full current request contract. Once compaction transcript entries gain stable fields like source sequence bounds or optional placeholder metadata, the hermetic assertions should explicitly include them instead of silently pinning an outdated subset.
+
+## 2026-04-06 Task 11 recovery / delete admission behavior
+- The strongest anti-fake-green check for recovery paths is to assert all three surfaces together: the runner error/outcome, the sidecar row counts for the candidate `mark_id`, and the replayed projection text. Timeout and malformed payload cases now prove all three stay unchanged until a validated success commits.
+- Restart recovery stays faithful to the DESIGN cutover when the runtime only trusts host history plus committed sidecar result groups. An in-flight parent mark with only a file lock and no committed group cleanly replays to child-result fallback plus original gaps after reopening the sidecar; no checkpoint/job table is needed.
+- Stale-lock recovery is real runtime behavior, not an operator-only note: `waitForSessionFileLock()` already gives the two required exits (`timed-out` for stale running locks and `manually-cleared` after unlink), so recovery E2E should exercise those file-lock semantics directly instead of inventing extra runtime persistence.

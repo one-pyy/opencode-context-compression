@@ -140,21 +140,7 @@ function renderMarkNode(input: {
         policiesBySequence: input.policiesBySequence,
       }),
     );
-    const visibleId = buildStableVisibleId(
-      "referable",
-      fragment.sourceStartSeq,
-      `${resultGroup.markId}:${fragment.fragmentIndex}`,
-    );
-    rendered.push(
-      Object.freeze({
-        source: "result-group",
-        role: "assistant",
-        sourceMarkId: resultGroup.markId,
-        visibleKind: "referable",
-        visibleId,
-        contentText: prependVisibleId(visibleId, fragment.replacementText),
-      } satisfies ProjectedPromptMessage),
-    );
+    rendered.push(renderResultGroupFragment(resultGroup, fragment));
     cursor = fragment.sourceEndSeq + 1;
   });
 
@@ -168,6 +154,34 @@ function renderMarkNode(input: {
   );
 
   return rendered;
+}
+
+function renderResultGroupFragment(
+  resultGroup: CompleteResultGroup,
+  fragment: CompleteResultGroup["fragments"][number],
+): ProjectedPromptMessage {
+  if (resultGroup.mode === "delete") {
+    return Object.freeze({
+      source: "result-group",
+      role: "assistant",
+      sourceMarkId: resultGroup.markId,
+      contentText: fragment.replacementText,
+    } satisfies ProjectedPromptMessage);
+  }
+
+  const visibleId = buildStableVisibleId(
+    "referable",
+    fragment.sourceStartSeq,
+    `${resultGroup.markId}:${fragment.fragmentIndex}`,
+  );
+  return Object.freeze({
+    source: "result-group",
+    role: "assistant",
+    sourceMarkId: resultGroup.markId,
+    visibleKind: "referable",
+    visibleId,
+    contentText: prependVisibleId(visibleId, fragment.replacementText),
+  } satisfies ProjectedPromptMessage);
 }
 
 function renderOriginalRange(input: {
