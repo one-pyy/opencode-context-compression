@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import { createCompactionInputBuilder } from "../../../src/compaction/input-builder.js";
@@ -40,7 +42,13 @@ test(
       suite: "recovery",
       caseName: "transport timeout recovery failure cases",
     });
-    const stateDirectory = resolvePluginStateDirectory(fixture.repoRoot);
+    const pluginDirectory = await mkdtemp(
+      join(tmpdir(), "task11-recovery-transport-failure-"),
+    );
+    t.after(async () => {
+      await rm(pluginDirectory, { force: true, recursive: true });
+    });
+    const stateDirectory = resolvePluginStateDirectory(pluginDirectory);
     const databasePath = resolveSessionDatabasePath(stateDirectory, fixture.sessionID);
     await rm(databasePath, { force: true });
     await bootstrapSessionSidecar({ databasePath });
@@ -207,7 +215,13 @@ test(
       suite: "recovery",
       caseName: "transport timeout recovery retry success",
     });
-    const stateDirectory = resolvePluginStateDirectory(fixture.repoRoot);
+    const pluginDirectory = await mkdtemp(
+      join(tmpdir(), "task11-recovery-transport-retry-"),
+    );
+    t.after(async () => {
+      await rm(pluginDirectory, { force: true, recursive: true });
+    });
+    const stateDirectory = resolvePluginStateDirectory(pluginDirectory);
     const databasePath = resolveSessionDatabasePath(stateDirectory, fixture.sessionID);
     await rm(databasePath, { force: true });
     await bootstrapSessionSidecar({ databasePath });

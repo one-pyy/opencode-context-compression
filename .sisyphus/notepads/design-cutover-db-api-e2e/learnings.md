@@ -71,3 +71,4 @@
 
 ## 2026-04-06 Task 11 follow-up stability fix
 - Recovery tests should not open a second raw SQLite connection just to count `result_groups` / `result_fragments` while a session sidecar repository is already open. On some verifiers that pattern can surface as `disk I/O error` or `database is locked`; repository-backed committed-group checks prove the same “no partial visible result” invariant without cross-handle contention.
+- For Task 11 full-suite stability, keeping the session ID deterministic was not the problem; sharing the repo `state/` directory was. Using a per-test temporary plugin root for recovery suites preserves stable session semantics while isolating the actual SQLite file path that full-suite workers contend on.

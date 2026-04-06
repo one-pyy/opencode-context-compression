@@ -39,7 +39,13 @@ test(
       suite: "recovery",
       caseName: "restart replay consistency",
     });
-    const stateDirectory = resolvePluginStateDirectory(fixture.repoRoot);
+    const pluginDirectory = await mkdtemp(
+      join(tmpdir(), "task11-recovery-restart-replay-"),
+    );
+    t.after(async () => {
+      await rm(pluginDirectory, { force: true, recursive: true });
+    });
+    const stateDirectory = resolvePluginStateDirectory(pluginDirectory);
     const databasePath = resolveSessionDatabasePath(stateDirectory, fixture.sessionID);
     await rm(databasePath, { force: true });
     await bootstrapSessionSidecar({ databasePath });
