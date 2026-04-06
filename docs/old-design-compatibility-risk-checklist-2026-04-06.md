@@ -77,6 +77,8 @@
 **当前正确口径**：
 - `allowDelete` 只定义当前 delete mark 的准入策略
 - 一旦 tool 调用被接受，后续历史解释主要依赖 `mode` 与结果组
+- 如果当前策略不允许 delete，则该次 `compression_mark(mode=delete)` 应直接返回错误结果，而不是生成可重放 mark
+- hook / replay 只消费成功返回 `mark id` 的 tool 结果；错误结果保留为普通错误消息，但不进入 mark 语义系统
 
 ### 3.2 把 `allowDelete` 理解成 route 枚举或 keep/delete 二选一路由
 
@@ -121,6 +123,7 @@
 **当前正确口径**：
 - 错误 tool 调用不进入 mark 语义系统
 - 但应作为普通错误消息保留在最终可见世界里
+- “不进入 mark 语义系统” 的判定口径应是：tool 结果不是合法 `mark id` 成功载荷，而是错误结果 / 非法结果 / 反序列化失败结果
 
 ### 4.3 按投影后的块表面计算 mark 覆盖关系
 
@@ -164,6 +167,7 @@
 **当前正确口径**：
 - gate 必须在真正 send path 前生效
 - 若存在活跃 compaction gate，应在 `experimental.chat.messages.transform` 开始解析/投影当前轮 prompt-visible 内容前阻塞，直到完成、失败、超时或手工恢复
+- 也就是说，gate 检查必须发生在 `messages.transform` 的第一时间，而不是先做部分 replay/projection 再在后续阶段中断
 
 ### 5.3 `messages.transform` 不是唯一 projection seam
 
