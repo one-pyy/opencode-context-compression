@@ -631,7 +631,7 @@ node --import tsx --test tests/e2e/**/*.test.ts && node scripts/run-seam-probe.m
 > Implementation + Test = ONE task. Never separate.
 > EVERY task MUST have: Agent Profile + Parallelization + QA Scenarios.
 
-- [ ] 1. 统一数据库真值边界与文件布局
+- [x] 1. 统一数据库真值边界与文件布局
 
   **What to do**: 仅基于 `DESIGN.md` 定义 sidecar 的最小职责集合：`schema_meta`、`visible_sequence_allocations`、`result_groups`、`result_fragments`；明确 DB 文件、lock 文件、seam log、debug snapshot 的落位规则，以及 fresh bootstrap / full-replay rebuild / restart recovery 的责任边界。
   **Must NOT do**: 不得恢复旧的 mark/source snapshot 真值表；不得把 `rubbish/` 下路径、旧 tests 或旧 schema 当成现成资产；不得在本任务中实现默认 live executor。
@@ -675,7 +675,7 @@ node --import tsx --test tests/e2e/**/*.test.ts && node scripts/run-seam-probe.m
 
   **Commit**: YES | Message: `feat(db): define sidecar boundaries and layout` | Files: `src/state/**`, `src/runtime/**`, `tests/e2e/database/**`, `DESIGN-aligned docs if needed`
 
-- [ ] 2. 设计结果组 schema 与仓储接口
+- [x] 2. 设计结果组 schema 与仓储接口
 
   **What to do**: 定义最小可执行 schema：`schema_meta`、visible id 映射表、result group 主表、fragment 子表；同时详细设计 repository 接口（create/read/list/by-mark-id/idempotent upsert/allocate visible id），并约束“同一 mark id 的结果组必须原子提交，可多 fragment 但不可部分可见”；不得出现 replay checkpoint/job/gate 持久化仓储接口。
   **Must NOT do**: 不得引入旧 mark/source truth 表；不得把 allowDelete 作为 schema 主键语义；不得把 job/event store 泛化成通用平台。
@@ -716,7 +716,7 @@ node --import tsx --test tests/e2e/**/*.test.ts && node scripts/run-seam-probe.m
 
   **Commit**: YES | Message: `feat(db): add result group schema and repositories` | Files: `src/state/**`, `tests/e2e/database/**`
 
-- [ ] 3. 搭建 hermetic E2E 测试基座与 network-deny 策略
+- [x] 3. 搭建 hermetic E2E 测试基座与 network-deny 策略
 
   **What to do**: 在 `tests/e2e/**` 下建立统一 fixture 规范、session 命名规范、evidence 输出规范、network-deny helper 与 safe transport 注入 helper；确保所有测试通过 Node test runner 执行，且任何未授权网络访问立即失败。
   **Must NOT do**: 不得写 unit tests；不得依赖 Playwright、Cypress、真实网络代理或默认执行器；不得把 `scripts/run-seam-probe.mjs` 直接当成完整 E2E 替代品。
@@ -757,7 +757,7 @@ node --import tsx --test tests/e2e/**/*.test.ts && node scripts/run-seam-probe.m
 
   **Commit**: YES | Message: `test(e2e): add hermetic harness and safe transport fixtures` | Files: `tests/e2e/harness/**`, `tests/helpers/**`, `package.json if needed`
 
-- [ ] 4. 收敛 runtime config 与 prompt/runtime 依赖接口
+- [x] 4. 收敛 runtime config 与 prompt/runtime 依赖接口
 
   **What to do**: 基于 `src/config/runtime-config.schema.json` 与现有 prompt 文件，详细设计 runtime-config loader、prompt resolver、path resolution、模型链解析与 delete/reminder 阈值读取接口；定义“缺省值、覆盖顺序、配置错误”契约，并让后续 database/interface/e2e 统一依赖这组接口。
   **Must NOT do**: 不得改变 schema 含义；不得在本任务加入新业务配置面；不得实现与 DESIGN 无关的配置热重载或 UI 配置面板。
