@@ -1,12 +1,8 @@
 import type { Hooks } from "@opencode-ai/plugin";
-import type { Message, Part, ToolPart } from "@opencode-ai/sdk";
+import type { Message } from "@opencode-ai/sdk";
 
 import { defineInternalModuleContract } from "../internal/module-contract.js";
 import {
-  createHistoryReplayReaderFromSources,
-  type CanonicalHostMessage,
-  type ReplayableCompressionMarkToolEntry,
-  type ReplayableHostHistoryEntry,
   type ReplayedHistory,
 } from "../history/history-replay-reader.js";
 import {
@@ -19,13 +15,13 @@ import {
 } from "../projection/policy-engine.js";
 import type { MarkTreeNode } from "../projection/types.js";
 import {
-  deserializeCompressionMarkResult,
-  validateCompressionMarkInput,
-} from "../tools/compression-mark.js";
-import {
   readSessionFileLock,
   type SessionFileLockState,
 } from "./file-lock.js";
+import {
+  buildReplayedHistoryFromSessionMessages,
+  type SessionHistoryReader,
+} from "./session-history.js";
 
 type ChatParamsHook = NonNullable<Hooks["chat.params"]>;
 
@@ -117,19 +113,6 @@ export interface InternalChatParamsSchedulerDependencies {
   ) =>
     | Promise<ChatParamsSchedulerDispatchResult>
     | ChatParamsSchedulerDispatchResult;
-}
-
-export interface SessionMessageEnvelope {
-  readonly info: Message;
-  readonly parts: readonly Part[];
-}
-
-export interface SessionHistoryReader {
-  readSessionMessages(
-    sessionId: string,
-  ):
-    | Promise<readonly SessionMessageEnvelope[]>
-    | readonly SessionMessageEnvelope[];
 }
 
 export interface HistoryBackedChatParamsSchedulerOptions {
@@ -379,102 +362,7 @@ async function buildReplayedHistory(input: {
   readonly sessionId: string;
   readonly readSessionMessages: SessionHistoryReader["readSessionMessages"];
 }): Promise<ReplayedHistory> {
-  const reader = createHistoryReplayReaderFromSources(async (sessionId) => {
-    const envelopes = await input.readSessionMessages(sessionId);
-    return {
-      sessionId,
-      hostHistory: collectReplayableHostHistory(envelopes),
-      toolHistory: collectReplayableCompressionMarkHistory(envelopes),
-    };
-  });
-
-  return reader.read(input.sessionId);
-}
-
-function collectReplayableHostHistory(
-  envelopes: readonly SessionMessageEnvelope[],
-): readonly ReplayableHostHistoryEntry[] {
-  let sequence = 1;
-
-  return Object.freeze(
-    envelopes
-      .filter((envelope) => isCanonicalHostMessageRole(envelope.info.role))
-      .map((envelope) =>
-        Object.freeze({
-          sequence: sequence++,
-          message: {
-            info: {
-              id: envelope.info.id,
-              role: envelope.info.role,
-            },
-            parts: envelope.parts.flatMap((part) =>
-              part.type === "text"
-                ? [
-                    {
-                      type: "text" as const,
-                      text: part.text,
-                      messageId: part.messageID,
-                    },
-                  ]
-                : [],
-            ),
-          } satisfies CanonicalHostMessage,
-        } satisfies ReplayableHostHistoryEntry),
-      ),
-  );
-}
-
-function collectReplayableCompressionMarkHistory(
-  envelopes: readonly SessionMessageEnvelope[],
-): readonly ReplayableCompressionMarkToolEntry[] {
-  const sequenceByMessageId = new Map<string, number>();
-  let nextSequence = 1;
-
-  for (const envelope of envelopes) {
-    if (!isCanonicalHostMessageRole(envelope.info.role)) {
-      continue;
-    }
-
-    sequenceByMessageId.set(envelope.info.id, nextSequence++);
-  }
-
-  const entries: ReplayableCompressionMarkToolEntry[] = [];
-  for (const envelope of envelopes) {
-    for (const part of envelope.parts) {
-      if (!isCompressionMarkToolPart(part)) {
-        continue;
-      }
-
-      const completedState = part.state.status === "completed" ? part.state : null;
-      if (!completedState) {
-        continue;
-      }
-
-      const parsedInput = validateCompressionMarkInput(completedState.input);
-      if (!parsedInput.ok) {
-        continue;
-      }
-
-      let parsedResult: ReturnType<typeof deserializeCompressionMarkResult>;
-      try {
-        parsedResult = deserializeCompressionMarkResult(completedState.output);
-      } catch {
-        continue;
-      }
-
-      entries.push(
-        Object.freeze({
-          sequence: sequenceByMessageId.get(part.messageID) ?? Number.MAX_SAFE_INTEGER,
-          sourceMessageId: part.messageID,
-          toolName: "compression_mark",
-          input: parsedInput.value,
-          result: parsedResult,
-        } satisfies ReplayableCompressionMarkToolEntry),
-      );
-    }
-  }
-
-  return Object.freeze(entries.sort((left, right) => left.sequence - right.sequence));
+  return buildReplayedHistoryFromSessionMessages(input);
 }
 
 async function collectEligibleMarkIds(input: {
@@ -541,16 +429,6 @@ function buildMetadata(input: {
     pendingMarkCount: input.eligibleMarkIds.length,
     ...(input.dispatchedBatch ? { dispatchedBatch: input.dispatchedBatch } : {}),
   });
-}
-
-function isCanonicalHostMessageRole(
-  role: Message["role"],
-): role is Extract<CanonicalHostMessage["info"]["role"], "user" | "assistant"> {
-  return role === "user" || role === "assistant";
-}
-
-function isCompressionMarkToolPart(part: Part): part is ToolPart {
-  return part.type === "tool" && part.tool === "compression_mark";
 }
 
 function optionsOrDefault(value: number | undefined, fallback: number): number {

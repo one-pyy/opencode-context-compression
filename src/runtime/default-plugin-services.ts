@@ -5,6 +5,7 @@ import {
   createHistoryBackedChatParamsScheduler,
   createRuntimeChatParamsSchedulerService,
 } from "./chat-params-scheduler.js";
+import { createDefaultMessagesTransformProjector } from "./default-messages-transform.js";
 import type { RuntimePluginSeamServices } from "./plugin-hooks.js";
 import { resolvePluginLockDirectory } from "./file-lock.js";
 
@@ -13,6 +14,12 @@ export function createDefaultRuntimePluginSeamServices(
   runtimeConfig: LoadedRuntimeConfig,
 ): RuntimePluginSeamServices {
   return {
+    messagesTransformProjector: createDefaultMessagesTransformProjector({
+      pluginDirectory: input.directory,
+      runtimeConfig,
+      readSessionMessages: (sessionId) =>
+        readSessionMessagesFromHost(input, sessionId),
+    }),
     chatParamsScheduler: createRuntimeChatParamsSchedulerService({
       scheduler: createHistoryBackedChatParamsScheduler({
         lockDirectory: resolvePluginLockDirectory(input.directory),

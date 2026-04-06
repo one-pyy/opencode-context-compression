@@ -72,3 +72,7 @@
 ## 2026-04-06 Task 11 follow-up stability fix
 - Recovery tests should not open a second raw SQLite connection just to count `result_groups` / `result_fragments` while a session sidecar repository is already open. On some verifiers that pattern can surface as `disk I/O error` or `database is locked`; repository-backed committed-group checks prove the same “no partial visible result” invariant without cross-handle contention.
 - For Task 11 full-suite stability, keeping the session ID deterministic was not the problem; sharing the repo `state/` directory was. Using a per-test temporary plugin root for recovery suites preserves stable session semantics while isolating the actual SQLite file path that full-suite workers contend on.
+
+## 2026-04-06 Task 12 full success path
+- The anti-fake-green shape for Task 12 is to derive compaction input from replayed projection state itself, not to hand-author a transcript in the happy-path E2E. `src/compaction/replay-run-input.ts` now turns a replayed legal mark node back into the frozen compaction transcript, so the test proves the real `compression_mark -> replay -> compaction input -> validated commit -> projection update` chain instead of a parallel shortcut.
+- The default plugin wiring now attaches a real sidecar-backed `messages.transform` projector through `src/runtime/default-messages-transform.ts`, while `chat.params` stays narrow and file-lock-backed gate behavior stays separate. This keeps `index.ts` thin and preserves the DESIGN boundary that prompt projection belongs only to `messages.transform`.

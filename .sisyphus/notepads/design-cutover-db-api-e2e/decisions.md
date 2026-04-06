@@ -65,3 +65,6 @@
 ## 2026-04-06 Task 11 recovery decisions
 - Kept the production change surface minimal by fixing delete-style projection at the rendering seam only: committed `mode='delete'` result groups now render their stored delete notice text without a referable visible-id prefix, while `mode='compact'` continues to render referable replacement blocks. This matches DESIGN §10.2 / §15.17 without pre-solving Task 12’s broader success-path wiring.
 - Recovery correctness remains anchored on Task 9’s rule: no committed result-group rows exist until transport output validates successfully. Task 11 therefore proves timeout, malformed payload, and retry-after-failure behavior through the existing atomic repository contract instead of introducing failed rows, watermark bookkeeping, or runtime-state tables.
+
+## 2026-04-06 Task 12 seam probe decision
+- Tightened `scripts/run-seam-probe.mjs` into a deterministic TSX harness that directly loads the plugin and exercises the three locked seams against stubbed host history, then asserts JSONL seam-log output. This keeps seam probe squarely in the DESIGN §13.4 boundary: it proves plugin load plus seam logging observability only, while correctness remains anchored on the E2E suite.

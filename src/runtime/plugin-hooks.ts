@@ -44,6 +44,7 @@ export interface ContextCompressionPluginHooksOptions {
 }
 
 export interface RuntimePluginSeamServices {
+  readonly messagesTransformProjector: MessagesTransformProjector;
   readonly chatParamsScheduler: ChatParamsSchedulerService;
   readonly toolExecutionGate: ToolExecutionGateService;
 }
