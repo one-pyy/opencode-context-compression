@@ -1,8 +1,9 @@
-import { encoding_for_model, get_encoding, type TiktokenModel } from "tiktoken";
+import * as Tiktoken from "tiktoken";
 
 import type { TransformEnvelope } from "./seams/noop-observation.js";
 
 const DEFAULT_ENCODING = "cl100k_base";
+type TiktokenModel = Tiktoken.TiktokenModel;
 const MODEL_ENCODING_ALIASES = new Map<string, TiktokenModel>([
   ["gpt-5", "gpt-4o" as TiktokenModel],
   ["gpt-5.4-mini", "gpt-4o-mini" as TiktokenModel],
@@ -66,7 +67,7 @@ function estimateWithTokenizer(
 function resolveEncoding(modelName: string | undefined) {
   if (typeof modelName === "string" && modelName.trim().length > 0) {
     try {
-      return encoding_for_model(normalizeModelName(modelName));
+      return Tiktoken.encoding_for_model(normalizeModelName(modelName));
     } catch {
       throw new OpencodeContextCompressionTokenEstimationError(
         `Unsupported tokenizer model '${modelName}'. Add a repo-owned alias before using it for threshold decisions.`,
@@ -74,7 +75,7 @@ function resolveEncoding(modelName: string | undefined) {
     }
   }
 
-  return get_encoding(DEFAULT_ENCODING);
+  return Tiktoken.get_encoding(DEFAULT_ENCODING);
 }
 
 function normalizeModelName(modelName: string): TiktokenModel {

@@ -5,11 +5,12 @@ import test from "node:test";
 
 import type { PluginInput } from "@opencode-ai/plugin";
 
-import plugin, {
+import pluginModule from "../../../src/index.js";
+import {
   ALLOWED_PLUGIN_EXTERNAL_HOOKS,
   ALLOWED_PLUGIN_EXTERNAL_TOOLS,
   createContextCompressionHooks,
-} from "../../../src/index.js";
+} from "../../../src/runtime/plugin-hooks.js";
 import {
   CHAT_PARAMS_EXTERNAL_CONTRACT,
 } from "../../../src/runtime/chat-params-scheduler.js";
@@ -55,7 +56,7 @@ test(
     );
 
     const repoRoot = fixture.repoRoot;
-    const pluginHooks = await plugin(createPluginInput(repoRoot));
+    const pluginHooks = await pluginModule.server(createPluginInput(repoRoot));
     assert.deepEqual(
       Object.keys(pluginHooks).sort(),
       [...ALLOWED_PLUGIN_EXTERNAL_HOOKS, "tool"].sort(),
@@ -78,6 +79,16 @@ test(
     assert.match(evidencePath, /plugin-hooks-contract\.json$/u);
   },
 );
+
+test("plugin entry exports a server function for host plugin loading", async () => {
+  const entry = await import("../../../src/index.js");
+
+  assert.equal(typeof entry.default, "object");
+  assert.equal(entry.default?.id, "opencode-context-compression");
+  assert.equal(typeof entry.default?.server, "function");
+  assert.equal(typeof entry.server, "function");
+  assert.equal(entry.server, entry.default?.server);
+});
 
 test("messages.transform mutates the provided output array in place", async () => {
   const hook = createMessagesTransformHook({

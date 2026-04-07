@@ -7,7 +7,7 @@ import test from "node:test";
 import type { PluginInput } from "@opencode-ai/plugin";
 import type { Message, Part } from "@opencode-ai/sdk";
 
-import plugin from "../../../src/index.js";
+import pluginModule from "../../../src/index.js";
 import {
   RUNTIME_CONFIG_ENV,
   resolveRuntimeConfigRepoRoot,
@@ -50,7 +50,7 @@ test(
       }),
     ];
 
-    const hooks = await plugin(
+    const hooks = await pluginModule.server(
       createPluginInput(fixture.repoRoot, {
         readSessionMessages: async () => ({ data: sessionMessages }),
       }),
@@ -94,7 +94,7 @@ test(
     const blockedHooks = await withRuntimeConfigPath(
       await writeRuntimeConfig(configDirectory, "blocked.json", false),
       () =>
-        plugin(
+        pluginModule.server(
           createPluginInput(fixture.repoRoot, {
             readSessionMessages: async () => ({ data: [] }),
           }),
@@ -122,7 +122,7 @@ test(
     const allowedHooks = await withRuntimeConfigPath(
       await writeRuntimeConfig(configDirectory, "allowed.json", true),
       () =>
-        plugin(
+        pluginModule.server(
           createPluginInput(fixture.repoRoot, {
             readSessionMessages: async () => ({ data: [] }),
           }),

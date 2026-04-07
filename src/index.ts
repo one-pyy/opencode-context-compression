@@ -1,4 +1,4 @@
-import type { Plugin } from "@opencode-ai/plugin";
+import type { Plugin, PluginModule } from "@opencode-ai/plugin";
 
 import { loadRuntimeConfig } from "./config/runtime-config.js";
 import { createContextCompressionHooks } from "./runtime/plugin-hooks.js";
@@ -23,10 +23,13 @@ const plugin: Plugin = async (input) => {
   });
 };
 
-export default plugin;
+const id = "opencode-context-compression";
 
-export {
-  ALLOWED_PLUGIN_EXTERNAL_HOOKS,
-  ALLOWED_PLUGIN_EXTERNAL_TOOLS,
-  createContextCompressionHooks,
-} from "./runtime/plugin-hooks.js";
+export const server: Plugin = plugin;
+
+const pluginModule: PluginModule = {
+  id,
+  server,
+};
+
+export default pluginModule;
