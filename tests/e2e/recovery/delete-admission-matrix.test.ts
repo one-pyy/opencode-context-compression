@@ -221,14 +221,12 @@ test(
         markId: "mark-delete-allowed-001",
         model: "model-delete",
         executionMode: "delete",
-        allowDelete: true,
         promptText: "Delete the selected span with a concise delete notice.",
         timeoutMs: 9_000,
         transcript: [
           {
             role: "assistant",
             hostMessageId: "msg-assistant-1",
-            canonicalMessageId: "msg-assistant-1",
             sourceStartSeq: 2,
             sourceEndSeq: 2,
             contentText: "Assistant produced removable reasoning.",
@@ -236,7 +234,6 @@ test(
           {
             role: "tool",
             hostMessageId: "msg-tool-1",
-            canonicalMessageId: "msg-tool-1",
             sourceStartSeq: 3,
             sourceEndSeq: 3,
             contentText: "Tool output contains details that would be deleted if admission were allowed.",

@@ -6,7 +6,6 @@ export interface CompactionTransportTranscriptEntry {
   readonly sequenceNumber: number;
   readonly role: CompactionTransportTranscriptRole;
   readonly hostMessageID: string;
-  readonly canonicalMessageID: string;
   readonly sourceStartSeq: number;
   readonly sourceEndSeq: number;
   readonly opaquePlaceholderSlot?: string;
@@ -18,7 +17,6 @@ export interface CompactionTransportRequest {
   readonly markID: string;
   readonly model: string;
   readonly executionMode: CompactionExecutionMode;
-  readonly allowDelete: boolean;
   readonly promptText: string;
   readonly transcript: readonly CompactionTransportTranscriptEntry[];
   readonly timeoutMs: number;
@@ -34,7 +32,6 @@ export interface RecordedCompactionTransportRequest {
   readonly markID: string;
   readonly model: string;
   readonly executionMode: CompactionExecutionMode;
-  readonly allowDelete: boolean;
   readonly promptText: string;
   readonly transcript: readonly CompactionTransportTranscriptEntry[];
   readonly timeoutMs: number;

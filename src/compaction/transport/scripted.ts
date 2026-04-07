@@ -169,7 +169,6 @@ function cloneRequestForRecording(
     markID: request.markID,
     model: request.model,
     executionMode: request.executionMode,
-    allowDelete: request.allowDelete,
     promptText: request.promptText,
     transcript: structuredClone(request.transcript),
     timeoutMs: request.timeoutMs,

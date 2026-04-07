@@ -1,6 +1,4 @@
 import type { Hooks } from "@opencode-ai/plugin";
-import type { Message } from "@opencode-ai/sdk";
-
 import { defineInternalModuleContract } from "../internal/module-contract.js";
 import {
   type ReplayedHistory,
@@ -14,6 +12,7 @@ import {
   type PolicyEngine,
 } from "../projection/policy-engine.js";
 import type { MarkTreeNode } from "../projection/types.js";
+import type { CompleteResultGroup } from "../state/result-group-repository.js";
 import {
   readSessionFileLock,
   type SessionFileLockState,
@@ -91,6 +90,8 @@ export interface ChatParamsScheduler {
 export interface InternalSchedulerEvaluation {
   readonly activeCompactionLock: boolean;
   readonly eligibleMarkIds: readonly string[];
+  readonly uncompressedMarkedTokenCount: number;
+  readonly markedTokenAutoCompactionThreshold: number;
 }
 
 export interface ChatParamsSchedulerDispatchResult {
@@ -118,7 +119,13 @@ export interface InternalChatParamsSchedulerDependencies {
 export interface HistoryBackedChatParamsSchedulerOptions {
   readonly lockDirectory: string;
   readonly schedulerMarkThreshold?: number;
+  readonly markedTokenAutoCompactionThreshold?: number;
   readonly readSessionMessages: SessionHistoryReader["readSessionMessages"];
+  readonly loadCommittedResultGroups?: (
+    sessionId: string,
+    startSeq: number,
+    endSeq: number,
+  ) => Promise<readonly CompleteResultGroup[]> | readonly CompleteResultGroup[];
   readonly now?: () => string;
   readonly readLockNow?: () => number;
   readonly policyEngine?: PolicyEngine;
@@ -204,32 +211,56 @@ export function createInternalChatParamsScheduler(
   return {
     async scheduleIfNeeded(sessionId) {
       const evaluation = await dependencies.evaluate(sessionId);
+      const hasQueuedMarks = evaluation.eligibleMarkIds.length > 0;
+      const reachedMarkedTokenThreshold =
+        evaluation.uncompressedMarkedTokenCount >=
+        evaluation.markedTokenAutoCompactionThreshold;
+
       if (evaluation.activeCompactionLock) {
         return {
           scheduled: false,
           reason:
             "active compaction lock already owns the current frozen batch snapshot",
           metadata: buildMetadata({
-            schedulerState: evaluation.eligibleMarkIds.length > 0 ? "eligible" : "idle",
+            schedulerState:
+              hasQueuedMarks && reachedMarkedTokenThreshold ? "eligible" : "idle",
             scheduled: false,
             reason:
-              evaluation.eligibleMarkIds.length > 0
-                ? "compaction is already running; newly replayed marks stay queued for the next batch"
-                : "compaction is already running and there are no eligible queued marks yet",
+              hasQueuedMarks
+                ? reachedMarkedTokenThreshold
+                  ? "compaction is already running; newly replayed marks stay queued for the next batch"
+                  : "compaction is already running; queued marks have not yet reached the marked-token threshold"
+                : "compaction is already running and there are no queued marks yet",
             activeCompactionLock: true,
             eligibleMarkIds: evaluation.eligibleMarkIds,
           }),
         };
       }
 
-      if (evaluation.eligibleMarkIds.length === 0) {
+      if (!hasQueuedMarks) {
         return {
           scheduled: false,
-          reason: "no unresolved replayed marks reached the scheduler threshold",
+          reason: "no unresolved replayed marks are currently queued for compaction",
           metadata: buildMetadata({
             schedulerState: "idle",
             scheduled: false,
-            reason: "no unresolved replayed marks reached the scheduler threshold",
+            reason: "no unresolved replayed marks are currently queued for compaction",
+            activeCompactionLock: false,
+            eligibleMarkIds: evaluation.eligibleMarkIds,
+          }),
+        };
+      }
+
+      if (!reachedMarkedTokenThreshold) {
+        return {
+          scheduled: false,
+          reason:
+            "queued replayed marks have not yet reached the marked-token auto-compaction threshold",
+          metadata: buildMetadata({
+            schedulerState: "idle",
+            scheduled: false,
+            reason:
+              "queued replayed marks have not yet reached the marked-token auto-compaction threshold",
             activeCompactionLock: false,
             eligibleMarkIds: evaluation.eligibleMarkIds,
           }),
@@ -306,16 +337,33 @@ export function createHistoryBackedChatParamsScheduler(
           }),
         ]);
 
-        const eligibleMarkIds = await collectEligibleMarkIds({
+        const rangeStart = history.messages[0]?.sequence ?? 1;
+        const rangeEnd = history.messages.at(-1)?.sequence ?? 0;
+        const committedResultGroups =
+          rangeEnd >= rangeStart
+            ? await (options.loadCommittedResultGroups?.(
+                sessionId,
+                rangeStart,
+                rangeEnd,
+              ) ?? [])
+            : [];
+
+        const eligibility = await collectEligibleMarkIds({
           history,
           policyEngine,
           canonicalIdentityService,
           schedulerMarkThreshold: options.schedulerMarkThreshold,
+          markedTokenAutoCompactionThreshold:
+            options.markedTokenAutoCompactionThreshold,
+          committedResultGroups,
         });
 
         return {
           activeCompactionLock: isActiveCompactionLockState(lockState),
-          eligibleMarkIds,
+          eligibleMarkIds: eligibility.eligibleMarkIds,
+          uncompressedMarkedTokenCount: eligibility.uncompressedMarkedTokenCount,
+          markedTokenAutoCompactionThreshold:
+            eligibility.markedTokenAutoCompactionThreshold,
         } satisfies InternalSchedulerEvaluation;
       },
       dispatch: options.dispatch,
@@ -370,7 +418,13 @@ async function collectEligibleMarkIds(input: {
   readonly policyEngine: PolicyEngine;
   readonly canonicalIdentityService: CanonicalIdentityService;
   readonly schedulerMarkThreshold?: number;
-}): Promise<readonly string[]> {
+  readonly markedTokenAutoCompactionThreshold?: number;
+  readonly committedResultGroups: readonly CompleteResultGroup[];
+}): Promise<{
+  readonly eligibleMarkIds: readonly string[];
+  readonly uncompressedMarkedTokenCount: number;
+  readonly markedTokenAutoCompactionThreshold: number;
+}> {
   const messagePolicies = await Promise.all(
     input.policyEngine.classifyMessages(input.history).map(async (policy) => ({
       ...policy,
@@ -390,19 +444,46 @@ async function collectEligibleMarkIds(input: {
     ),
   });
 
-  const eligibleMarkIds = flattenMarkIds(tree.marks);
-  const threshold = optionsOrDefault(input.schedulerMarkThreshold, 1);
+  const resultGroupsByMarkId = new Map(
+    input.committedResultGroups.map((group) => [group.markId, group]),
+  );
+  const tokenCountBySequence = new Map(
+    messagePolicies.map((policy) => [policy.sequence, policy.tokenCount]),
+  );
+  const eligibleMarkIds = collectQueuedMarkIds(tree.marks, resultGroupsByMarkId);
+  const markCountThreshold = optionsOrDefault(input.schedulerMarkThreshold, 1);
+  const markedTokenThreshold = optionsOrDefault(
+    input.markedTokenAutoCompactionThreshold,
+    20_000,
+  );
+  const uncompressedMarkedTokenCount = sumUncompressedMarkedTokens(
+    tree.marks,
+    resultGroupsByMarkId,
+    tokenCountBySequence,
+  );
 
-  return eligibleMarkIds.length >= threshold
-    ? Object.freeze(eligibleMarkIds)
-    : Object.freeze([]);
+  return Object.freeze({
+    eligibleMarkIds:
+      eligibleMarkIds.length >= markCountThreshold
+        ? Object.freeze(eligibleMarkIds)
+        : Object.freeze([]),
+    uncompressedMarkedTokenCount,
+    markedTokenAutoCompactionThreshold: markedTokenThreshold,
+  });
 }
 
-function flattenMarkIds(marks: readonly MarkTreeNode[]): string[] {
+function collectQueuedMarkIds(
+  marks: readonly MarkTreeNode[],
+  resultGroupsByMarkId: ReadonlyMap<string, CompleteResultGroup>,
+): string[] {
   const ids: string[] = [];
 
   const visit = (nodes: readonly MarkTreeNode[]) => {
     for (const node of nodes) {
+      if (resultGroupsByMarkId.has(node.markId)) {
+        continue;
+      }
+
       ids.push(node.markId);
       visit(node.children);
     }
@@ -410,6 +491,72 @@ function flattenMarkIds(marks: readonly MarkTreeNode[]): string[] {
 
   visit(marks);
   return ids;
+}
+
+function sumUncompressedMarkedTokens(
+  marks: readonly MarkTreeNode[],
+  resultGroupsByMarkId: ReadonlyMap<string, CompleteResultGroup>,
+  tokenCountBySequence: ReadonlyMap<number, number>,
+): number {
+  return marks.reduce(
+    (total, node) =>
+      total +
+      countUncompressedTokens(node, resultGroupsByMarkId, tokenCountBySequence),
+    0,
+  );
+}
+
+function countUncompressedTokens(
+  node: MarkTreeNode,
+  resultGroupsByMarkId: ReadonlyMap<string, CompleteResultGroup>,
+  tokenCountBySequence: ReadonlyMap<number, number>,
+): number {
+  if (resultGroupsByMarkId.has(node.markId)) {
+    return 0;
+  }
+
+  const ownRangeTokens = sumRangeTokens(
+    node.startSequence,
+    node.endSequence,
+    tokenCountBySequence,
+  );
+  const childCompressedTokens = node.children.reduce(
+    (total, child) =>
+      total + countCompressedTokens(child, resultGroupsByMarkId, tokenCountBySequence),
+    0,
+  );
+
+  return Math.max(0, ownRangeTokens - childCompressedTokens);
+}
+
+function countCompressedTokens(
+  node: MarkTreeNode,
+  resultGroupsByMarkId: ReadonlyMap<string, CompleteResultGroup>,
+  tokenCountBySequence: ReadonlyMap<number, number>,
+): number {
+  if (resultGroupsByMarkId.has(node.markId)) {
+    return sumRangeTokens(node.startSequence, node.endSequence, tokenCountBySequence);
+  }
+
+  return node.children.reduce(
+    (total, child) =>
+      total + countCompressedTokens(child, resultGroupsByMarkId, tokenCountBySequence),
+    0,
+  );
+}
+
+function sumRangeTokens(
+  startSequence: number,
+  endSequence: number,
+  tokenCountBySequence: ReadonlyMap<number, number>,
+): number {
+  let total = 0;
+
+  for (let sequence = startSequence; sequence <= endSequence; sequence += 1) {
+    total += tokenCountBySequence.get(sequence) ?? 0;
+  }
+
+  return total;
 }
 
 function buildMetadata(input: {

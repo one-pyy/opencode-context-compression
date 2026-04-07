@@ -12,7 +12,6 @@ export interface BuildCompactionRunInputForMarkOptions {
   readonly promptText: string;
   readonly timeoutMs: number;
   readonly signal?: AbortSignal;
-  readonly allowDelete?: boolean;
   readonly compactionModels?: readonly string[];
   readonly maxAttemptsPerModel?: number;
   readonly createdAt?: string;
@@ -30,15 +29,12 @@ export function buildCompactionRunInputForMark(
   }
 
   const transcript = buildTranscriptForMarkNode(options.state, markNode);
-  const allowDelete = options.allowDelete ?? markNode.mode === "delete";
-
   return {
     build: {
       sessionId: options.sessionId,
       markId: options.markId,
       model: options.model,
       executionMode: markNode.mode,
-      allowDelete,
       promptText: options.promptText,
       timeoutMs: options.timeoutMs,
       signal: options.signal,
@@ -86,7 +82,6 @@ function buildTranscriptForMarkNode(
     transcript.push({
       role: message.role,
       hostMessageId: message.canonicalId,
-      canonicalMessageId: message.canonicalId,
       sourceStartSeq: message.sequence,
       sourceEndSeq: message.sequence,
       contentText: message.contentText,

@@ -15,9 +15,12 @@ import {
 import {
   createMessagesTransformHook,
   type MessagesTransformProjector,
+  resolveMessagesTransformSessionId,
 } from "./messages-transform.js";
 import {
   createToolExecuteBeforeHook,
+  createStaticSendEntryGate,
+  type SendEntryGate,
   type ToolExecutionGateService,
 } from "./send-entry-gate.js";
 import {
@@ -39,6 +42,7 @@ export interface ContextCompressionPluginHooksOptions {
   readonly seamLogPath?: string;
   readonly messagesTransformProjector?: MessagesTransformProjector;
   readonly chatParamsScheduler?: ChatParamsSchedulerService;
+  readonly sendEntryGate?: SendEntryGate;
   readonly toolExecutionGate?: ToolExecutionGateService;
   readonly compressionMark?: CompressionMarkToolOptions;
 }
@@ -46,6 +50,7 @@ export interface ContextCompressionPluginHooksOptions {
 export interface RuntimePluginSeamServices {
   readonly messagesTransformProjector: MessagesTransformProjector;
   readonly chatParamsScheduler: ChatParamsSchedulerService;
+  readonly sendEntryGate: SendEntryGate;
   readonly toolExecutionGate: ToolExecutionGateService;
 }
 
@@ -53,6 +58,7 @@ export function createContextCompressionHooks(
   options: ContextCompressionPluginHooksOptions = {},
 ): Hooks {
   const journal = createPluginSeamJournal(options.seamLogPath);
+  const sendEntryGate = options.sendEntryGate ?? createStaticSendEntryGate();
   const messagesTransform = createMessagesTransformHook({
     projector: options.messagesTransformProjector,
   });
@@ -68,6 +74,12 @@ export function createContextCompressionHooks(
       compression_mark: createCompressionMarkTool(options.compressionMark),
     },
     "experimental.chat.messages.transform": async (input, output) => {
+      await sendEntryGate.waitIfNeeded(
+        resolveMessagesTransformSessionId({
+          hookInput: input,
+          currentMessages: output.messages,
+        }),
+      );
       await messagesTransform(input, output);
       journal.record(observeMessagesTransform(input, output));
     },

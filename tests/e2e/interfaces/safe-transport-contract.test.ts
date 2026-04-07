@@ -29,7 +29,6 @@ test(
           assert.equal(request.sessionID, fixture.sessionID);
           assert.equal(request.markID, "mark-001");
           assert.equal(request.executionMode, "compact");
-          assert.equal(request.allowDelete, false);
           assert.equal(request.timeoutMs, 15_000);
           assert.equal(request.transcript.length, 2);
           assert.equal(request.transcript[0]?.sequenceNumber, 1);
@@ -59,20 +58,17 @@ test(
       markID: "mark-001",
       model: "openai.right/gpt-5.4-mini",
       executionMode: "compact",
-      allowDelete: false,
       promptText: "Compress the marked transcript.",
       timeoutMs: 15_000,
       transcript: [
         {
           role: "user",
           hostMessageID: "host-user-1",
-          canonicalMessageID: "canon-user-1",
           contentText: "Please summarize the tool work.",
         },
         {
           role: "tool",
           hostMessageID: "host-tool-1",
-          canonicalMessageID: "canon-tool-1",
           contentText: "Fetched detailed project state.",
         },
       ],
@@ -157,7 +153,6 @@ test(
       markID: "mark-abort",
       model: "openai.right/gpt-5.4-mini",
       executionMode: "compact",
-      allowDelete: false,
       promptText: "Abort before sending.",
       timeoutMs: 5_000,
       signal: abortController.signal,
@@ -165,7 +160,6 @@ test(
         {
           role: "assistant",
           hostMessageID: "host-assistant-1",
-          canonicalMessageID: "canon-assistant-1",
           contentText: "Working on it.",
         },
       ],
@@ -188,14 +182,12 @@ test(
       markID: "mark-cancel",
       model: "openai.right/gpt-5.4-mini",
       executionMode: "compact",
-      allowDelete: false,
       promptText: "Send one real call so the transport-origin cancel is next.",
       timeoutMs: 5_000,
       transcript: [
         {
           role: "tool",
           hostMessageID: "host-tool-2",
-          canonicalMessageID: "canon-tool-2",
           contentText: "Interim tool output.",
         },
       ],

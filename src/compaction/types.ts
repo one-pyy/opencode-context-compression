@@ -11,7 +11,6 @@ export interface CompactionOpaquePlaceholder {
 export interface CompactionBuildTranscriptEntry {
   readonly role: CompactionTransportTranscriptRole;
   readonly hostMessageId: string;
-  readonly canonicalMessageId: string;
   readonly sourceStartSeq?: number;
   readonly sourceEndSeq?: number;
   readonly opaquePlaceholder?: CompactionOpaquePlaceholder;
@@ -23,7 +22,6 @@ export interface CompactionBuildInput {
   readonly markId: string;
   readonly model: string;
   readonly executionMode: CompactionExecutionMode;
-  readonly allowDelete: boolean;
   readonly promptText: string;
   readonly transcript: readonly CompactionBuildTranscriptEntry[];
   readonly timeoutMs: number;

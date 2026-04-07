@@ -104,6 +104,24 @@ export function createMessagesTransformHook(options: {
   };
 }
 
+export function resolveMessagesTransformSessionId(input: {
+  readonly hookInput: MessagesTransformInput;
+  readonly currentMessages: readonly MessagesTransformEnvelope[];
+}): string {
+  const candidate =
+    readNonEmptyString(readRecordValue(input.hookInput, "sessionID")) ??
+    readNonEmptyString(readRecordValue(input.hookInput, "sessionId")) ??
+    readNonEmptyString(input.currentMessages[0]?.info.sessionID);
+
+  if (candidate) {
+    return candidate;
+  }
+
+  throw new Error(
+    "messages.transform requires a sessionID so projection can replay canonical history.",
+  );
+}
+
 export function projectProjectionToEnvelopes(
   projection: ProjectedMessageSet,
 ): readonly MessagesTransformEnvelope[] {
@@ -138,4 +156,14 @@ export function projectProjectionToEnvelopes(
       } as MessagesTransformEnvelope;
     }),
   );
+}
+
+function readRecordValue(value: unknown, key: string): unknown {
+  return value !== null && typeof value === "object"
+    ? (value as Record<string, unknown>)[key]
+    : undefined;
+}
+
+function readNonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }

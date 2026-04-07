@@ -123,21 +123,29 @@ function renderMarkNode(input: {
       policiesBySequence: input.policiesBySequence,
       resultGroupsByMarkId: input.resultGroupsByMarkId,
       suppressedCanonicalIds: input.suppressedCanonicalIds,
-    });
+      });
   }
 
-  collectSuppressedCanonicalIds(input.node, input.suppressedCanonicalIds);
+  collectSuppressedCanonicalIds({
+    node: input.node,
+    resultGroup,
+    historyBySequence: input.historyBySequence,
+    suppressedCanonicalIds: input.suppressedCanonicalIds,
+  });
 
   const rendered: ProjectedPromptMessage[] = [];
   let cursor = input.node.startSequence;
 
   resultGroup.fragments.forEach((fragment) => {
     rendered.push(
-      ...renderOriginalRange({
+      ...renderGapRange({
         startSequence: cursor,
         endSequence: fragment.sourceStartSeq - 1,
+        children: input.node.children,
         historyBySequence: input.historyBySequence,
         policiesBySequence: input.policiesBySequence,
+        resultGroupsByMarkId: input.resultGroupsByMarkId,
+        suppressedCanonicalIds: input.suppressedCanonicalIds,
       }),
     );
     rendered.push(renderResultGroupFragment(resultGroup, fragment));
@@ -145,11 +153,14 @@ function renderMarkNode(input: {
   });
 
   rendered.push(
-    ...renderOriginalRange({
+    ...renderGapRange({
       startSequence: cursor,
       endSequence: input.node.endSequence,
+      children: input.node.children,
       historyBySequence: input.historyBySequence,
       policiesBySequence: input.policiesBySequence,
+      resultGroupsByMarkId: input.resultGroupsByMarkId,
+      suppressedCanonicalIds: input.suppressedCanonicalIds,
     }),
   );
 
@@ -215,11 +226,61 @@ function renderOriginalRange(input: {
 }
 
 function collectSuppressedCanonicalIds(
-  node: MarkTreeNode,
-  suppressedCanonicalIds: Set<string>,
+  input: {
+    readonly node: MarkTreeNode;
+    readonly resultGroup: CompleteResultGroup;
+    readonly historyBySequence: ReadonlyMap<number, ReplayedHistoryMessage>;
+    readonly suppressedCanonicalIds: Set<string>;
+  },
 ): void {
-  suppressedCanonicalIds.add(node.sourceMessageId);
-  node.children.forEach((child) => {
-    collectSuppressedCanonicalIds(child, suppressedCanonicalIds);
+  input.suppressedCanonicalIds.add(input.node.sourceMessageId);
+  input.node.children.forEach((child) => {
+    collectSuppressedCanonicalIds({
+      node: child,
+      resultGroup: input.resultGroup,
+      historyBySequence: input.historyBySequence,
+      suppressedCanonicalIds: input.suppressedCanonicalIds,
+    });
+  });
+
+  input.resultGroup.fragments.forEach((fragment) => {
+    for (
+      let sequence = fragment.sourceStartSeq;
+      sequence <= fragment.sourceEndSeq;
+      sequence += 1
+    ) {
+      const message = input.historyBySequence.get(sequence);
+      if (message) {
+        input.suppressedCanonicalIds.add(message.canonicalId);
+      }
+    }
+  });
+}
+
+function renderGapRange(input: {
+  readonly startSequence: number;
+  readonly endSequence: number;
+  readonly children: readonly MarkTreeNode[];
+  readonly historyBySequence: ReadonlyMap<number, ReplayedHistoryMessage>;
+  readonly policiesBySequence: ReadonlyMap<number, MessageProjectionPolicy>;
+  readonly resultGroupsByMarkId: ReadonlyMap<string, CompleteResultGroup>;
+  readonly suppressedCanonicalIds: Set<string>;
+}): ProjectedPromptMessage[] {
+  if (input.endSequence < input.startSequence) {
+    return [];
+  }
+
+  return renderSequenceRange({
+    startSequence: input.startSequence,
+    endSequence: input.endSequence,
+    children: input.children.filter(
+      (child) =>
+        child.startSequence <= input.endSequence &&
+        child.endSequence >= input.startSequence,
+    ),
+    historyBySequence: input.historyBySequence,
+    policiesBySequence: input.policiesBySequence,
+    resultGroupsByMarkId: input.resultGroupsByMarkId,
+    suppressedCanonicalIds: input.suppressedCanonicalIds,
   });
 }

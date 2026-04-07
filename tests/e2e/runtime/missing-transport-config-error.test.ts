@@ -22,14 +22,12 @@ test(
       markID: "mark-missing-transport",
       model: "openai.right/gpt-5.4-mini",
       executionMode: "compact",
-      allowDelete: false,
       promptText: "This call should fail before any transport executes.",
       timeoutMs: 2_000,
       transcript: [
         {
           role: "user",
           hostMessageID: "host-user-1",
-          canonicalMessageID: "canon-user-1",
           contentText: "Please compact this.",
         },
       ],

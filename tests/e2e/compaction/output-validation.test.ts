@@ -151,7 +151,6 @@ test(
       build: {
         ...compactBuild(fixture.sessionID, "mark-delete"),
         executionMode: "delete",
-        allowDelete: true,
       },
       maxAttemptsPerModel: 1,
       resultGroup: {
@@ -217,14 +216,12 @@ function compactBuild(sessionId: string, markId: string) {
     markId,
     model: "model-primary",
     executionMode: "compact" as const,
-    allowDelete: false,
     promptText: "Compress this range and preserve the opaque placeholder.",
     timeoutMs: 9_000,
     transcript: [
       {
         role: "assistant" as const,
         hostMessageId: `${markId}-host-1`,
-        canonicalMessageId: `${markId}-canon-1`,
         sourceStartSeq: 10,
         sourceEndSeq: 10,
         contentText: "Lead compressible message.",
@@ -232,7 +229,6 @@ function compactBuild(sessionId: string, markId: string) {
       {
         role: "assistant" as const,
         hostMessageId: `${markId}-host-opaque`,
-        canonicalMessageId: `${markId}-opaque`,
         sourceStartSeq: 11,
         sourceEndSeq: 12,
         opaquePlaceholder: {
@@ -243,7 +239,6 @@ function compactBuild(sessionId: string, markId: string) {
       {
         role: "tool" as const,
         hostMessageId: `${markId}-host-3`,
-        canonicalMessageId: `${markId}-canon-3`,
         sourceStartSeq: 13,
         sourceEndSeq: 13,
         contentText: "Tail compressible tool result.",

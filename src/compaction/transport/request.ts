@@ -1,6 +1,5 @@
 import {
   CompactionTransportConfigurationError,
-  assertDeleteExecutionIsPermitted,
 } from "./errors.js";
 import type {
   CompactionExecutionMode,
@@ -12,7 +11,6 @@ import type {
 export interface BuildCompactionTransportTranscriptEntryInput {
   readonly role: CompactionTransportTranscriptRole;
   readonly hostMessageID: string;
-  readonly canonicalMessageID: string;
   readonly sourceStartSeq?: number;
   readonly sourceEndSeq?: number;
   readonly opaquePlaceholderSlot?: string;
@@ -24,7 +22,6 @@ export interface BuildCompactionTransportRequestInput {
   readonly markID: string;
   readonly model: string;
   readonly executionMode: CompactionExecutionMode;
-  readonly allowDelete: boolean;
   readonly promptText: string;
   readonly transcript: readonly BuildCompactionTransportTranscriptEntryInput[];
   readonly timeoutMs: number;
@@ -40,11 +37,6 @@ export function buildCompactionTransportRequest(
   const promptText = ensureNonEmptyString(input.promptText, "promptText");
   const timeoutMs = ensurePositiveInteger(input.timeoutMs, "timeoutMs");
 
-  assertDeleteExecutionIsPermitted({
-    executionMode: input.executionMode,
-    allowDelete: input.allowDelete,
-  });
-
   if (input.transcript.length === 0) {
     throw new CompactionTransportConfigurationError(
       "Compaction transport request must include at least one transcript entry.",
@@ -59,10 +51,6 @@ export function buildCompactionTransportRequest(
         hostMessageID: ensureNonEmptyString(
           entry.hostMessageID,
           `transcript[${index}].hostMessageID`,
-        ),
-        canonicalMessageID: ensureNonEmptyString(
-          entry.canonicalMessageID,
-          `transcript[${index}].canonicalMessageID`,
         ),
         sourceStartSeq: ensurePositiveInteger(
           entry.sourceStartSeq ?? index + 1,
@@ -100,7 +88,6 @@ export function buildCompactionTransportRequest(
     markID,
     model,
     executionMode: input.executionMode,
-    allowDelete: input.allowDelete,
     promptText,
     transcript,
     timeoutMs,

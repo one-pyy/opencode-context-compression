@@ -18,7 +18,6 @@ test(
       {
         role: "assistant" as const,
         hostMessageId: "host-assistant-1",
-        canonicalMessageId: "canon-assistant-1",
         sourceStartSeq: 10,
         sourceEndSeq: 10,
         contentText: "Lead context that is still compressible.",
@@ -26,7 +25,6 @@ test(
       {
         role: "assistant" as const,
         hostMessageId: "host-result-1",
-        canonicalMessageId: "result-block-1",
         sourceStartSeq: 11,
         sourceEndSeq: 12,
         opaquePlaceholder: {
@@ -37,7 +35,6 @@ test(
       {
         role: "tool" as const,
         hostMessageId: "host-tool-1",
-        canonicalMessageId: "canon-tool-1",
         sourceStartSeq: 13,
         sourceEndSeq: 13,
         contentText: "Tail tool result that stays compressible.",
@@ -49,7 +46,6 @@ test(
       markId: "mark-input-001",
       model: "openai.right/gpt-5.4-mini",
       executionMode: "compact",
-      allowDelete: false,
       promptText: "Compress the frozen transcript.",
       timeoutMs: 12_000,
       transcript,
@@ -95,14 +91,12 @@ test(
       markId: "mark-delete-001",
       model: "openai.right/gpt-5.4-mini",
       executionMode: "delete",
-      allowDelete: true,
       promptText: "Delete the marked range.",
       timeoutMs: 7_000,
       transcript: [
         {
           role: "user",
           hostMessageId: "host-user-1",
-          canonicalMessageId: "canon-user-1",
           sourceStartSeq: 21,
           sourceEndSeq: 21,
           contentText: "Sensitive content slated for delete mode.",
@@ -111,7 +105,6 @@ test(
     });
 
     assert.equal(request.executionMode, "delete");
-    assert.equal(request.allowDelete, true);
     assert.equal(
       request.transcript[0]?.contentText,
       "Sensitive content slated for delete mode.",

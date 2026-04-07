@@ -14,9 +14,8 @@ import {
 } from "../state/sidecar-store.js";
 import {
   createProjectionBackedMessagesTransformProjector,
-  type MessagesTransformEnvelope,
-  type MessagesTransformProjectionInput,
   type MessagesTransformProjector,
+  resolveMessagesTransformSessionId,
 } from "./messages-transform.js";
 import {
   createHistoryReplayReaderFromSessionMessages,
@@ -35,7 +34,10 @@ export function createDefaultMessagesTransformProjector(
 ): MessagesTransformProjector {
   return createProjectionBackedMessagesTransformProjector({
     buildProjection: async (input) => {
-      const sessionId = resolveMessagesTransformSessionId(input);
+      const sessionId = resolveMessagesTransformSessionId({
+        hookInput: input.input,
+        currentMessages: input.currentMessages,
+      });
       const stateDirectory = resolvePluginStateDirectory(options.pluginDirectory);
       const databasePath = resolveSessionDatabasePath(stateDirectory, sessionId);
       await bootstrapSessionSidecar({ databasePath });
@@ -84,31 +86,4 @@ export function createDefaultMessagesTransformProjector(
       }
     },
   });
-}
-
-function resolveMessagesTransformSessionId(
-  input: MessagesTransformProjectionInput,
-): string {
-  const candidate =
-    readNonEmptyString(readRecordValue(input.input, "sessionID")) ??
-    readNonEmptyString(readRecordValue(input.input, "sessionId")) ??
-    readNonEmptyString(input.currentMessages[0]?.info.sessionID);
-
-  if (candidate) {
-    return candidate;
-  }
-
-  throw new Error(
-    "messages.transform requires a sessionID so projection can replay canonical history.",
-  );
-}
-
-function readRecordValue(value: unknown, key: string): unknown {
-  return value !== null && typeof value === "object"
-    ? (value as Record<string, unknown>)[key]
-    : undefined;
-}
-
-function readNonEmptyString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }

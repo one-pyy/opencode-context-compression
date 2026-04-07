@@ -82,14 +82,12 @@ test(
         markId: "mark-fallback-001",
         model: "model-primary",
         executionMode: "compact",
-        allowDelete: false,
         promptText: "Compress this range and keep the opaque block intact.",
         timeoutMs: 11_000,
         transcript: [
           {
             role: "assistant",
             hostMessageId: "host-1",
-            canonicalMessageId: "canon-1",
             sourceStartSeq: 30,
             sourceEndSeq: 30,
             contentText: "Lead context.",
@@ -97,7 +95,6 @@ test(
           {
             role: "assistant",
             hostMessageId: "host-opaque",
-            canonicalMessageId: "opaque-result",
             sourceStartSeq: 31,
             sourceEndSeq: 32,
             opaquePlaceholder: {
@@ -108,7 +105,6 @@ test(
           {
             role: "tool",
             hostMessageId: "host-3",
-            canonicalMessageId: "canon-3",
             sourceStartSeq: 33,
             sourceEndSeq: 33,
             contentText: "Tail context.",

@@ -1,7 +1,4 @@
-import type {
-  CompactionExecutionMode,
-  CompactionTransportRequest,
-} from "./types.js";
+import type { CompactionTransportRequest } from "./types.js";
 
 type CompactionTransportRequestSummary = Pick<
   CompactionTransportRequest,
@@ -99,15 +96,4 @@ export function summarizeCompactionTransportRequest(
     model: request.model,
     executionMode: request.executionMode,
   } satisfies CompactionTransportRequestSummary;
-}
-
-export function assertDeleteExecutionIsPermitted(input: {
-  readonly executionMode: CompactionExecutionMode;
-  readonly allowDelete: boolean;
-}): void {
-  if (input.executionMode === "delete" && !input.allowDelete) {
-    throw new CompactionTransportConfigurationError(
-      "Compaction transport request cannot use executionMode='delete' when allowDelete=false.",
-    );
-  }
 }

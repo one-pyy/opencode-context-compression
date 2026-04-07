@@ -420,7 +420,6 @@ function createCompactRunInput(input: {
     markId: input.markId,
     model: "model-primary",
     executionMode: "compact" as const,
-    allowDelete: false,
     promptText: "Compress the selected assistant/tool span into one stable replacement.",
     timeoutMs: 8_000,
     transcript: input.transcript,
@@ -432,7 +431,6 @@ function createCompactTranscript() {
     {
       role: "assistant" as const,
       hostMessageId: "msg-assistant-1",
-      canonicalMessageId: "msg-assistant-1",
       sourceStartSeq: 2,
       sourceEndSeq: 2,
       contentText: "Assistant investigated the issue in detail.",
@@ -440,7 +438,6 @@ function createCompactTranscript() {
     {
       role: "tool" as const,
       hostMessageId: "msg-tool-1",
-      canonicalMessageId: "msg-tool-1",
       sourceStartSeq: 3,
       sourceEndSeq: 3,
       contentText: "Tool output with the diagnostic details that can later be compacted.",

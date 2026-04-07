@@ -8,11 +8,26 @@ import {
 import { createDefaultMessagesTransformProjector } from "./default-messages-transform.js";
 import type { RuntimePluginSeamServices } from "./plugin-hooks.js";
 import { resolvePluginLockDirectory } from "./file-lock.js";
+import {
+  createDefaultToolExecutionGate,
+  createFileLockBackedSendEntryGate,
+} from "./send-entry-gate.js";
+import {
+  resolvePluginStateDirectory,
+  resolveSessionDatabasePath,
+} from "./sidecar-layout.js";
+import {
+  bootstrapSessionSidecar,
+  openSessionSidecarRepository,
+} from "../state/sidecar-store.js";
+import { createResultGroupRepository } from "../state/result-group-repository.js";
 
 export function createDefaultRuntimePluginSeamServices(
   input: PluginInput,
   runtimeConfig: LoadedRuntimeConfig,
 ): RuntimePluginSeamServices {
+  const lockDirectory = resolvePluginLockDirectory(input.directory);
+
   return {
     messagesTransformProjector: createDefaultMessagesTransformProjector({
       pluginDirectory: input.directory,
@@ -22,21 +37,27 @@ export function createDefaultRuntimePluginSeamServices(
     }),
     chatParamsScheduler: createRuntimeChatParamsSchedulerService({
       scheduler: createHistoryBackedChatParamsScheduler({
-        lockDirectory: resolvePluginLockDirectory(input.directory),
+        lockDirectory,
         schedulerMarkThreshold: runtimeConfig.schedulerMarkThreshold,
+        markedTokenAutoCompactionThreshold:
+          runtimeConfig.markedTokenAutoCompactionThreshold,
         readLockNow: Date.now,
         readSessionMessages: (sessionId) =>
           readSessionMessagesFromHost(input, sessionId),
+        loadCommittedResultGroups: (sessionId, startSeq, endSeq) =>
+          listCommittedResultGroupsForSessionRange({
+            pluginDirectory: input.directory,
+            sessionId,
+            startSeq,
+            endSeq,
+          }),
       }),
     }),
-    toolExecutionGate: {
-      beforeExecution(input) {
-        return {
-          lane: input.tool === "compression_mark" ? "dcp" : "passthrough",
-          blocked: false,
-        } as const;
-      },
-    },
+    sendEntryGate: createFileLockBackedSendEntryGate({
+      lockDirectory,
+      timeoutMs: runtimeConfig.compressing.timeoutMs,
+    }),
+    toolExecutionGate: createDefaultToolExecutionGate(),
   } satisfies RuntimePluginSeamServices;
 }
 
@@ -51,4 +72,25 @@ async function readSessionMessagesFromHost(
   });
 
   return response.data;
+}
+
+async function listCommittedResultGroupsForSessionRange(input: {
+  readonly pluginDirectory: string;
+  readonly sessionId: string;
+  readonly startSeq: number;
+  readonly endSeq: number;
+}) {
+  const stateDirectory = resolvePluginStateDirectory(input.pluginDirectory);
+  const databasePath = resolveSessionDatabasePath(stateDirectory, input.sessionId);
+  await bootstrapSessionSidecar({ databasePath });
+
+  const sidecar = await openSessionSidecarRepository({ databasePath });
+  try {
+    return await createResultGroupRepository(sidecar).listGroupsOverlappingRange(
+      input.startSeq,
+      input.endSeq,
+    );
+  } finally {
+    sidecar.close();
+  }
 }
