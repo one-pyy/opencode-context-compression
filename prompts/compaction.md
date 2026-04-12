@@ -20,6 +20,7 @@ Some messages in the input are wrapped in `<opaque slot="Sx">...</opaque>`. Thes
 ## 1. Anti-Over-Compression
 - **Entities & Numbers:** Retain ALL file paths, function names, specific error codes, line numbers, and tool parameters.
 - **Logic Visualization:** Use bullet points to list parallel actions or sequential tool uses. Do not merge 5 tool actions into 1 vague sentence like "I searched the codebase." List them.
+- **NO JSON REGURGITATION:** DO NOT regurgitate or copy the raw JSON tool formats (e.g. `[Tool Use: ...] { ... }`). You MUST synthesize tool invocations into fluid natural language summaries while retaining the exact arguments (file paths, search terms, commands).
 
 ## 2. Runtime mode and delete permission
 - `executionMode=compact` — produce the structured memory trace.

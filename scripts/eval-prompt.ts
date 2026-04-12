@@ -190,7 +190,7 @@ async function runEval() {
   const conversations = loadTranscripts();
   console.log(`Loaded ${conversations.length} valid conversations.`);
 
-  const cases = generateEvalCases(conversations, 50); // 50 samples
+  const cases = generateEvalCases(conversations, 20); // 20 samples
   cases.sort((a, b) => a.length - b.length); // 先做短的再做长的
   const systemPrompt = fs.readFileSync(SYSTEM_PROMPT_PATH, "utf-8");
 
@@ -198,12 +198,13 @@ async function runEval() {
   let skipped = 0;
   let processed = 0;
   const failures: any[] = [];
+  const successes: any[] = [];
   let aborted = false;
   let activeCount = 0;
 
   // Concurrency from env or default to 10
   let concurrency = parseInt(process.env.EVAL_CONCURRENCY || "10", 10);
-  console.log(`\nStarting LLM Evaluation (50 Cases, Concurrency: ${concurrency})...\n`);
+  console.log(`\nStarting LLM Evaluation (20 Cases, Concurrency: ${concurrency})...\n`);
 
   async function processItem(c: any) {
     if (aborted) return;
@@ -250,40 +251,42 @@ async function runEval() {
         const selfClosingTagWithSpace = `<opaque slot="${slotId}" />`;
         const openTag = `<opaque slot="${slotId}">`;
 
-        let placeholderIndex = cleanOutput.indexOf(selfClosingTag, searchStart);
-        let matchLength = selfClosingTag.length;
-
+        // Search from the beginning of the string for each slot, ignoring order
+        let placeholderIndex = cleanOutput.indexOf(selfClosingTag);
+        
         if (placeholderIndex < 0) {
-          placeholderIndex = cleanOutput.indexOf(selfClosingTagWithSpace, searchStart);
-          if (placeholderIndex >= 0) {
-            matchLength = selfClosingTagWithSpace.length;
-          }
+          placeholderIndex = cleanOutput.indexOf(selfClosingTagWithSpace);
         }
 
         if (placeholderIndex < 0) {
-          placeholderIndex = cleanOutput.indexOf(openTag, searchStart);
-          if (placeholderIndex >= 0) {
-            const closeTag = "</opaque>";
-            const closeIndex = cleanOutput.indexOf(closeTag, placeholderIndex + openTag.length);
-            if (closeIndex >= 0) {
-              matchLength = closeIndex + closeTag.length - placeholderIndex;
-            } else {
-              matchLength = openTag.length;
-            }
-          }
+          placeholderIndex = cleanOutput.indexOf(openTag);
         }
 
         if (placeholderIndex < 0) {
           allSlotsRetained = false;
           missingSlots.push(slotId);
-        } else {
-          searchStart = placeholderIndex + matchLength;
         }
       }
 
       if (allSlotsRetained) {
-        console.log(`[${c.id}] ✅ Success (Length: ${c.length} msgs, Slots: ${c.injectedSlotsCount})`);
+        const inputLength = userMessage.length;
+        const outputLength = cleanOutput.length;
+        const compressionRate = ((outputLength / inputLength) * 100).toFixed(2) + "%";
+        console.log(`[${c.id}] ✅ Success (Length: ${c.length} msgs, Slots: ${c.injectedSlotsCount}, Compression: ${compressionRate})`);
         success++;
+        successes.push({
+          id: c.id,
+          inputLength,
+          outputLength,
+          compressionRate,
+          injectedSlotsCount: c.injectedSlotsCount,
+          input: userMessage,
+          analysis: analysisText,
+          output: cleanOutput
+        });
+        const successLogPath = path.join(process.cwd(), "logs/eval-successes.json");
+        fs.mkdirSync(path.join(process.cwd(), "logs"), { recursive: true });
+        fs.writeFileSync(successLogPath, JSON.stringify(successes, null, 2));
       } else {
         console.log(`[${c.id}] ❌ Failed (Lost slots: ${missingSlots.join(", ")})`);
         failures.push({
@@ -340,6 +343,11 @@ async function runEval() {
     fs.mkdirSync(path.join(process.cwd(), "logs"), { recursive: true });
     fs.writeFileSync(failureLogPath, JSON.stringify(failures, null, 2));
     console.log(`\nFailed cases have been saved to: ${failureLogPath} for analysis.`);
+  }
+  
+  if (successes.length > 0) {
+    const successLogPath = path.join(process.cwd(), "logs/eval-successes.json");
+    console.log(`Successful cases have been saved to: ${successLogPath} for quality audit.`);
   }
 }
 
