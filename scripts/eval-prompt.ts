@@ -236,7 +236,15 @@ async function runEval() {
       const missingSlots = [];
       let searchStart = 0;
 
-      for (const slotId of c.injectedIds) {
+      // Extract injected slots in chronological order from the chunk
+      const chronologicalSlots = c.chunk
+        .map((m: any) => {
+          const match = m.content.match(/<opaque slot="(S[0-9]+)">/);
+          return match ? match[1] : null;
+        })
+        .filter(Boolean);
+
+      for (const slotId of chronologicalSlots) {
         // Look for self-closing tag first, then fallback to open tag
         const selfClosingTag = `<opaque slot="${slotId}"/>`;
         const selfClosingTagWithSpace = `<opaque slot="${slotId}" />`;
@@ -285,9 +293,9 @@ async function runEval() {
           analysis: analysisText,
           output: cleanOutput
         });
-        const failureLogPath = path.join(process.cwd(), "logs/eval-failures.json");
+        const logPath = path.join(process.cwd(), "logs/eval-failures.json");
         fs.mkdirSync(path.join(process.cwd(), "logs"), { recursive: true });
-        fs.writeFileSync(failureLogPath, JSON.stringify(failures, null, 2));
+        fs.writeFileSync(logPath, JSON.stringify(failures, null, 2));
       }
     } catch (e: any) {
       console.log(`[${c.id}] ⚠️ Error: ${e.message}`);

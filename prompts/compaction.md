@@ -12,7 +12,8 @@ Some messages in the input are wrapped in `<opaque slot="Sx">...</opaque>`. Thes
 1. You MUST replace every `<opaque slot="...">...</opaque>` block with a self-closing tag: `<opaque slot="Sx"/>`.
 2. DO NOT output the contents inside the opaque tags. Just output the self-closing tag at the exact chronological point it occurred in your narrative.
 3. If there are 3 opaque blocks in the input (e.g. S1, S2, S3), your output MUST contain exactly 3 corresponding self-closing tags (`<opaque slot="S1"/>`, `<opaque slot="S2"/>`, `<opaque slot="S3"/>`).
-4. **FATAL ERROR:** Missing an opaque tag, or trying to summarize its contents instead of using the self-closing tag.
+4. **STRICT CHRONOLOGICAL ORDER:** The self-closing tags MUST appear in your output in the exact same order they appeared in the input transcript. Do not group them logically if it alters their chronological sequence. If S2 appeared before S1 in the input, your output must have `<opaque slot="S2"/>` before `<opaque slot="S1"/>`.
+5. **FATAL ERROR:** Missing an opaque tag, trying to summarize its contents instead of using the self-closing tag, or outputting them out of order.
 
 # Core Instructions
 
