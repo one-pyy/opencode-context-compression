@@ -17,7 +17,7 @@
 
 本指南统一规定：
 
-- **真实会话测试固定使用 `big pickle` 模型**
+- **真实会话测试固定使用 `qwen 3.6 free` 模型**
 - 整个单会话流程中不切换模型
 - 如果要比较别的模型，必须另开新会话，不与本指南主流程混用
 
@@ -123,10 +123,16 @@ cp "/root/_/opencode/config/opencode.jsonc" "/tmp/opencode.context-compression.t
 }
 ```
 
-最后在启动 OpenCode 前显式设置配置路径环境变量（变量名以你当前 OpenCode 版本/安装方式为准；这里用占位名表示）：
+在当前这台宿主上，不要依赖 `OPENCODE_CONFIG_PATH`。真实 `opencode debug config` 已证明它不会切走默认全局配置；要做隔离测试，必须通过独立的 `XDG_CONFIG_HOME` 指向一份沙箱 config 目录。
+
+推荐做法：
 
 ```bash
-export OPENCODE_CONFIG_PATH="/tmp/opencode.context-compression.test.jsonc"
+export OPENCODE_TEST_CONFIG_ROOT="/tmp/opencode.context-compression-config"
+rm -rf "$OPENCODE_TEST_CONFIG_ROOT"
+mkdir -p "$OPENCODE_TEST_CONFIG_ROOT/opencode"
+cp "/tmp/opencode.context-compression.test.jsonc" "$OPENCODE_TEST_CONFIG_ROOT/opencode/opencode.jsonc"
+export XDG_CONFIG_HOME="$OPENCODE_TEST_CONFIG_ROOT"
 ```
 
 要求：
@@ -137,7 +143,18 @@ export OPENCODE_CONFIG_PATH="/tmp/opencode.context-compression.test.jsonc"
 - 禁掉 OpenCode 自带竞争压缩路径
 - 不同时加载别的会改 `messages.transform` 的插件
 
-如果你的 OpenCode 版本使用的不是 `OPENCODE_CONFIG_PATH` 这个变量名，而是别的配置环境变量，请替换成你本机实际生效的那个；原则不变：**用环境变量切配置，而不是污染主配置。**
+在真正开始 real-host run 前，先执行：
+
+```bash
+XDG_CONFIG_HOME="$OPENCODE_TEST_CONFIG_ROOT" opencode debug config
+```
+
+必须确认输出中的：
+
+- `plugin` 只包含本轮沙箱配置里声明的插件入口
+- `plugin_origins` 指向 `$OPENCODE_TEST_CONFIG_ROOT/opencode`
+
+若这里仍然显示默认全局插件列表，就说明隔离配置没有生效；此时不要继续 real-host run，先修环境。
 
 ### 2.2 环境变量：开启插件调试能力
 
@@ -182,17 +199,17 @@ mkdir -p "/root/_/opencode/opencode-context-compression/logs/debug-snapshots"
 
 不要批量删除整个 `state/`，除非你明确知道自己不会误删其他会话证据。
 
-### 2.5 固定本轮测试模型：`big pickle`
+### 2.5 固定本轮测试模型：`qwen 3.6 free`
 
 本指南规定真实会话测试统一使用：
 
 ```text
-big pickle
+qwen 3.6 free
 ```
 
 要求：
 
-- 整个测试会话始终使用 `big pickle`
+- 整个测试会话始终使用 `qwen 3.6 free`
 - 不在中途切换到别的模型
 - 如果需要做不同模型的对照，请新开会话并单独记录
 
@@ -261,27 +278,27 @@ PY
 
 ### 4.2 测量该文件 token 数
 
-建议优先使用 **`big pickle` 对应 tokenizer** 做一次粗测；如果本机工具链暂时无法直接按 `big pickle` 计数，也至少要明确记录“这是近似 token 数，不是运行时精确值”。
+当前建议直接使用 **repo-owned 字符近似法（`chars / 4`）** 做粗测，并明确记录“这是近似 token 数，不是运行时精确值”。
 
-如果你只能先用仓库现有的 `tiktoken` 做近似测量，可以这样记录一份参考值：
+原因：真实 OpenCode + Bun 宿主里，`tiktoken`、`js-tiktoken` 与 `js-tiktoken/lite` 都先后触发了模块加载兼容问题（包括 `require() async module ... use \"await import()\" instead` 这一类错误）。为了让 live test 流程不再被 tokenizer 依赖阻断，运行时和文档都统一改为 repo-owned 近似估算。
+
+可以这样记录一份参考值：
 
 ```bash
-node --input-type=module <<'JS'
-import { readFileSync } from 'node:fs';
-import { encoding_for_model } from 'tiktoken';
+python3 <<'PY'
+from pathlib import Path
 
-const file = '/root/_/opencode/opencode-context-compression/live-runtime-proof/random-payload.txt';
-const text = readFileSync(file, 'utf8');
-const enc = encoding_for_model('gpt-4o-mini');
-const count = enc.encode(text).length;
-enc.free();
-console.log(JSON.stringify({ file, chars: text.length, tokens: count }, null, 2));
-JS
+file = Path('/root/_/opencode/opencode-context-compression/live-runtime-proof/random-payload.txt')
+text = file.read_text(encoding='utf-8')
+chars = len(text)
+tokens = (chars + 3) // 4
+print({"file": str(file), "chars": chars, "approx_tokens": tokens})
+PY
 ```
 
 注意：
 
-- 如果这里不是按 `big pickle` 的真实 tokenizer 计数，这个数字只是近似参考
+- 这里不是按 `qwen 3.6 free` 的真实 tokenizer 计数，这个数字只是近似参考
 - 它不要求和运行时内部估算完全字节一致
 - 但它足以帮助你判断“多读几轮以后是否应触发 reminder / mark / compaction 前置条件”
 
@@ -298,7 +315,7 @@ JS
 要求：
 
 - 通过环境变量显式指向临时测试配置
-- 当前会话固定使用 **`big pickle`**
+- 当前会话固定使用 **`qwen 3.6 free`**
 - 只用一个 session
 - 不要在中途切换 profile / plugin 配置
 - 不要在测试过程中替换 runtime config
@@ -464,7 +481,7 @@ ls -lt "/root/_/opencode/opencode-context-compression/locks"
 - [ ] 已复制并使用临时 OpenCode 配置文件
 - [ ] 启动 OpenCode 的环境变量确实指向该临时配置
 - [ ] 临时配置文件显式加载了 `<plugin-root>/src/index.ts`
-- [ ] 当前真实会话固定使用 `big pickle`
+- [ ] 当前真实会话固定使用 `qwen 3.6 free`
 - [ ] 没有并行启用竞争的 transform / compaction 插件
 - [ ] sidecar DB 写到了 `<plugin-root>/state/`
 - [ ] lock 写到了 `<plugin-root>/locks/`
@@ -550,7 +567,7 @@ ls -lt "/root/_/opencode/opencode-context-compression/locks"
 ```text
 会话 ID：<session-id>
 开始时间：<timestamp>
-测试模型：big pickle
+测试模型：qwen 3.6 free
 随机文件路径：<path>
 字符数：<chars>
 估算 token 数：<tokens>

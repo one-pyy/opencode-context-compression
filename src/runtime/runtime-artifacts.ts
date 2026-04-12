@@ -1,0 +1,100 @@
+import { appendFile, mkdir, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+
+import { resolveSessionSidecarLayout } from "./sidecar-layout.js";
+
+export interface RuntimeEventRecord {
+  readonly createdAt: string;
+  readonly sessionID: string;
+  readonly seam:
+    | "experimental.chat.messages.transform"
+    | "chat.params"
+    | "tool.execute.before";
+  readonly stage: string;
+  readonly payload: unknown;
+}
+
+export interface RuntimeArtifactRecorder {
+  recordEvent(input: {
+    readonly sessionID: string;
+    readonly seam: RuntimeEventRecord["seam"];
+    readonly stage: string;
+    readonly payload: unknown;
+  }): Promise<void>;
+  writeMessagesTransformSnapshot(input: {
+    readonly sessionID: string;
+    readonly phase: "in" | "out";
+    readonly payload: unknown;
+  }): Promise<void>;
+}
+
+export function createNoopRuntimeArtifactRecorder(): RuntimeArtifactRecorder {
+  return {
+    async recordEvent() {
+      return;
+    },
+    async writeMessagesTransformSnapshot() {
+      return;
+    },
+  } satisfies RuntimeArtifactRecorder;
+}
+
+export function createFileBackedRuntimeArtifactRecorder(options: {
+  readonly pluginDirectory: string;
+  readonly runtimeLogPath: string;
+  readonly seamLogPath: string;
+  readonly debugSnapshotPath?: string;
+  readonly now?: () => string;
+}): RuntimeArtifactRecorder {
+  const now = options.now ?? (() => new Date().toISOString());
+
+  return {
+    async recordEvent(input) {
+      const layout = resolveSessionSidecarLayout({
+        pluginDirectory: options.pluginDirectory,
+        sessionID: input.sessionID,
+        runtimeLogPath: options.runtimeLogPath,
+        seamLogPath: options.seamLogPath,
+        debugSnapshotPath: options.debugSnapshotPath,
+      });
+      const event: RuntimeEventRecord = Object.freeze({
+        createdAt: now(),
+        sessionID: input.sessionID,
+        seam: input.seam,
+        stage: input.stage,
+        payload: input.payload,
+      });
+
+      await ensureParentDirectory(layout.runtimeLogPath);
+      await appendFile(layout.runtimeLogPath, `${JSON.stringify(event)}\n`, "utf8");
+    },
+    async writeMessagesTransformSnapshot(input) {
+      if (options.debugSnapshotPath === undefined) {
+        return;
+      }
+
+      const layout = resolveSessionSidecarLayout({
+        pluginDirectory: options.pluginDirectory,
+        sessionID: input.sessionID,
+        runtimeLogPath: options.runtimeLogPath,
+        seamLogPath: options.seamLogPath,
+        debugSnapshotPath: options.debugSnapshotPath,
+      });
+      const filePath =
+        input.phase === "in"
+          ? layout.debugSnapshotInputPath
+          : layout.debugSnapshotOutputPath;
+
+      if (filePath === undefined) {
+        return;
+      }
+
+      await ensureParentDirectory(filePath);
+      await writeFile(filePath, `${JSON.stringify(input.payload, null, 2)}\n`, "utf8");
+    },
+  } satisfies RuntimeArtifactRecorder;
+}
+
+async function ensureParentDirectory(filePath: string): Promise<void> {
+  await mkdir(dirname(filePath), { recursive: true });
+}

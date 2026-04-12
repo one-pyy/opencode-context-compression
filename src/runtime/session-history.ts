@@ -3,6 +3,7 @@ import type { Message, Part, ToolPart } from "@opencode-ai/sdk";
 import {
   createHistoryReplayReaderFromSources,
   type CanonicalHostMessage,
+  type ReplayedCompressionMarkToolCall,
   type ReplayHistorySources,
   type ReplayableCompressionMarkToolEntry,
   type ReplayableHostHistoryEntry,
@@ -57,6 +58,7 @@ export async function buildReplayHistorySourcesFromSessionMessages(input: {
     sessionId: input.sessionId,
     hostHistory: replayEntries.hostHistory,
     toolHistory: replayEntries.toolHistory,
+    compressionMarkToolCalls: replayEntries.compressionMarkToolCalls,
   } satisfies ReplayHistorySources;
 }
 
@@ -77,9 +79,11 @@ function collectReplayableEntries(
 ): {
   readonly hostHistory: readonly ReplayableHostHistoryEntry[];
   readonly toolHistory: readonly ReplayableCompressionMarkToolEntry[];
+  readonly compressionMarkToolCalls: readonly ReplayedCompressionMarkToolCall[];
 } {
   const hostHistory: ReplayableHostHistoryEntry[] = [];
   const toolHistory: ReplayableCompressionMarkToolEntry[] = [];
+  const compressionMarkToolCalls: ReplayedCompressionMarkToolCall[] = [];
   let nextSequence = 1;
 
   for (const envelope of envelopes) {
@@ -148,6 +152,13 @@ function collectReplayableEntries(
 
       const parsedInput = validateCompressionMarkInput(completedState.input);
       if (!parsedInput.ok) {
+        compressionMarkToolCalls.push(
+          Object.freeze({
+            sequence: syntheticSequence,
+            sourceMessageId: syntheticMessageId,
+            outcome: "invalid-input",
+          } satisfies ReplayedCompressionMarkToolCall),
+        );
         continue;
       }
 
@@ -155,8 +166,32 @@ function collectReplayableEntries(
       try {
         parsedResult = deserializeCompressionMarkResult(completedState.output);
       } catch {
+        compressionMarkToolCalls.push(
+          Object.freeze({
+            sequence: syntheticSequence,
+            sourceMessageId: syntheticMessageId,
+            outcome: "invalid-result",
+            mode: parsedInput.value.mode,
+            startVisibleMessageId: parsedInput.value.target.startVisibleMessageID,
+            endVisibleMessageId: parsedInput.value.target.endVisibleMessageID,
+          } satisfies ReplayedCompressionMarkToolCall),
+        );
         continue;
       }
+
+       compressionMarkToolCalls.push(
+        Object.freeze({
+          sequence: syntheticSequence,
+          sourceMessageId: syntheticMessageId,
+          outcome: parsedResult.ok === true ? "accepted" : "rejected",
+          mode: parsedInput.value.mode,
+          startVisibleMessageId: parsedInput.value.target.startVisibleMessageID,
+          endVisibleMessageId: parsedInput.value.target.endVisibleMessageID,
+          ...(parsedResult.ok === true
+            ? {}
+            : { errorCode: parsedResult.errorCode }),
+        } satisfies ReplayedCompressionMarkToolCall),
+      );
 
       if (parsedResult.ok !== true) {
         continue;
@@ -177,6 +212,7 @@ function collectReplayableEntries(
   return Object.freeze({
     hostHistory: Object.freeze(hostHistory),
     toolHistory: Object.freeze(toolHistory),
+    compressionMarkToolCalls: Object.freeze(compressionMarkToolCalls),
   });
 }
 

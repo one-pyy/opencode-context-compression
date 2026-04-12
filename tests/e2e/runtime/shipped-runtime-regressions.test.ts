@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -10,7 +10,6 @@ import type { Message, Part } from "@opencode-ai/sdk";
 import pluginModule from "../../../src/index.js";
 import {
   RUNTIME_CONFIG_ENV,
-  resolveRuntimeConfigRepoRoot,
 } from "../../../src/config/runtime-config.js";
 import {
   deserializeCompressionMarkResult,
@@ -154,7 +153,161 @@ test(
         allowed: allowedResult,
       },
     );
-    assert.match(evidencePath, /shipped-runtime-delete-admission\.json$/u);
+  assert.match(evidencePath, /shipped-runtime-delete-admission\.json$/u);
+  },
+);
+
+test(
+  "default plugin emits runtime events and overwrite-style debug snapshots when configured",
+  { concurrency: false },
+  async (t) => {
+    const fixture = await createHermeticE2EFixture(t, {
+      suite: "runtime",
+      caseName: "shipped runtime debug artifacts",
+    });
+    const runtimeDirectory = await mkdtemp(join(tmpdir(), "task12-runtime-artifacts-"));
+    t.after(async () => {
+      await rm(runtimeDirectory, { recursive: true, force: true });
+    });
+
+    const runtimeLogPath = join(runtimeDirectory, "runtime-events.jsonl");
+    const seamLogPath = join(runtimeDirectory, "seam-observation.jsonl");
+    const debugSnapshotPath = join(runtimeDirectory, "debug-snapshots");
+
+    const sessionMessages = [
+      createMessageEnvelope({
+        sessionID: fixture.sessionID,
+        id: "msg-user-1",
+        role: "user",
+        created: 1,
+        text: "User asks for the diagnostic recap.",
+      }),
+      createMessageEnvelope({
+        sessionID: fixture.sessionID,
+        id: "msg-assistant-1",
+        role: "assistant",
+        created: 2,
+        text: "Assistant begins the recap.",
+      }),
+    ];
+
+    const hooks = await withRuntimeEnv(
+      {
+        [RUNTIME_CONFIG_ENV.configPath]: await writeRuntimeConfig(
+          runtimeDirectory,
+          "debug-artifacts.json",
+          false,
+          {
+            runtimeLogPath,
+            seamLogPath,
+          },
+        ),
+        [RUNTIME_CONFIG_ENV.debugSnapshotPath]: debugSnapshotPath,
+      },
+      () =>
+        pluginModule.server(
+          createPluginInput(fixture.repoRoot, {
+            readSessionMessages: async () => ({ data: sessionMessages }),
+          }),
+        ),
+    );
+
+    const output = {
+      messages: structuredClone(sessionMessages),
+    };
+    await hooks["experimental.chat.messages.transform"]?.({}, output);
+
+    const runtimeEvents = (await readFile(runtimeLogPath, "utf8"))
+     .trim()
+      .split(/\r?\n/u)
+      .filter((line) => line.length > 0)
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            seam: string;
+            stage: string;
+            sessionID: string;
+            payload?: {
+              messageCount?: number;
+              projectionDebug?: {
+                canonicalMessageCount: number;
+                projectedMessageCount: number;
+                compressionMarkToolCalls: {
+                  total: number;
+                  accepted: number;
+                };
+                replayedMarkIntents: {
+                  total: number;
+                };
+                resultGroups: {
+                  count: number;
+                };
+                reminders: {
+                  count: number;
+                };
+              };
+            };
+          },
+      );
+    assert.deepEqual(
+      runtimeEvents.map((event) => ({
+        seam: event.seam,
+        stage: event.stage,
+        sessionID: event.sessionID,
+      })),
+      [
+        {
+          seam: "experimental.chat.messages.transform",
+          stage: "gate",
+          sessionID: fixture.sessionID,
+        },
+        {
+          seam: "experimental.chat.messages.transform",
+          stage: "completed",
+          sessionID: fixture.sessionID,
+        },
+      ],
+    );
+    assert.equal(runtimeEvents[1]?.payload?.projectionDebug?.canonicalMessageCount, 2);
+    assert.equal(runtimeEvents[1]?.payload?.projectionDebug?.projectedMessageCount, 2);
+    assert.equal(
+      runtimeEvents[1]?.payload?.projectionDebug?.compressionMarkToolCalls.total,
+      0,
+    );
+    assert.equal(
+      runtimeEvents[1]?.payload?.projectionDebug?.compressionMarkToolCalls.accepted,
+      0,
+    );
+    assert.equal(
+      runtimeEvents[1]?.payload?.projectionDebug?.replayedMarkIntents.total,
+      0,
+    );
+    assert.equal(runtimeEvents[1]?.payload?.projectionDebug?.resultGroups.count, 0);
+    assert.equal(runtimeEvents[1]?.payload?.projectionDebug?.reminders.count, 0);
+
+    const inputSnapshot = JSON.parse(
+      await readFile(join(debugSnapshotPath, `${fixture.sessionID}.in.json`), "utf8"),
+    ) as {
+      messages: Array<{ parts: Array<{ text?: string }> }>;
+    };
+    const outputSnapshot = JSON.parse(
+      await readFile(join(debugSnapshotPath, `${fixture.sessionID}.out.json`), "utf8"),
+    ) as {
+      messages: Array<{ parts: Array<{ text?: string }> }>;
+    };
+
+    assert.equal(
+      inputSnapshot.messages[0]?.parts[0]?.text,
+      "User asks for the diagnostic recap.",
+    );
+    assert.match(
+      outputSnapshot.messages[0]?.parts[0]?.text ?? "",
+      /^\[protected_000001_[0-9A-Za-z]{8}\] User asks for the diagnostic recap\.$/u,
+    );
+    assert.match(
+      outputSnapshot.messages[1]?.parts[0]?.text ?? "",
+      /^\[compressible_000002_[0-9A-Za-z]{8}\] Assistant begins the recap\.$/u,
+    );
   },
 );
 
@@ -228,6 +381,10 @@ async function writeRuntimeConfig(
   directory: string,
   fileName: string,
   allowDelete: boolean,
+  paths: {
+    readonly runtimeLogPath?: string;
+    readonly seamLogPath?: string;
+  } = {},
 ): Promise<string> {
   const configPath = join(directory, fileName);
   await writeFile(
@@ -238,8 +395,8 @@ async function writeRuntimeConfig(
         allowDelete,
         promptPath: "prompts/compaction.md",
         compactionModels: ["openai.right/gpt-5.4-mini"],
-        runtimeLogPath: "logs/runtime-events.jsonl",
-        seamLogPath: "logs/seam-observation.jsonl",
+        runtimeLogPath: paths.runtimeLogPath ?? "logs/runtime-events.jsonl",
+        seamLogPath: paths.seamLogPath ?? "logs/seam-observation.jsonl",
       },
       null,
       2,
@@ -248,6 +405,37 @@ async function writeRuntimeConfig(
   );
 
   return configPath;
+}
+
+async function withRuntimeEnv<T>(
+  overrides: Partial<Record<(typeof RUNTIME_CONFIG_ENV)[keyof typeof RUNTIME_CONFIG_ENV], string>>,
+  run: () => Promise<T>,
+): Promise<T> {
+  const previousEntries = Object.entries(overrides).map(([key, value]) => [
+    key,
+    process.env[key],
+    value,
+  ] as const);
+
+  for (const [key, , value] of previousEntries) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  try {
+    return await run();
+  } finally {
+    for (const [key, previous] of previousEntries) {
+      if (previous === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = previous;
+      }
+    }
+  }
 }
 
 async function withRuntimeConfigPath<T>(

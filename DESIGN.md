@@ -710,6 +710,7 @@ hook 仍保留这个合法节点，但它本轮不替换；
 | 字段 | 类型 | 默认值 | 说明 |
 |---|---|---|---|
 | `version` | `1` | 必填 | 配置契约版本 |
+| `allowDelete` | boolean | `false` | 是否允许 delete 模式的 mark 准入 |
 | `promptPath` | string | 必填 | 压缩 prompt 文件路径 |
 | `compactionModels` | string[] | 必填 | 压缩模型链（有序，用于 retry/fallback） |
 | `markedTokenAutoCompactionThreshold` | number | `20000` | marked token 就绪阈值 |
@@ -735,6 +736,7 @@ hook 仍保留这个合法节点，但它本轮不替换；
 | 环境变量 | 覆盖字段 |
 |---|---|
 | `OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH` | 配置文件路径 |
+| `OPENCODE_CONTEXT_COMPRESSION_ALLOW_DELETE` | `allowDelete` |
 | `OPENCODE_CONTEXT_COMPRESSION_PROMPT_PATH` | `promptPath` |
 | `OPENCODE_CONTEXT_COMPRESSION_MODELS` | `compactionModels`（逗号分隔） |
 | `OPENCODE_CONTEXT_COMPRESSION_RUNTIME_LOG_PATH` | `runtimeLogPath` |
@@ -772,7 +774,7 @@ hook 仍保留这个合法节点，但它本轮不替换；
 - `compaction.prompt.source` — 保留，而且必须是明确文件路径
 - `compaction.prompt.smallUserMessageThreshold` — 保留
 - `compaction.execution.markedTokenAutoCompactionThreshold` — 保留
-- `compaction.execution.route` — 删除；语义重构为 `allowDelete: boolean`，且不再作为根级 runtime route 存在
+- `compaction.execution.route` — 删除；语义重构为 `allowDelete: boolean`，并作为根级配置字段存在
 - `compaction.model` — 保留为数组，因为顺序 retry/fallback 链更容易实现和调试
 - `logging.level` — 保留
 - `logging.runtimeLog.path` — 保留

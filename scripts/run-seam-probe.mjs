@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const logPath = join(root, "logs", "seam-observation.jsonl");
-const pluginUrl = pathToFileURL(join(root, "src", "index.ts")).href;
+const pluginUrl = pathToFileURL(join(root, "dist", "index.js")).href;
 
 mkdirSync(dirname(logPath), { recursive: true });
 rmSync(logPath, { force: true });
@@ -21,7 +21,7 @@ console.log(logPath);
 function runProbe() {
   const probeScript = `
     import assert from "node:assert/strict";
-    import plugin from ${JSON.stringify(pluginUrl)};
+    import pluginModule from ${JSON.stringify(pluginUrl)};
 
     const sessionID = "seam-probe-session";
     const userMessage = {
@@ -67,7 +67,10 @@ function runProbe() {
       },
     ];
 
-    const hooks = await plugin({
+    assert.equal(typeof pluginModule, "object");
+    assert.equal(typeof pluginModule.server, "function");
+
+    const hooks = await pluginModule.server({
       client: {
         session: {
           messages: async () => ({ data: sessionMessages }),
@@ -125,7 +128,7 @@ function runProbe() {
   return new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
-      ["--import", "tsx", "-e", probeScript],
+      ["--enable-source-maps", "-e", probeScript],
       {
         cwd: root,
         stdio: "inherit",

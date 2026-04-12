@@ -4,9 +4,12 @@ import {
   type ReplayedHistory,
 } from "../history/history-replay-reader.js";
 import {
-  createCanonicalIdentityService,
   type CanonicalIdentityService,
 } from "../identity/canonical-identity.js";
+import {
+  deriveStableVisibleSuffix,
+  formatVisibleId,
+} from "../identity/visible-sequence.js";
 import {
   createFlatPolicyEngine,
   type PolicyEngine,
@@ -304,23 +307,7 @@ export function createHistoryBackedChatParamsScheduler(
   options: HistoryBackedChatParamsSchedulerOptions,
 ): ChatParamsScheduler {
   const policyEngine = options.policyEngine ?? createFlatPolicyEngine();
-  const canonicalIdentityService =
-    options.canonicalIdentityService ??
-    createCanonicalIdentityService({
-      visibleIds: {
-        allocateVisibleId(input) {
-          return Object.freeze({
-            canonicalId: input.canonicalId,
-            visibleKind: input.visibleKind,
-            visibleSeq: Number.MAX_SAFE_INTEGER,
-            visibleBase62: "runtime",
-            assignedVisibleId: input.canonicalId,
-            allocatedAt: input.allocatedAt,
-          });
-        },
-      },
-      allocateAt: options.now,
-    });
+  const canonicalIdentityService = options.canonicalIdentityService;
 
   return createInternalChatParamsScheduler(
     {
@@ -416,7 +403,7 @@ async function buildReplayedHistory(input: {
 async function collectEligibleMarkIds(input: {
   readonly history: ReplayedHistory;
   readonly policyEngine: PolicyEngine;
-  readonly canonicalIdentityService: CanonicalIdentityService;
+  readonly canonicalIdentityService?: CanonicalIdentityService;
   readonly schedulerMarkThreshold?: number;
   readonly markedTokenAutoCompactionThreshold?: number;
   readonly committedResultGroups: readonly CompleteResultGroup[];
@@ -428,12 +415,18 @@ async function collectEligibleMarkIds(input: {
   const messagePolicies = await Promise.all(
     input.policyEngine.classifyMessages(input.history).map(async (policy) => ({
       ...policy,
-      visibleId: (
-        await input.canonicalIdentityService.allocateVisibleId(
-          policy.canonicalId,
-          policy.visibleKind,
-        )
-      ).assignedVisibleId,
+      visibleId: input.canonicalIdentityService
+        ? (
+            await input.canonicalIdentityService.allocateVisibleId(
+              policy.canonicalId,
+              policy.visibleKind,
+            )
+          ).assignedVisibleId
+        : formatVisibleId(
+            policy.visibleKind,
+            policy.sequence,
+            deriveStableVisibleSuffix(policy.canonicalId),
+          ),
     })),
   );
 

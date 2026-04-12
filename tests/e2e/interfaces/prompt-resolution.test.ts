@@ -14,8 +14,8 @@ import {
   resolveRuntimeConfigRepoRoot,
 } from "../../../src/config/runtime-config.js";
 
-test("prompt resolution selects reminder variants by severity and allowDelete", () => {
-  const runtimeConfig = loadRuntimeConfig({});
+test("prompt resolution selects reminder variants by severity and allowDelete", async () => {
+  const runtimeConfig = await loadRuntimeConfig({});
 
   const softCompactOnly = resolveReminderPrompt(runtimeConfig, {
     severity: "soft",
@@ -144,7 +144,7 @@ test("loadRuntimeConfig rejects missing prompt paths from external config files"
       "utf8",
     );
 
-    assert.throws(
+    await assert.rejects(
       () =>
         loadRuntimeConfig({
           [RUNTIME_CONFIG_ENV.configPath]: configPath,
@@ -154,6 +154,77 @@ test("loadRuntimeConfig rejects missing prompt paths from external config files"
         assert.match(String(error), /Missing prompt asset/u);
         return true;
       },
+    );
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("loadRuntimeConfig accepts JSONC comments and trailing commas from external config files", async () => {
+  const tempDirectory = await mkdtemp(
+    join(tmpdir(), "opencode-context-compression-jsonc-config-"),
+  );
+
+  try {
+    await mkdir(join(tempDirectory, "prompts"), { recursive: true });
+    await mkdir(join(tempDirectory, "logs"), { recursive: true });
+
+    const configPath = join(tempDirectory, "runtime-config.jsonc");
+    const compactionPromptPath = join(tempDirectory, "prompts", "compaction.md");
+    const softCompactOnlyPath = join(tempDirectory, "prompts", "reminder-soft-compact-only.md");
+    const hardCompactOnlyPath = join(tempDirectory, "prompts", "reminder-hard-compact-only.md");
+    const softDeleteAllowedPath = join(tempDirectory, "prompts", "reminder-soft-delete-allowed.md");
+    const hardDeleteAllowedPath = join(tempDirectory, "prompts", "reminder-hard-delete-allowed.md");
+
+    await Promise.all([
+      writeFile(compactionPromptPath, "Summarize the marked content carefully.\n", "utf8"),
+      writeFile(softCompactOnlyPath, "Compact-only soft reminder.\n", "utf8"),
+      writeFile(hardCompactOnlyPath, "Compact-only hard reminder.\n", "utf8"),
+      writeFile(softDeleteAllowedPath, "Delete-allowed soft reminder.\n", "utf8"),
+      writeFile(hardDeleteAllowedPath, "Delete-allowed hard reminder.\n", "utf8"),
+    ]);
+
+    await writeFile(
+      configPath,
+      `{
+  // JSONC comments must remain supported here.
+  "version": 1,
+  "allowDelete": true,
+  "promptPath": ${JSON.stringify(compactionPromptPath)},
+  "compactionModels": ["jsonc-primary",],
+  "runtimeLogPath": "logs/runtime-events.jsonl",
+  "seamLogPath": "logs/seam-observation.jsonl",
+  "reminder": {
+    "promptPaths": {
+      "compactOnly": {
+        "soft": ${JSON.stringify(softCompactOnlyPath)},
+        "hard": ${JSON.stringify(hardCompactOnlyPath)},
+      },
+      "deleteAllowed": {
+        "soft": ${JSON.stringify(softDeleteAllowedPath)},
+        "hard": ${JSON.stringify(hardDeleteAllowedPath)},
+      },
+    },
+  },
+}
+`,
+      "utf8",
+    );
+
+    const runtimeConfig = await loadRuntimeConfig({
+      [RUNTIME_CONFIG_ENV.configPath]: configPath,
+    });
+
+    assert.equal(runtimeConfig.allowDelete, true);
+    assert.deepEqual(runtimeConfig.models, ["jsonc-primary"]);
+    assert.equal(runtimeConfig.promptPath, compactionPromptPath);
+    assert.equal(
+      runtimeConfig.runtimeLogPath,
+      join(resolveRuntimeConfigRepoRoot(), "logs", "runtime-events.jsonl"),
+    );
+    assert.equal(
+      runtimeConfig.reminder.prompts.deleteAllowed.hard.path,
+      hardDeleteAllowedPath,
     );
   } finally {
     await rm(tempDirectory, { recursive: true, force: true });

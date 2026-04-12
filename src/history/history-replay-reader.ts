@@ -37,10 +37,25 @@ export interface ReplayedMarkIntent {
   readonly sourceSequence: number;
 }
 
+export interface ReplayedCompressionMarkToolCall {
+  readonly sequence: number;
+  readonly sourceMessageId: string;
+  readonly outcome:
+    | "accepted"
+    | "rejected"
+    | "invalid-input"
+    | "invalid-result";
+  readonly mode?: "compact" | "delete";
+  readonly startVisibleMessageId?: string;
+  readonly endVisibleMessageId?: string;
+  readonly errorCode?: string;
+}
+
 export interface ReplayedHistory {
   readonly sessionId: string;
   readonly messages: readonly ReplayedHistoryMessage[];
   readonly marks: readonly ReplayedMarkIntent[];
+  readonly compressionMarkToolCalls: readonly ReplayedCompressionMarkToolCall[];
 }
 
 export interface HistoryReplayReader {
@@ -64,6 +79,7 @@ export interface ReplayHistorySources {
   readonly sessionId: string;
   readonly hostHistory: readonly ReplayableHostHistoryEntry[];
   readonly toolHistory: readonly ReplayableCompressionMarkToolEntry[];
+  readonly compressionMarkToolCalls?: readonly ReplayedCompressionMarkToolCall[];
 }
 
 export const HISTORY_REPLAY_READER_INTERNAL_CONTRACT =
@@ -152,6 +168,22 @@ export function replayHistoryFromSources(
           } satisfies ReplayedMarkIntent),
         ];
       }),
+    ),
+    compressionMarkToolCalls: Object.freeze(
+      sources.compressionMarkToolCalls ??
+        toolHistory.map((entry) =>
+          Object.freeze({
+            sequence: entry.sequence,
+            sourceMessageId: entry.sourceMessageId,
+            outcome: entry.result.ok === true ? "accepted" : "rejected",
+            mode: entry.input.mode,
+            startVisibleMessageId: entry.input.target.startVisibleMessageID,
+            endVisibleMessageId: entry.input.target.endVisibleMessageID,
+            ...(entry.result.ok === true
+              ? {}
+              : { errorCode: entry.result.errorCode }),
+          } satisfies ReplayedCompressionMarkToolCall),
+        ),
     ),
   } satisfies ReplayedHistory);
 }

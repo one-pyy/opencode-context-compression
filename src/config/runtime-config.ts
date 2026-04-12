@@ -2,13 +2,17 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import * as JsoncParserModule from "jsonc-parser";
+type ParseError = { error: number; offset: number; length: number };
 
-type ParseError = JsoncParserModule.ParseError;
-type JsoncParserCompat = {
-  readonly parse: typeof JsoncParserModule.parse;
-  readonly printParseErrorCode?: typeof JsoncParserModule.printParseErrorCode;
-};
+function parseJsonc(source: string): unknown {
+  // Strip single-line comments (// ...) and block comments (/* ... */),
+  // then remove trailing commas before ] or }, then parse as JSON.
+  const stripped = source
+    .replace(/\/\/[^\n]*/g, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/,(\s*[}\]])/g, "$1");
+  return JSON.parse(stripped);
+}
 
 export const RUNTIME_CONFIG_ENV = {
   configPath: "OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH",
@@ -132,8 +136,6 @@ export class OpencodeContextCompressionRuntimeConfigError extends Error {
   }
 }
 
-const JSONC_PARSER = resolveJsoncParserCompat();
-
 const DEFAULT_RUNTIME_CONFIG_PATH = join(
   "src",
   "config",
@@ -204,12 +206,12 @@ export function resolveRuntimeConfigRepoRoot(): string {
   return resolve(dirname(sourcePath), "..", "..");
 }
 
-export function loadRuntimeConfig(
+export async function loadRuntimeConfig(
   env: NodeJS.ProcessEnv = process.env,
-): LoadedRuntimeConfig {
+): Promise<LoadedRuntimeConfig> {
   const repoRoot = resolveRuntimeConfigRepoRoot();
   const configPath = resolveConfigFilePath(env, repoRoot);
-  const parsed = parseRuntimeConfigFile(configPath);
+  const parsed = await parseRuntimeConfigFile(configPath);
 
   const promptPath = resolveRuntimePathFromRepoRoot(
     readOptionalEnv(env, RUNTIME_CONFIG_ENV.promptPath) ??
@@ -224,6 +226,7 @@ export function loadRuntimeConfig(
     env,
     RUNTIME_CONFIG_ENV.compressingTimeoutSeconds,
   );
+  const allowDeleteOverride = readOptionalEnv(env, "OPENCODE_CONTEXT_COMPRESSION_ALLOW_DELETE");
   const models = resolveCompactionModelChain(
     modelsOverride ?? readRequiredArray(parsed.compactionModels, "compactionModels"),
     modelsOverride ? RUNTIME_CONFIG_ENV.models : "compactionModels",
@@ -331,10 +334,12 @@ export function loadRuntimeConfig(
   const loaded: LoadedRuntimeConfig = {
     repoRoot,
     configPath,
-    allowDelete: readBoolean(
-      parsed.allowDelete ?? DEFAULTS.allowDelete,
-      "allowDelete",
-    ),
+    allowDelete: allowDeleteOverride !== undefined
+      ? allowDeleteOverride === "true"
+      : readBoolean(
+          parsed.allowDelete ?? DEFAULTS.allowDelete,
+          "allowDelete",
+        ),
     promptPath: prompt.path,
     promptText: prompt.text,
     models,
@@ -517,17 +522,13 @@ function resolveConfigFilePath(
 }
 
 function parseRuntimeConfigFile(configPath: string): RuntimeConfigInput {
-  const errors: ParseError[] = [];
   const source = readFileSync(configPath, "utf8");
-  const parsed = JSONC_PARSER.parse(source, errors, {
-    allowTrailingComma: true,
-    disallowComments: false,
-  });
-
-  if (errors.length > 0) {
-    const firstError = errors[0];
+  let parsed: unknown;
+  try {
+    parsed = parseJsonc(source);
+  } catch (err) {
     throw new OpencodeContextCompressionRuntimeConfigError(
-      `Invalid JSONC in runtime config '${configPath}' at offset ${firstError.offset}: ${formatParseErrorCode(firstError.error)}.`,
+      `Invalid JSONC in runtime config '${configPath}': ${err instanceof Error ? err.message : String(err)}.`,
     );
   }
 
@@ -546,51 +547,6 @@ function parseRuntimeConfigFile(configPath: string): RuntimeConfigInput {
   }
 
   return parsed as RuntimeConfigInput;
-}
-
-function formatParseErrorCode(errorCode: ParseError["error"]): string {
-  const formatter = JSONC_PARSER.printParseErrorCode;
-  return typeof formatter === "function"
-    ? formatter(errorCode)
-    : String(errorCode);
-}
-
-function resolveJsoncParserCompat(): JsoncParserCompat {
-  if (isJsoncParserCompat(JsoncParserModule)) {
-    return JsoncParserModule;
-  }
-
-  const moduleWithDefault = JsoncParserModule as unknown as {
-    readonly default?: unknown;
-  };
-  const defaultExport = moduleWithDefault.default;
-  if (isJsoncParserCompat(defaultExport)) {
-    return defaultExport;
-  }
-
-  throw new OpencodeContextCompressionRuntimeConfigError(
-    "jsonc-parser module did not expose a callable parse() function.",
-  );
-}
-
-function isJsoncParserCompat(value: unknown): value is JsoncParserCompat {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  if (!("parse" in value) || typeof value.parse !== "function") {
-    return false;
-  }
-
-  if (
-    "printParseErrorCode" in value &&
-    value.printParseErrorCode !== undefined &&
-    typeof value.printParseErrorCode !== "function"
-  ) {
-    return false;
-  }
-
-  return true;
 }
 
 function validateRootShape(config: Record<string, unknown>): void {

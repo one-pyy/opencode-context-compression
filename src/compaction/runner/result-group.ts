@@ -58,10 +58,49 @@ function buildFragments(
 
   placeholderEntries.forEach((placeholderEntry) => {
     const placeholderTranscriptIndex = input.request.transcript.indexOf(placeholderEntry);
-    const placeholderContentIndex = input.validatedOutput.contentText.indexOf(
-      placeholderEntry.contentText,
+    
+    // Look for self-closing tag first, then fallback to full content if model didn't follow instruction perfectly
+    const selfClosingTag = `<opaque slot="${placeholderEntry.opaquePlaceholderSlot}"/>`;
+    const selfClosingTagWithSpace = `<opaque slot="${placeholderEntry.opaquePlaceholderSlot}" />`;
+    const openTag = `<opaque slot="${placeholderEntry.opaquePlaceholderSlot}">`;
+    
+    let placeholderContentIndex = input.validatedOutput.contentText.indexOf(
+      selfClosingTag,
       contentCursor,
     );
+    let matchLength = selfClosingTag.length;
+
+    if (placeholderContentIndex < 0) {
+      placeholderContentIndex = input.validatedOutput.contentText.indexOf(
+        selfClosingTagWithSpace,
+        contentCursor,
+      );
+      if (placeholderContentIndex >= 0) {
+        matchLength = selfClosingTagWithSpace.length;
+      }
+    }
+
+    if (placeholderContentIndex < 0) {
+      placeholderContentIndex = input.validatedOutput.contentText.indexOf(
+        openTag,
+        contentCursor,
+      );
+      
+      if (placeholderContentIndex >= 0) {
+        // Find closing tag
+        const closeTag = "</opaque>";
+        const closeIndex = input.validatedOutput.contentText.indexOf(
+          closeTag,
+          placeholderContentIndex + openTag.length
+        );
+        if (closeIndex >= 0) {
+          matchLength = closeIndex + closeTag.length - placeholderContentIndex;
+        } else {
+          // Fallback to just open tag length if malformed
+          matchLength = openTag.length;
+        }
+      }
+    }
 
     if (placeholderContentIndex < 0) {
       throw new InvalidCompactionOutputError({
@@ -86,7 +125,7 @@ function buildFragments(
     });
 
     transcriptCursor = placeholderTranscriptIndex + 1;
-    contentCursor = placeholderContentIndex + placeholderEntry.contentText.length;
+    contentCursor = placeholderContentIndex + matchLength;
   });
 
   appendFragmentForWindow({

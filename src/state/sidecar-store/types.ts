@@ -40,9 +40,7 @@ export interface SessionSidecarReplayState {
 export interface SessionSidecarVisibleIDAllocation {
   readonly canonicalID: string;
   readonly visibleSeq: number;
-  readonly visibleKind: string;
   readonly visibleBase62: string;
-  readonly assignedVisibleID: string;
   readonly allocatedAt: string;
 }
 

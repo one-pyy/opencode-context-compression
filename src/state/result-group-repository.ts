@@ -9,6 +9,7 @@ import type {
   VisibleIdAllocationInput,
   VisibleKind,
 } from "../identity/visible-id.js";
+import { formatVisibleId } from "../identity/visible-sequence.js";
 
 export interface ResultGroupFragment {
   readonly fragmentIndex: number;
@@ -54,7 +55,6 @@ export interface ResultGroupRepository {
   allocateVisibleId(
     input: VisibleIdAllocationInput,
   ): Promise<VisibleIdAllocation>;
-  getVisibleId(canonicalId: string): Promise<VisibleIdAllocation | null>;
 }
 
 export const RESULT_GROUP_REPOSITORY_INTERNAL_CONTRACT =
@@ -122,17 +122,13 @@ export function createResultGroupRepository(
         .map(mapResultGroupRecord);
     },
     async allocateVisibleId(input) {
-      return mapVisibleIdAllocation(
-        repository.allocateVisibleID({
-          canonicalID: input.canonicalId,
-          visibleKind: input.visibleKind,
-          allocatedAt: input.allocatedAt,
-        }),
-      );
-    },
-    async getVisibleId(canonicalId) {
-      const allocation = repository.readVisibleID(canonicalId);
-      return allocation ? mapVisibleIdAllocation(allocation) : null;
+      const allocation = repository.allocateVisibleID({
+        canonicalID: input.canonicalId,
+        visibleKind: input.visibleKind,
+        allocatedAt: input.allocatedAt,
+      });
+
+      return mapVisibleIdAllocation(allocation, input.visibleKind);
     },
   } satisfies ResultGroupRepository;
 }
@@ -164,13 +160,18 @@ function mapResultGroupRecord(
 
 function mapVisibleIdAllocation(
   allocation: SessionSidecarVisibleIDAllocation,
+  visibleKind: VisibleKind,
 ): VisibleIdAllocation {
   return Object.freeze({
     canonicalId: allocation.canonicalID,
-    visibleKind: allocation.visibleKind as VisibleKind,
+    visibleKind,
     visibleSeq: allocation.visibleSeq,
     visibleBase62: allocation.visibleBase62,
-    assignedVisibleId: allocation.assignedVisibleID,
+    assignedVisibleId: formatVisibleId(
+      visibleKind,
+      allocation.visibleSeq,
+      allocation.visibleBase62,
+    ),
     allocatedAt: allocation.allocatedAt,
   });
 }

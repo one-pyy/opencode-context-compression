@@ -1,6 +1,7 @@
 import type { Hooks } from "@opencode-ai/plugin";
 
 import type { ProjectedMessageSet } from "../projection/types.js";
+import type { CompleteResultGroup } from "../state/result-group-repository.js";
 
 type MessagesTransformHook = NonNullable<
   Hooks["experimental.chat.messages.transform"]
@@ -21,6 +22,64 @@ export interface MessagesTransformProjector {
   ):
     | Promise<readonly MessagesTransformEnvelope[]>
     | readonly MessagesTransformEnvelope[];
+  getLastProjectionDebugState?(): MessagesTransformProjectionDebugState | undefined;
+}
+
+export interface MessagesTransformProjectionDebugState {
+  readonly canonicalMessageCount: number;
+  readonly projectedMessageCount: number;
+  readonly projectedMessageSourceCounts: {
+    readonly canonical: number;
+    readonly resultGroup: number;
+    readonly reminder: number;
+  };
+  readonly visibleKindCounts: {
+    readonly protected: number;
+    readonly compressible: number;
+    readonly referable: number;
+  };
+  readonly totalCompressibleTokenCount: number;
+  readonly uncompressedMarkedTokenCount: number;
+  readonly compressionMarkToolCalls: {
+    readonly total: number;
+    readonly accepted: number;
+    readonly rejected: number;
+    readonly invalidInput: number;
+    readonly invalidResult: number;
+    readonly compact: number;
+    readonly delete: number;
+    readonly recent: readonly {
+      readonly sequence: number;
+      readonly sourceMessageId: string;
+      readonly outcome: "accepted" | "rejected" | "invalid-input" | "invalid-result";
+      readonly mode?: "compact" | "delete";
+      readonly errorCode?: string;
+    }[];
+  };
+  readonly replayedMarkIntents: {
+    readonly total: number;
+    readonly compact: number;
+    readonly delete: number;
+    readonly ids: readonly string[];
+  };
+  readonly activeMarkTree: {
+    readonly topLevelCount: number;
+    readonly totalNodeCount: number;
+    readonly ids: readonly string[];
+  };
+  readonly conflicts: {
+    readonly count: number;
+    readonly messages: readonly string[];
+  };
+  readonly resultGroups: {
+    readonly count: number;
+    readonly fragmentCount: number;
+    readonly markIds: readonly string[];
+  };
+  readonly reminders: {
+    readonly count: number;
+    readonly kinds: readonly string[];
+  };
 }
 
 export interface MessagesTransformExternalContract {
@@ -77,9 +136,16 @@ export function createProjectionBackedMessagesTransformProjector(options: {
     input: MessagesTransformProjectionInput,
   ) => Promise<ProjectedMessageSet> | ProjectedMessageSet;
 }): MessagesTransformProjector {
+  let lastProjectionDebugState: MessagesTransformProjectionDebugState | undefined;
+
   return {
     async project(input) {
-      return projectProjectionToEnvelopes(await options.buildProjection(input));
+      const projection = await options.buildProjection(input);
+      lastProjectionDebugState = summarizeProjectionDebugState(projection);
+      return projectProjectionToEnvelopes(projection);
+    },
+    getLastProjectionDebugState() {
+      return lastProjectionDebugState;
     },
   } satisfies MessagesTransformProjector;
 }
@@ -166,4 +232,205 @@ function readRecordValue(value: unknown, key: string): unknown {
 
 function readNonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function summarizeProjectionDebugState(
+  projection: ProjectedMessageSet,
+): MessagesTransformProjectionDebugState {
+  const projectedMessageSourceCounts = projection.messages.reduce(
+    (counts, message) => {
+      if (message.source === "canonical") {
+        counts.canonical += 1;
+      } else if (message.source === "result-group") {
+        counts.resultGroup += 1;
+      } else if (message.source === "reminder") {
+        counts.reminder += 1;
+      }
+
+      return counts;
+    },
+    {
+      canonical: 0,
+      resultGroup: 0,
+      reminder: 0,
+    },
+  );
+
+  const visibleKindCounts = projection.messages.reduce(
+    (counts, message) => {
+      if (message.visibleKind === "protected") {
+        counts.protected += 1;
+      } else if (message.visibleKind === "compressible") {
+        counts.compressible += 1;
+      } else if (message.visibleKind === "referable") {
+        counts.referable += 1;
+      }
+
+      return counts;
+    },
+    {
+      protected: 0,
+      compressible: 0,
+      referable: 0,
+    },
+  );
+
+  const totalCompressibleTokenCount = projection.state.messagePolicies.reduce(
+    (total, policy) =>
+      policy.visibleKind === "compressible" ? total + policy.tokenCount : total,
+    0,
+  );
+
+  const resultGroupsByMarkId = new Map(
+    projection.state.resultGroups.map((group) => [group.markId, group]),
+  );
+  const tokenCountBySequence = new Map(
+    projection.state.messagePolicies.map((policy) => [policy.sequence, policy.tokenCount]),
+  );
+  const compressionMarkToolCalls = projection.state.history.compressionMarkToolCalls;
+
+  return Object.freeze({
+    canonicalMessageCount: projection.state.history.messages.length,
+    projectedMessageCount: projection.messages.length,
+    projectedMessageSourceCounts: Object.freeze(projectedMessageSourceCounts),
+    visibleKindCounts: Object.freeze(visibleKindCounts),
+    totalCompressibleTokenCount,
+    uncompressedMarkedTokenCount: sumUncompressedMarkedTokens(
+      projection.state.markTree.marks,
+      resultGroupsByMarkId,
+      tokenCountBySequence,
+    ),
+    compressionMarkToolCalls: Object.freeze({
+      total: compressionMarkToolCalls.length,
+      accepted: compressionMarkToolCalls.filter((call) => call.outcome === "accepted")
+        .length,
+      rejected: compressionMarkToolCalls.filter((call) => call.outcome === "rejected")
+        .length,
+      invalidInput: compressionMarkToolCalls.filter(
+        (call) => call.outcome === "invalid-input",
+      ).length,
+      invalidResult: compressionMarkToolCalls.filter(
+        (call) => call.outcome === "invalid-result",
+      ).length,
+      compact: compressionMarkToolCalls.filter((call) => call.mode === "compact").length,
+      delete: compressionMarkToolCalls.filter((call) => call.mode === "delete").length,
+      recent: Object.freeze(
+        compressionMarkToolCalls.slice(-5).map((call) =>
+          Object.freeze({
+            sequence: call.sequence,
+            sourceMessageId: call.sourceMessageId,
+            outcome: call.outcome,
+            mode: call.mode,
+            errorCode: call.errorCode,
+          }),
+        ),
+      ),
+    }),
+    replayedMarkIntents: Object.freeze({
+      total: projection.state.history.marks.length,
+      compact: projection.state.history.marks.filter((mark) => mark.mode === "compact")
+        .length,
+      delete: projection.state.history.marks.filter((mark) => mark.mode === "delete")
+        .length,
+      ids: Object.freeze(projection.state.history.marks.map((mark) => mark.markId)),
+    }),
+    activeMarkTree: Object.freeze({
+      topLevelCount: projection.state.markTree.marks.length,
+      totalNodeCount: countMarkNodes(projection.state.markTree.marks),
+      ids: Object.freeze(flattenMarkIds(projection.state.markTree.marks)),
+    }),
+    conflicts: Object.freeze({
+      count: projection.conflicts.length,
+      messages: Object.freeze(projection.conflicts.map((conflict) => conflict.message)),
+    }),
+    resultGroups: Object.freeze({
+      count: projection.state.resultGroups.length,
+      fragmentCount: projection.state.resultGroups.reduce(
+        (total, group) => total + group.fragmentCount,
+        0,
+      ),
+      markIds: Object.freeze(projection.state.resultGroups.map((group) => group.markId)),
+    }),
+    reminders: Object.freeze({
+      count: projection.reminders.length,
+      kinds: Object.freeze(projection.reminders.map((reminder) => reminder.kind)),
+    }),
+  });
+}
+
+function countMarkNodes(
+  marks: ProjectedMessageSet["state"]["markTree"]["marks"],
+): number {
+  return marks.reduce((total, mark) => total + 1 + countMarkNodes(mark.children), 0);
+}
+
+function flattenMarkIds(
+  marks: ProjectedMessageSet["state"]["markTree"]["marks"],
+): string[] {
+  return marks.flatMap((mark) => [mark.markId, ...flattenMarkIds(mark.children)]);
+}
+
+function sumUncompressedMarkedTokens(
+  marks: ProjectedMessageSet["state"]["markTree"]["marks"],
+  resultGroupsByMarkId: ReadonlyMap<string, CompleteResultGroup>,
+  tokenCountBySequence: ReadonlyMap<number, number>,
+): number {
+  return marks.reduce(
+    (total, node) =>
+      total + countUncompressedTokens(node, resultGroupsByMarkId, tokenCountBySequence),
+    0,
+  );
+}
+
+function countUncompressedTokens(
+  node: ProjectedMessageSet["state"]["markTree"]["marks"][number],
+  resultGroupsByMarkId: ReadonlyMap<string, CompleteResultGroup>,
+  tokenCountBySequence: ReadonlyMap<number, number>,
+): number {
+  if (resultGroupsByMarkId.has(node.markId)) {
+    return 0;
+  }
+
+  const ownRangeTokens = sumRangeTokens(
+    node.startSequence,
+    node.endSequence,
+    tokenCountBySequence,
+  );
+  const childCompressedTokens = node.children.reduce(
+    (total, child) =>
+      total + countCompressedTokens(child, resultGroupsByMarkId, tokenCountBySequence),
+    0,
+  );
+
+  return Math.max(0, ownRangeTokens - childCompressedTokens);
+}
+
+function countCompressedTokens(
+  node: ProjectedMessageSet["state"]["markTree"]["marks"][number],
+  resultGroupsByMarkId: ReadonlyMap<string, CompleteResultGroup>,
+  tokenCountBySequence: ReadonlyMap<number, number>,
+): number {
+  if (resultGroupsByMarkId.has(node.markId)) {
+    return sumRangeTokens(node.startSequence, node.endSequence, tokenCountBySequence);
+  }
+
+  return node.children.reduce(
+    (total, child) =>
+      total + countCompressedTokens(child, resultGroupsByMarkId, tokenCountBySequence),
+    0,
+  );
+}
+
+function sumRangeTokens(
+  startSequence: number,
+  endSequence: number,
+  tokenCountBySequence: ReadonlyMap<number, number>,
+): number {
+  let total = 0;
+
+  for (let sequence = startSequence; sequence <= endSequence; sequence += 1) {
+    total += tokenCountBySequence.get(sequence) ?? 0;
+  }
+
+  return total;
 }

@@ -134,7 +134,10 @@ function createBunDatabaseAdapter(databasePath: string, sqlite: BunSqliteModule)
       const statement = database.prepare<Row>(sql);
       return {
         get(parameters?: Record<string, unknown>) {
-          return statement.get(normalizeBunParameters(parameters)) as Row | undefined;
+          const row = statement.get(normalizeBunParameters(parameters));
+          // Bun's SQLite returns null (not undefined) when no row is found.
+          // Normalize to undefined to match the SqliteStatement contract.
+          return (row ?? undefined) as Row | undefined;
         },
         all(parameters?: Record<string, unknown>) {
           return statement.all(normalizeBunParameters(parameters)) as Row[];

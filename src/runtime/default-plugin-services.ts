@@ -21,6 +21,7 @@ import {
   openSessionSidecarRepository,
 } from "../state/sidecar-store.js";
 import { createResultGroupRepository } from "../state/result-group-repository.js";
+import { createFileBackedRuntimeArtifactRecorder } from "./runtime-artifacts.js";
 
 export function createDefaultRuntimePluginSeamServices(
   input: PluginInput,
@@ -29,6 +30,12 @@ export function createDefaultRuntimePluginSeamServices(
   const lockDirectory = resolvePluginLockDirectory(input.directory);
 
   return {
+    runtimeArtifacts: createFileBackedRuntimeArtifactRecorder({
+      pluginDirectory: input.directory,
+      runtimeLogPath: runtimeConfig.runtimeLogPath,
+      seamLogPath: runtimeConfig.seamLogPath,
+      debugSnapshotPath: runtimeConfig.debugSnapshotPath,
+    }),
     messagesTransformProjector: createDefaultMessagesTransformProjector({
       pluginDirectory: input.directory,
       runtimeConfig,

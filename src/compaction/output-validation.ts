@@ -41,8 +41,14 @@ export function createOutputValidator(): OutputValidator {
         input.request,
       );
 
+      let contentText = validated.contentText;
+      // Strip <analysis>...</analysis> blocks so they don't pollute the final projected history
+      contentText = contentText.replace(/<analysis>[\s\S]*?<\/analysis>\n*/gi, '').trim();
+
+      const cleanValidated = { ...validated, contentText };
+
       if (input.request.executionMode === "delete") {
-        return validated;
+        return cleanValidated;
       }
 
       let searchStart = 0;
@@ -51,11 +57,32 @@ export function createOutputValidator(): OutputValidator {
           return;
         }
 
-        const placeholderIndex = includesOpaquePlaceholder(
-          validated.contentText,
-          entry.contentText,
-          searchStart,
-        );
+        const selfClosingTag = `<opaque slot="${entry.opaquePlaceholderSlot}"/>`;
+        const selfClosingTagWithSpace = `<opaque slot="${entry.opaquePlaceholderSlot}" />`;
+        const openTag = `<opaque slot="${entry.opaquePlaceholderSlot}">`;
+
+        let placeholderIndex = cleanValidated.contentText.indexOf(selfClosingTag, searchStart);
+        let matchLength = selfClosingTag.length;
+
+        if (placeholderIndex < 0) {
+          placeholderIndex = cleanValidated.contentText.indexOf(selfClosingTagWithSpace, searchStart);
+          if (placeholderIndex >= 0) {
+            matchLength = selfClosingTagWithSpace.length;
+          }
+        }
+
+        if (placeholderIndex < 0) {
+          placeholderIndex = cleanValidated.contentText.indexOf(openTag, searchStart);
+          if (placeholderIndex >= 0) {
+            const closeTag = "</opaque>";
+            const closeIndex = cleanValidated.contentText.indexOf(closeTag, placeholderIndex + openTag.length);
+            if (closeIndex >= 0) {
+              matchLength = closeIndex + closeTag.length - placeholderIndex;
+            } else {
+              matchLength = openTag.length;
+            }
+          }
+        }
 
         if (placeholderIndex < 0) {
           throw new InvalidCompactionOutputError({
@@ -66,10 +93,10 @@ export function createOutputValidator(): OutputValidator {
           });
         }
 
-        searchStart = placeholderIndex + entry.contentText.length;
+        searchStart = placeholderIndex + matchLength;
       });
 
-      return validated;
+      return cleanValidated;
     },
   } satisfies OutputValidator;
 }

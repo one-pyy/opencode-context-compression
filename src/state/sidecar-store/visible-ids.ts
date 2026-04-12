@@ -1,7 +1,6 @@
 import type { SqliteDatabase } from "../sqlite-runtime.js";
 import {
   deriveStableBase62Suffix,
-  formatAssignedVisibleID,
   runInTransaction,
 } from "./helpers.js";
 import type {
@@ -13,9 +12,7 @@ import type {
 interface VisibleSequenceAllocationRow extends Record<string, unknown> {
   readonly canonical_id: string;
   readonly visible_seq: number;
-  readonly visible_kind: string;
   readonly visible_base62: string;
-  readonly assigned_visible_id: string;
   readonly allocated_at: string;
 }
 
@@ -32,17 +29,13 @@ export function insertVisibleSequenceAllocations(
       INSERT INTO visible_sequence_allocations (
         canonical_id,
         visible_seq,
-        visible_kind,
         visible_base62,
-        assigned_visible_id,
         allocated_at
       )
       VALUES (
         :canonical_id,
         :visible_seq,
-        :visible_kind,
         :visible_base62,
-        :assigned_visible_id,
         :allocated_at
       )
     `,
@@ -55,13 +48,7 @@ export function insertVisibleSequenceAllocations(
     insertStatement.run({
       canonical_id: message.canonicalID,
       visible_seq: visibleSeq,
-      visible_kind: message.visibleKind,
       visible_base62: visibleBase62,
-      assigned_visible_id: formatAssignedVisibleID(
-        message.visibleKind,
-        visibleSeq,
-        visibleBase62,
-      ),
       allocated_at: message.allocatedAt,
     });
   });
@@ -76,12 +63,6 @@ export function allocateVisibleID(
   return runInTransaction(database, () => {
     const existing = readVisibleID(database, options.canonicalID);
     if (existing !== undefined) {
-      if (existing.visibleKind !== options.visibleKind) {
-        throw new Error(
-          `Visible id allocation for canonical id '${options.canonicalID}' already exists with kind '${existing.visibleKind}', not '${options.visibleKind}'.`,
-        );
-      }
-
       return existing;
     }
 
@@ -99,17 +80,13 @@ export function allocateVisibleID(
           INSERT INTO visible_sequence_allocations (
             canonical_id,
             visible_seq,
-            visible_kind,
             visible_base62,
-            assigned_visible_id,
             allocated_at
           )
           VALUES (
             :canonical_id,
             :visible_seq,
-            :visible_kind,
             :visible_base62,
-            :assigned_visible_id,
             :allocated_at
           )
         `,
@@ -117,13 +94,7 @@ export function allocateVisibleID(
       .run({
         canonical_id: options.canonicalID,
         visible_seq: nextVisibleSeq,
-        visible_kind: options.visibleKind,
         visible_base62: visibleBase62,
-        assigned_visible_id: formatAssignedVisibleID(
-          options.visibleKind,
-          nextVisibleSeq,
-          visibleBase62,
-        ),
         allocated_at: options.allocatedAt,
       });
 
@@ -138,7 +109,7 @@ export function readVisibleID(
   const row = database
     .prepare<VisibleSequenceAllocationRow>(
       `
-        SELECT canonical_id, visible_seq, visible_kind, visible_base62, assigned_visible_id, allocated_at
+        SELECT canonical_id, visible_seq, visible_base62, allocated_at
         FROM visible_sequence_allocations
         WHERE canonical_id = :canonical_id
       `,
@@ -154,7 +125,7 @@ export function listVisibleIDs(
   return database
     .prepare<VisibleSequenceAllocationRow>(
       `
-        SELECT canonical_id, visible_seq, visible_kind, visible_base62, assigned_visible_id, allocated_at
+        SELECT canonical_id, visible_seq, visible_base62, allocated_at
         FROM visible_sequence_allocations
         ORDER BY visible_seq ASC
       `,
@@ -187,9 +158,7 @@ function mapVisibleIDAllocationRow(
   return {
     canonicalID: row.canonical_id,
     visibleSeq: row.visible_seq,
-    visibleKind: row.visible_kind,
     visibleBase62: row.visible_base62,
-    assignedVisibleID: row.assigned_visible_id,
     allocatedAt: row.allocated_at,
   };
 }

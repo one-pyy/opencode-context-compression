@@ -35,7 +35,7 @@ export function createRuntimeConfigLoader(
 ): RuntimeConfigLoader {
   return {
     async load() {
-      return loadRuntimeConfig(env);
+      return await loadRuntimeConfig(env);
     },
   } satisfies RuntimeConfigLoader;
 }

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 const BASE62_ALPHABET =
   "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-const DEFAULT_VISIBLE_SUFFIX_LENGTH = 8;
+const DEFAULT_VISIBLE_SUFFIX_LENGTH = 2;
 
 export interface ParsedVisibleId {
   readonly kind: string;

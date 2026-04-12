@@ -9,6 +9,7 @@ import {
   type SeamObservationJournal,
 } from "../seams/noop-observation.js";
 import {
+  CHAT_PARAMS_METADATA_KEY,
   createChatParamsSchedulerHook,
   type ChatParamsSchedulerService,
 } from "./chat-params-scheduler.js";
@@ -19,6 +20,7 @@ import {
 } from "./messages-transform.js";
 import {
   createToolExecuteBeforeHook,
+  createDefaultToolExecutionGate,
   createStaticSendEntryGate,
   type SendEntryGate,
   type ToolExecutionGateService,
@@ -27,6 +29,10 @@ import {
   createCompressionMarkTool,
   type CompressionMarkToolOptions,
 } from "../tools/compression-mark.js";
+import {
+  createNoopRuntimeArtifactRecorder,
+  type RuntimeArtifactRecorder,
+} from "./runtime-artifacts.js";
 
 export const ALLOWED_PLUGIN_EXTERNAL_HOOKS = Object.freeze([
   "experimental.chat.messages.transform",
@@ -40,6 +46,7 @@ export const ALLOWED_PLUGIN_EXTERNAL_TOOLS = Object.freeze([
 
 export interface ContextCompressionPluginHooksOptions {
   readonly seamLogPath?: string;
+  readonly runtimeArtifacts?: RuntimeArtifactRecorder;
   readonly messagesTransformProjector?: MessagesTransformProjector;
   readonly chatParamsScheduler?: ChatParamsSchedulerService;
   readonly sendEntryGate?: SendEntryGate;
@@ -48,6 +55,7 @@ export interface ContextCompressionPluginHooksOptions {
 }
 
 export interface RuntimePluginSeamServices {
+  readonly runtimeArtifacts: RuntimeArtifactRecorder;
   readonly messagesTransformProjector: MessagesTransformProjector;
   readonly chatParamsScheduler: ChatParamsSchedulerService;
   readonly sendEntryGate: SendEntryGate;
@@ -58,15 +66,20 @@ export function createContextCompressionHooks(
   options: ContextCompressionPluginHooksOptions = {},
 ): Hooks {
   const journal = createPluginSeamJournal(options.seamLogPath);
+  const runtimeArtifacts =
+    options.runtimeArtifacts ?? createNoopRuntimeArtifactRecorder();
   const sendEntryGate = options.sendEntryGate ?? createStaticSendEntryGate();
+  const messagesTransformProjector = options.messagesTransformProjector;
+  const toolExecutionGate =
+    options.toolExecutionGate ?? createDefaultToolExecutionGate();
   const messagesTransform = createMessagesTransformHook({
-    projector: options.messagesTransformProjector,
+    projector: messagesTransformProjector,
   });
   const chatParams = createChatParamsSchedulerHook({
     scheduler: options.chatParamsScheduler,
   });
   const toolExecuteBefore = createToolExecuteBeforeHook({
-    gate: options.toolExecutionGate,
+    gate: toolExecutionGate,
   });
 
   return {
@@ -74,22 +87,79 @@ export function createContextCompressionHooks(
       compression_mark: createCompressionMarkTool(options.compressionMark),
     },
     "experimental.chat.messages.transform": async (input, output) => {
-      await sendEntryGate.waitIfNeeded(
-        resolveMessagesTransformSessionId({
-          hookInput: input,
-          currentMessages: output.messages,
-        }),
-      );
-      await messagesTransform(input, output);
+      const sessionID = resolveMessagesTransformSessionId({
+        hookInput: input,
+        currentMessages: output.messages,
+      });
+      const gateResult = await sendEntryGate.waitIfNeeded(sessionID);
+      await runtimeArtifacts.recordEvent({
+        sessionID,
+        seam: "experimental.chat.messages.transform",
+        stage: "gate",
+        payload: gateResult,
+      });
+      await runtimeArtifacts.writeMessagesTransformSnapshot({
+        sessionID,
+        phase: "in",
+        payload: {
+          messages: output.messages,
+        },
+      });
+
+      try {
+        await messagesTransform(input, output);
+      } catch (error) {
+        await runtimeArtifacts.recordEvent({
+          sessionID,
+          seam: "experimental.chat.messages.transform",
+          stage: "failed",
+          payload: serializeError(error),
+        });
+        throw error;
+      }
+
+      await runtimeArtifacts.writeMessagesTransformSnapshot({
+        sessionID,
+        phase: "out",
+        payload: {
+          messages: output.messages,
+        },
+      });
       journal.record(observeMessagesTransform(input, output));
+      await runtimeArtifacts.recordEvent({
+        sessionID,
+        seam: "experimental.chat.messages.transform",
+        stage: "completed",
+        payload: {
+          messageCount: output.messages.length,
+          projectionDebug: messagesTransformProjector?.getLastProjectionDebugState?.(),
+        },
+      });
     },
     "chat.params": async (input, output) => {
       await chatParams(input, output);
       journal.record(observeChatParams(input, output));
+      await runtimeArtifacts.recordEvent({
+        sessionID: input.sessionID,
+        seam: "chat.params",
+        stage: "completed",
+        payload: output.options[CHAT_PARAMS_METADATA_KEY] ?? null,
+      });
     },
     "tool.execute.before": async (input, output) => {
+      const gateDecision = await toolExecutionGate.beforeExecution(input);
       await toolExecuteBefore(input, output);
       journal.record(observeToolExecuteBefore(input, output));
+      await runtimeArtifacts.recordEvent({
+        sessionID: input.sessionID,
+        seam: "tool.execute.before",
+        stage: "completed",
+        payload: {
+          tool: input.tool,
+          callID: input.callID,
+          gateDecision,
+        },
+      });
     },
   } satisfies Hooks;
 }
@@ -99,4 +169,21 @@ function createPluginSeamJournal(seamLogPath?: string): SeamObservationJournal {
   return seamLogPath === undefined
     ? baseJournal
     : createFileBackedSeamObservationJournal(baseJournal, seamLogPath);
+}
+
+function serializeError(error: unknown): {
+  readonly name: string;
+  readonly message: string;
+} {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+    };
+  }
+
+  return {
+    name: "Error",
+    message: String(error),
+  };
 }

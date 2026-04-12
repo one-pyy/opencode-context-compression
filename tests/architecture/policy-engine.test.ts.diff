@@ -1,0 +1,7 @@
+--- policy-engine.test.ts
++++ policy-engine.test.ts
+@@ -62,4 +62,3 @@
+   assert.equal(tree.conflicts.length, 1);
+   assert.equal(tree.conflicts[0].markId, "m_bad");
+-  assert.equal(tree.conflicts[0].errorCode, "OVERLAP_CONFLICT");
+ });

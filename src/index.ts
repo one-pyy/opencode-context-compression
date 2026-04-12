@@ -6,7 +6,7 @@ import { createDefaultRuntimePluginSeamServices } from "./runtime/default-plugin
 import { createCompressionMarkAdmission } from "./tools/compression-mark.js";
 
 const plugin: Plugin = async (input) => {
-  const runtimeConfig = loadRuntimeConfig();
+  const runtimeConfig = await loadRuntimeConfig();
   const seamServices = createDefaultRuntimePluginSeamServices(
     input,
     runtimeConfig,

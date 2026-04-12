@@ -34,9 +34,7 @@ const EXPECTED_TABLE_COLUMNS: Record<AllowedTableName, readonly string[]> = {
   visible_sequence_allocations: [
     "canonical_id",
     "visible_seq",
-    "visible_kind",
     "visible_base62",
-    "assigned_visible_id",
     "allocated_at",
   ],
   result_groups: [
@@ -103,9 +101,7 @@ export function ensureLockedSidecarSchema(database: SqliteDatabase): void {
     CREATE TABLE IF NOT EXISTS visible_sequence_allocations (
       canonical_id TEXT PRIMARY KEY,
       visible_seq INTEGER NOT NULL UNIQUE CHECK (visible_seq >= 1),
-      visible_kind TEXT NOT NULL,
       visible_base62 TEXT NOT NULL,
-      assigned_visible_id TEXT NOT NULL UNIQUE,
       allocated_at TEXT NOT NULL
     );
 
