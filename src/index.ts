@@ -25,6 +25,7 @@ const plugin: Plugin = async (input) => {
       }),
     },
     toastService,
+    pluginDirectory: input.directory,
   });
 };
 

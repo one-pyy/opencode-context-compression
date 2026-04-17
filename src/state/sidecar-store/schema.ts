@@ -13,6 +13,7 @@ export const SIDECAR_TABLE_NAMES = [
   "visible_sequence_allocations",
   "result_groups",
   "result_fragments",
+  "toast_events",
 ] as const;
 
 export const SIDECAR_INDEX_NAMES = [
@@ -55,6 +56,13 @@ const EXPECTED_TABLE_COLUMNS: Record<AllowedTableName, readonly string[]> = {
     "source_start_seq",
     "source_end_seq",
     "replacement_text",
+  ],
+  toast_events: [
+    "id",
+    "event_type",
+    "created_at",
+    "payload",
+    "processed",
   ],
 };
 
@@ -126,6 +134,14 @@ export function ensureLockedSidecarSchema(database: SqliteDatabase): void {
       replacement_text TEXT NOT NULL,
       PRIMARY KEY (mark_id, fragment_index),
       FOREIGN KEY (mark_id) REFERENCES result_groups(mark_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS toast_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_type TEXT NOT NULL CHECK (event_type IN ('compression_start', 'compression_complete', 'compression_failed')),
+      created_at TEXT NOT NULL,
+      payload TEXT,
+      processed INTEGER DEFAULT 0
     );
   `);
 

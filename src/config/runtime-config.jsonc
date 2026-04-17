@@ -8,19 +8,19 @@
   "allowDelete": false,
   "promptPath": "prompts/compaction.md",
   "compactionModels": [
-    "openai.right/gpt-5.4-mini",
-    "openai.doro/gpt-5.4-mini"
+    "google.right/gemini-3-flash-preview",
+    "google.doro/gemini-3-flash-preview"
   ],
   "schedulerMarkThreshold": 1,
   "runtimeLogPath": "logs/runtime-events.jsonl",
   "seamLogPath": "logs/seam-observation.jsonl",
-  "markedTokenAutoCompactionThreshold": 20000,
-  "smallUserMessageThreshold": 1024,
+  "markedTokenAutoCompactionThreshold": 60000,
+  "smallUserMessageThreshold": 1536,
   "reminder": {
     // Reminder prompt assets are plain-text files selected by severity × allowDelete.
-    "hsoft": 30000,
-    "hhard": 70000,
-    "softRepeatEveryTokens": 20000,
+    "hsoft": 60000,
+    "hhard": 200000,
+    "softRepeatEveryTokens": 30000,
     "hardRepeatEveryTokens": 10000,
     "promptPaths": {
       "compactOnly": {

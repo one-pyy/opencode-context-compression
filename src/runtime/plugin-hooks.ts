@@ -34,6 +34,9 @@ import {
   type RuntimeArtifactRecorder,
 } from "./runtime-artifacts.js";
 import type { ToastService } from "../services/toast-service.js";
+import { openSessionSidecarRepository } from "../state/sidecar-store.js";
+import { resolvePluginStateDirectory, resolveSessionDatabasePath } from "./sidecar-layout.js";
+import { readPendingToastEvents, markToastEventsProcessed } from "../state/sidecar-store/toast-events.js";
 
 export const ALLOWED_PLUGIN_EXTERNAL_HOOKS = Object.freeze([
   "experimental.chat.messages.transform",
@@ -54,6 +57,7 @@ export interface ContextCompressionPluginHooksOptions {
   readonly toolExecutionGate?: ToolExecutionGateService;
   readonly compressionMark?: CompressionMarkToolOptions;
   readonly toastService?: ToastService;
+  readonly pluginDirectory?: string;
 }
 
 export interface RuntimePluginSeamServices {
@@ -149,6 +153,40 @@ export function createContextCompressionHooks(
         }
         if (hasHardReminder) {
           toastService.showHardReminder(projectionDebug.totalCompressibleTokenCount ?? 0).catch(() => {});
+        }
+      }
+
+      if (toastService && options.pluginDirectory) {
+        try {
+          const stateDirectory = resolvePluginStateDirectory(options.pluginDirectory);
+          const databasePath = resolveSessionDatabasePath(stateDirectory, sessionID);
+          const sidecar = await openSessionSidecarRepository({ databasePath });
+          
+          try {
+            const pendingEvents = readPendingToastEvents(sidecar.database);
+            const eventIds: number[] = [];
+            
+            for (const event of pendingEvents) {
+              eventIds.push(event.id);
+              
+              if (event.eventType === "compression_start") {
+                toastService.showCompressionStarted().catch(() => {});
+              } else if (event.eventType === "compression_complete") {
+                const payload = event.payload ? JSON.parse(event.payload) : {};
+                toastService.showCompressionCompleted(payload.savedTokens).catch(() => {});
+              } else if (event.eventType === "compression_failed") {
+                const payload = event.payload ? JSON.parse(event.payload) : {};
+                toastService.showCompressionFailed(payload.error).catch(() => {});
+              }
+            }
+            
+            if (eventIds.length > 0) {
+              markToastEventsProcessed(sidecar.database, eventIds);
+            }
+          } finally {
+            sidecar.close();
+          }
+        } catch {
         }
       }
     },

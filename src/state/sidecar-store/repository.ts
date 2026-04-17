@@ -10,13 +10,19 @@ import type {
   OpenSessionSidecarRepositoryOptions,
   SessionSidecarRepository,
 } from "./types.js";
+import type { SqliteDatabase } from "../sqlite-runtime.js";
+
+export interface SessionSidecarRepositoryWithDatabase extends SessionSidecarRepository {
+  readonly database: SqliteDatabase;
+}
 
 export async function openSessionSidecarRepository(
   options: OpenSessionSidecarRepositoryOptions,
-): Promise<SessionSidecarRepository> {
+): Promise<SessionSidecarRepositoryWithDatabase> {
   const database = await openLockedSessionSidecarDatabase(options.databasePath);
 
   return {
+    database,
     allocateVisibleID(visibleIDOptions) {
       return allocateVisibleID(database, visibleIDOptions);
     },

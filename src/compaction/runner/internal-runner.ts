@@ -15,11 +15,15 @@ import type {
   RunCompactionResult,
 } from "../types.js";
 import { InvalidCompactionOutputError } from "../errors.js";
+import type { ToastService } from "../../services/toast-service.js";
+import { TokenCounter } from "../../utils/token-counter.js";
 
 const DEFAULT_MAX_ATTEMPTS_PER_MODEL = 2;
 
 export interface ContractLevelCompactionRunnerOptions {
   readonly now?: () => string;
+  readonly toastService?: ToastService;
+  readonly tokenCounter?: TokenCounter;
 }
 
 export function createContractLevelCompactionRunnerImplementation(
@@ -27,9 +31,15 @@ export function createContractLevelCompactionRunnerImplementation(
   options: ContractLevelCompactionRunnerOptions = {},
 ): InternalCompactionRunner {
   const now = options.now ?? (() => new Date().toISOString());
+  const toastService = options.toastService;
+  const tokenCounter = options.tokenCounter ?? new TokenCounter();
 
   return {
     async run(input) {
+      if (toastService) {
+        toastService.showCompressionStarted().catch(() => {});
+      }
+
       const modelChain = buildModelChain(input);
       const maxAttemptsPerModel = normalizeMaxAttemptsPerModel(
         input.maxAttemptsPerModel,
@@ -54,14 +64,31 @@ export function createContractLevelCompactionRunnerImplementation(
               response,
             });
 
-            await dependencies.resultGroupRepository.upsertCompleteGroup(
-              buildCompactionResultGroup({
-                request,
-                validatedOutput,
-                runInput: input,
-                now,
-              }),
-            );
+            const resultGroup = buildCompactionResultGroup({
+              request,
+              validatedOutput,
+              runInput: input,
+              now,
+            });
+
+            await dependencies.resultGroupRepository.upsertCompleteGroup(resultGroup);
+
+            if (toastService && tokenCounter) {
+              try {
+                const beforeTokens = request.transcript.reduce((sum: number, entry) => {
+                  return sum + tokenCounter.countTokens(entry.contentText);
+                }, 0);
+
+                const afterTokens = resultGroup.fragments.reduce((sum: number, fragment) => {
+                  return sum + tokenCounter.countTokens(fragment.replacementText);
+                }, 0);
+
+                const savedTokens = tokenCounter.calculateCompressionRatio(beforeTokens, afterTokens);
+                toastService.showCompressionCompleted(savedTokens).catch(() => {});
+              } catch {
+                toastService.showCompressionCompleted().catch(() => {});
+              }
+            }
 
             return {
               request,
@@ -79,12 +106,25 @@ export function createContractLevelCompactionRunnerImplementation(
               error instanceof CompactionTransportFatalError ||
               error instanceof CompactionTransportAbortedError
             ) {
+              if (toastService) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                toastService.showCompressionFailed(errorMessage).catch(() => {});
+              }
               throw error;
             }
 
+            if (toastService) {
+              const errorMessage = error instanceof Error ? error.message : String(error);
+              toastService.showCompressionFailed(errorMessage).catch(() => {});
+            }
             throw error;
           }
         }
+      }
+
+      if (toastService) {
+        const errorMessage = lastRecoverableError?.message ?? "All compaction models exhausted";
+        toastService.showCompressionFailed(errorMessage).catch(() => {});
       }
 
       if (lastRecoverableError !== undefined) {

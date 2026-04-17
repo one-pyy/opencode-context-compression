@@ -9,6 +9,7 @@ import type {
   SessionSidecarResultGroupUpsertResult,
   SessionSidecarResultGroupWrite,
 } from "./types.js";
+import { writeToastEvent } from "./toast-events.js";
 
 interface ResultGroupRow extends Record<string, unknown> {
   readonly mark_id: string;
@@ -170,11 +171,27 @@ export function upsertResultGroup(
   return runInTransaction(database, () => {
     const existing = readResultGroup(database, normalized.markID);
     if (existing === undefined) {
-      insertCommittedResultGroup(database, normalized);
-      return {
-        status: "inserted",
-        resultGroup: readResultGroup(database, normalized.markID)!,
-      };
+      writeToastEvent(database, "compression_start");
+      
+      try {
+        insertCommittedResultGroup(database, normalized);
+        const inserted = readResultGroup(database, normalized.markID)!;
+        
+        writeToastEvent(database, "compression_complete", JSON.stringify({
+          markId: normalized.markID,
+          mode: normalized.mode,
+        }));
+        
+        return {
+          status: "inserted",
+          resultGroup: inserted,
+        };
+      } catch (error) {
+        writeToastEvent(database, "compression_failed", JSON.stringify({
+          error: error instanceof Error ? error.message : String(error),
+        }));
+        throw error;
+      }
     }
 
     const expected = mapReplayResultGroupToStoredRecord(normalized);
