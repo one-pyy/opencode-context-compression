@@ -38,5 +38,16 @@
   },
   "compressing": {
     "timeoutSeconds": 600
+  },
+  "toast": {
+    "enabled": true,
+    "durations": {
+      "startup": 3000,
+      "softReminder": 5000,
+      "hardReminder": 7000,
+      "compressionStart": 3000,
+      "compressionComplete": 4000,
+      "compressionFailed": 5000
+    }
   }
 }
