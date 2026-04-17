@@ -63,6 +63,17 @@ interface RuntimeConfigInput {
     readonly hardRepeatEveryTokens?: unknown;
     readonly promptPaths?: ReminderPromptPathsInput;
   };
+  readonly toast?: {
+    readonly enabled?: unknown;
+    readonly durations?: {
+      readonly startup?: unknown;
+      readonly softReminder?: unknown;
+      readonly hardReminder?: unknown;
+      readonly compressionStart?: unknown;
+      readonly compressionComplete?: unknown;
+      readonly compressionFailed?: unknown;
+    };
+  };
 }
 
 export interface LoadedPromptAsset {
@@ -127,6 +138,17 @@ export interface LoadedRuntimeConfig {
     };
     readonly prompts: ResolvedRuntimeReminderPrompts;
   };
+  readonly toast: {
+    readonly enabled: boolean;
+    readonly durations: {
+      readonly startup: number;
+      readonly softReminder: number;
+      readonly hardReminder: number;
+      readonly compressionStart: number;
+      readonly compressionComplete: number;
+      readonly compressionFailed: number;
+    };
+  };
 }
 
 export class OpencodeContextCompressionRuntimeConfigError extends Error {
@@ -169,6 +191,17 @@ const DEFAULTS = {
   compressing: {
     timeoutSeconds: 600,
   },
+  toast: {
+    enabled: true,
+    durations: {
+      startup: 3000,
+      softReminder: 5000,
+      hardReminder: 7000,
+      compressionStart: 3000,
+      compressionComplete: 4000,
+      compressionFailed: 5000,
+    },
+  },
 } as const;
 
 const ALLOWED_ROOT_KEYS = new Set([
@@ -185,6 +218,7 @@ const ALLOWED_ROOT_KEYS = new Set([
   "logging",
   "compressing",
   "reminder",
+  "toast",
 ]);
 
 const ALLOWED_LOGGING_KEYS = new Set(["level"]);
@@ -198,6 +232,15 @@ const ALLOWED_REMINDER_KEYS = new Set([
 ]);
 const ALLOWED_REMINDER_PROMPT_KEYS = new Set(["compactOnly", "deleteAllowed"]);
 const ALLOWED_REMINDER_VARIANT_KEYS = new Set(["soft", "hard"]);
+const ALLOWED_TOAST_KEYS = new Set(["enabled", "durations"]);
+const ALLOWED_TOAST_DURATION_KEYS = new Set([
+  "startup",
+  "softReminder",
+  "hardReminder",
+  "compressionStart",
+  "compressionComplete",
+  "compressionFailed",
+]);
 const LOG_LEVELS: readonly RuntimeLogLevel[] = ["off", "error", "info", "debug"];
 const TEMPLATE_PLACEHOLDER_PATTERN = /\{\{[^}]+\}\}/u;
 
@@ -386,6 +429,38 @@ export async function loadRuntimeConfig(
       ),
       promptPaths: reminderPromptPaths,
       prompts: reminderPrompts,
+    },
+    toast: {
+      enabled: readBoolean(
+        parsed.toast?.enabled ?? DEFAULTS.toast.enabled,
+        "toast.enabled",
+      ),
+      durations: {
+        startup: readPositiveInteger(
+          parsed.toast?.durations?.startup ?? DEFAULTS.toast.durations.startup,
+          "toast.durations.startup",
+        ),
+        softReminder: readPositiveInteger(
+          parsed.toast?.durations?.softReminder ?? DEFAULTS.toast.durations.softReminder,
+          "toast.durations.softReminder",
+        ),
+        hardReminder: readPositiveInteger(
+          parsed.toast?.durations?.hardReminder ?? DEFAULTS.toast.durations.hardReminder,
+          "toast.durations.hardReminder",
+        ),
+        compressionStart: readPositiveInteger(
+          parsed.toast?.durations?.compressionStart ?? DEFAULTS.toast.durations.compressionStart,
+          "toast.durations.compressionStart",
+        ),
+        compressionComplete: readPositiveInteger(
+          parsed.toast?.durations?.compressionComplete ?? DEFAULTS.toast.durations.compressionComplete,
+          "toast.durations.compressionComplete",
+        ),
+        compressionFailed: readPositiveInteger(
+          parsed.toast?.durations?.compressionFailed ?? DEFAULTS.toast.durations.compressionFailed,
+          "toast.durations.compressionFailed",
+        ),
+      },
     },
   };
 
@@ -593,6 +668,21 @@ function validateRootShape(config: Record<string, unknown>): void {
           );
         }
       }
+    }
+  }
+
+  if ("toast" in config) {
+    assertNestedObject(config.toast, "toast");
+    const toast = config.toast as Record<string, unknown>;
+    assertAllowedKeys(toast, ALLOWED_TOAST_KEYS, "toast");
+
+    if ("durations" in toast) {
+      assertNestedObject(toast.durations, "toast.durations");
+      assertAllowedKeys(
+        toast.durations as Record<string, unknown>,
+        ALLOWED_TOAST_DURATION_KEYS,
+        "toast.durations",
+      );
     }
   }
 }
