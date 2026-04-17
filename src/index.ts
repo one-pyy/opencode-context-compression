@@ -24,6 +24,7 @@ const plugin: Plugin = async (input) => {
         allowDelete: runtimeConfig.allowDelete,
       }),
     },
+    toastService,
   });
 };
 

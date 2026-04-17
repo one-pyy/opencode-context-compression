@@ -33,6 +33,7 @@ import {
   createNoopRuntimeArtifactRecorder,
   type RuntimeArtifactRecorder,
 } from "./runtime-artifacts.js";
+import type { ToastService } from "../services/toast-service.js";
 
 export const ALLOWED_PLUGIN_EXTERNAL_HOOKS = Object.freeze([
   "experimental.chat.messages.transform",
@@ -52,6 +53,7 @@ export interface ContextCompressionPluginHooksOptions {
   readonly sendEntryGate?: SendEntryGate;
   readonly toolExecutionGate?: ToolExecutionGateService;
   readonly compressionMark?: CompressionMarkToolOptions;
+  readonly toastService?: ToastService;
 }
 
 export interface RuntimePluginSeamServices {
@@ -70,6 +72,7 @@ export function createContextCompressionHooks(
     options.runtimeArtifacts ?? createNoopRuntimeArtifactRecorder();
   const sendEntryGate = options.sendEntryGate ?? createStaticSendEntryGate();
   const messagesTransformProjector = options.messagesTransformProjector;
+  const toastService = options.toastService;
   const toolExecutionGate =
     options.toolExecutionGate ?? createDefaultToolExecutionGate();
   const messagesTransform = createMessagesTransformHook({
@@ -135,6 +138,19 @@ export function createContextCompressionHooks(
           projectionDebug: messagesTransformProjector?.getLastProjectionDebugState?.(),
         },
       });
+
+      const projectionDebug = messagesTransformProjector?.getLastProjectionDebugState?.();
+      if (projectionDebug && toastService) {
+        const hasSoftReminder = projectionDebug.reminders?.kinds?.some((k: string) => k.startsWith('soft'));
+        const hasHardReminder = projectionDebug.reminders?.kinds?.some((k: string) => k.startsWith('hard'));
+
+        if (hasSoftReminder) {
+          toastService.showSoftReminder(projectionDebug.totalCompressibleTokenCount ?? 0).catch(() => {});
+        }
+        if (hasHardReminder) {
+          toastService.showHardReminder(projectionDebug.totalCompressibleTokenCount ?? 0).catch(() => {});
+        }
+      }
     },
     "chat.params": async (input, output) => {
       await chatParams(input, output);
