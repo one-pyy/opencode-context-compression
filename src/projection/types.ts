@@ -81,6 +81,7 @@ export interface ProjectedPromptMessage {
   readonly visibleKind?: VisibleKind;
   readonly visibleId?: string;
   readonly contentText: string;
+  readonly parts?: readonly import("../history/history-replay-reader.js").CanonicalHostMessagePart[];
 }
 
 export interface ProjectedMessageSet {

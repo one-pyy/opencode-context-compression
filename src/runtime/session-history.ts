@@ -3,6 +3,7 @@ import type { Message, Part, ToolPart } from "@opencode-ai/sdk";
 import {
   createHistoryReplayReaderFromSources,
   type CanonicalHostMessage,
+  type CanonicalHostMessagePart,
   type ReplayedCompressionMarkToolCall,
   type ReplayHistorySources,
   type ReplayableCompressionMarkToolEntry,
@@ -96,17 +97,44 @@ function collectReplayableEntries(
               id: envelope.info.id,
               role: envelope.info.role,
             },
-            parts: envelope.parts.flatMap((part) =>
-              part.type === "text"
-                ? [
-                    {
-                      type: "text" as const,
-                      text: part.text,
-                      messageId: part.messageID,
-                    },
-                  ]
-                : [],
-            ),
+            parts: envelope.parts.flatMap((part): CanonicalHostMessagePart[] => {
+              if (part.type === "text") {
+                return [{
+                  type: "text" as const,
+                  text: part.text,
+                  messageId: part.messageID,
+                }];
+              }
+              if (part.type === "reasoning") {
+                return [{
+                  type: "reasoning" as const,
+                  text: part.text,
+                  messageId: part.messageID,
+                }];
+              }
+              if (part.type === "tool") {
+                return [{
+                  type: "tool" as const,
+                  tool: part.tool,
+                  callID: part.callID,
+                  state: part.state,
+                  messageId: part.messageID,
+                }];
+              }
+              if (part.type === "file") {
+                return [{
+                  type: "file" as const,
+                  mime: part.mime,
+                  filename: part.filename,
+                  url: part.url,
+                  messageId: part.messageID,
+                }];
+              }
+              return [{
+                messageId: part.messageID,
+                ...part,
+              }];
+            }),
           } satisfies CanonicalHostMessage,
         } satisfies ReplayableHostHistoryEntry),
       );

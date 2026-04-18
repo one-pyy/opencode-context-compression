@@ -60,6 +60,7 @@ function buildTranscriptForMarkNode(
   markNode: MarkTreeNode,
 ): readonly CompactionBuildTranscriptEntry[] {
   const transcript: CompactionBuildTranscriptEntry[] = [];
+  let opaqueSlotCounter = 1;
 
   for (
     let sequence = markNode.startSequence;
@@ -79,12 +80,35 @@ function buildTranscriptForMarkNode(
       );
     }
 
+    let contentText = message.contentText.trim();
+    
+    if (contentText.length === 0) {
+      const toolParts = message.parts.filter((part) => part.type === "tool");
+      if (toolParts.length > 0) {
+        contentText = JSON.stringify(toolParts, null, 2);
+      }
+    }
+    
+    if (contentText.length === 0) {
+      continue;
+    }
+
+    const policy = state.messagePolicies.find(
+      (p) => p.canonicalId === message.canonicalId,
+    );
+
+    const isProtected = policy?.visibleKind === "protected";
+    const opaquePlaceholder = isProtected
+      ? { slot: `S${opaqueSlotCounter++}` }
+      : undefined;
+
     transcript.push({
       role: message.role,
       hostMessageId: message.canonicalId,
       sourceStartSeq: message.sequence,
       sourceEndSeq: message.sequence,
-      contentText: message.contentText,
+      contentText,
+      ...(opaquePlaceholder ? { opaquePlaceholder } : {}),
     });
   }
 

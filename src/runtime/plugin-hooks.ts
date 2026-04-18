@@ -37,6 +37,9 @@ import type { ToastService } from "../services/toast-service.js";
 import { openSessionSidecarRepository } from "../state/sidecar-store.js";
 import { resolvePluginStateDirectory, resolveSessionDatabasePath } from "./sidecar-layout.js";
 import { readPendingToastEvents, markToastEventsProcessed } from "../state/sidecar-store/toast-events.js";
+import { executeBackgroundCompactions } from "./background-compaction-executor.js";
+import type { LoadedRuntimeConfig } from "../config/runtime-config.js";
+import type { PluginInput } from "@opencode-ai/plugin";
 
 export const ALLOWED_PLUGIN_EXTERNAL_HOOKS = Object.freeze([
   "experimental.chat.messages.transform",
@@ -58,6 +61,8 @@ export interface ContextCompressionPluginHooksOptions {
   readonly compressionMark?: CompressionMarkToolOptions;
   readonly toastService?: ToastService;
   readonly pluginDirectory?: string;
+  readonly pluginInput?: PluginInput;
+  readonly runtimeConfig?: LoadedRuntimeConfig;
 }
 
 export interface RuntimePluginSeamServices {
@@ -187,6 +192,20 @@ export function createContextCompressionHooks(
             sidecar.close();
           }
         } catch {
+        }
+      }
+
+      if (options.pluginInput && options.runtimeConfig && options.pluginDirectory) {
+        const projectionState = messagesTransformProjector?.getLastProjectionState?.();
+        if (projectionState) {
+          executeBackgroundCompactions({
+            pluginInput: options.pluginInput,
+            runtimeConfig: options.runtimeConfig,
+            sessionId: sessionID,
+            projectionState,
+          }).catch((error) => {
+            console.error("[plugin-hooks] Background compaction failed:", error);
+          });
         }
       }
     },

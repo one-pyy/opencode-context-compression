@@ -97,13 +97,19 @@ export function createCompressionMarkTool(
 ): ToolDefinition {
   return tool({
     description:
-      "Record one replayable compression or delete mark for a visible message range.",
+      "Record one replayable compression or delete mark for a visible message range. Optionally provide a hint to guide compression strategy.\n\n" +
+      "Hint examples:\n" +
+      "- 'Preserve all file paths and error messages from this debugging session'\n" +
+      "- 'Focus on the final solution, compress intermediate exploration steps'\n" +
+      "- 'Keep tool parameters and results, summarize conversational parts'\n" +
+      "- 'This is context gathering, retain all discovered file locations'",
     args: {
       contractVersion: tool.schema.literal(COMPRESSION_MARK_CONTRACT_VERSION),
       mode: tool.schema.enum(["compact", "delete"]),
       target: tool.schema.object({
         startVisibleMessageID: tool.schema.string().min(1),
         endVisibleMessageID: tool.schema.string().min(1),
+        hint: tool.schema.string().optional(),
       }),
     },
     async execute(args, context) {

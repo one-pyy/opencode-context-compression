@@ -1,4 +1,4 @@
-import { buildStableVisibleId, prependVisibleId } from "../identity/visible-sequence.js";
+import { buildStableVisibleId, prependVisibleId, prependVisibleIdRange } from "../identity/visible-sequence.js";
 import type { ReplayedHistory, ReplayedHistoryMessage } from "../history/history-replay-reader.js";
 import type { CompleteResultGroup } from "../state/result-group-repository.js";
 import type {
@@ -180,18 +180,26 @@ function renderResultGroupFragment(
     } satisfies ProjectedPromptMessage);
   }
 
+  const stableKey = `${resultGroup.markId}:${fragment.fragmentIndex}`;
   const visibleId = buildStableVisibleId(
     "referable",
     fragment.sourceStartSeq,
-    `${resultGroup.markId}:${fragment.fragmentIndex}`,
+    stableKey,
   );
+  const contentText = prependVisibleIdRange(
+    fragment.sourceStartSeq,
+    fragment.sourceEndSeq,
+    stableKey,
+    fragment.replacementText,
+  );
+
   return Object.freeze({
     source: "result-group",
     role: "assistant",
     sourceMarkId: resultGroup.markId,
     visibleKind: "referable",
     visibleId,
-    contentText: prependVisibleId(visibleId, fragment.replacementText),
+    contentText,
   } satisfies ProjectedPromptMessage);
 }
 
@@ -218,6 +226,7 @@ function renderOriginalRange(input: {
         visibleKind: policy.visibleKind,
         visibleId: policy.visibleId,
         contentText: prependVisibleId(policy.visibleId, message.contentText),
+        parts: message.parts,
       } satisfies ProjectedPromptMessage),
     );
   }

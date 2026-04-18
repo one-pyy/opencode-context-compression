@@ -46,7 +46,7 @@ Integrate Toast notification system into opencode-context-compression plugin for
 
 ### M3: Compression Lifecycle
 
-- [ ] **T6**: Add compression start toast notification
+- [x] **T6**: Add compression start toast notification
   - Hook into compression start event
   - Call ToastService.showCompressionStarted
   - **Parallelizable**: Depends on T1
@@ -59,14 +59,14 @@ Integrate Toast notification system into opencode-context-compression plugin for
   - **Parallelizable**: Independent
   - **Files**: `src/utils/token-counter.ts` (new)
 
-- [ ] **T8**: Add compression completion toast with compression ratio
+- [x] **T8**: Add compression completion toast with compression ratio
   - Hook into compression completion event
   - Calculate compression ratio using TokenCounter
   - Call ToastService.showCompressionCompleted with ratio
   - **Parallelizable**: Depends on T1, T7
   - **Files**: Compression orchestrator (TBD after exploration)
 
-- [ ] **T9**: Add compression failure toast notification
+- [x] **T9**: Add compression failure toast notification
   - Hook into compression error handling
   - Call ToastService.showCompressionFailed with error message
   - **Parallelizable**: Depends on T1

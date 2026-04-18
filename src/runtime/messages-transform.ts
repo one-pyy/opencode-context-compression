@@ -23,6 +23,7 @@ export interface MessagesTransformProjector {
     | Promise<readonly MessagesTransformEnvelope[]>
     | readonly MessagesTransformEnvelope[];
   getLastProjectionDebugState?(): MessagesTransformProjectionDebugState | undefined;
+  getLastProjectionState?(): ProjectedMessageSet | undefined;
 }
 
 export interface MessagesTransformProjectionDebugState {
@@ -137,15 +138,20 @@ export function createProjectionBackedMessagesTransformProjector(options: {
   ) => Promise<ProjectedMessageSet> | ProjectedMessageSet;
 }): MessagesTransformProjector {
   let lastProjectionDebugState: MessagesTransformProjectionDebugState | undefined;
+  let lastProjectionState: ProjectedMessageSet | undefined;
 
   return {
     async project(input) {
       const projection = await options.buildProjection(input);
       lastProjectionDebugState = summarizeProjectionDebugState(projection);
+      lastProjectionState = projection;
       return projectProjectionToEnvelopes(projection);
     },
     getLastProjectionDebugState() {
       return lastProjectionDebugState;
+    },
+    getLastProjectionState() {
+      return lastProjectionState;
     },
   } satisfies MessagesTransformProjector;
 }
@@ -198,6 +204,81 @@ export function projectProjectionToEnvelopes(
         message.visibleId ??
         `${message.source}-${projection.sessionId}-${index + 1}`;
 
+      const parts: MessagesTransformEnvelope["parts"] = [];
+
+      if (message.parts && message.parts.length > 0) {
+        let hasTextPart = false;
+        
+        for (const part of message.parts) {
+          if (part.type === "text") {
+            // Use message.contentText for the first text part to preserve visible ID prefix
+            const isFirstTextPart = !hasTextPart;
+            hasTextPart = true;
+            parts.push({
+              id: `${messageId}:text:${parts.length}`,
+              sessionID: projection.sessionId,
+              messageID: messageId,
+              type: "text",
+              text: isFirstTextPart ? message.contentText : (part.text as string),
+            });
+          } else if (part.type === "reasoning") {
+            parts.push({
+              id: `${messageId}:reasoning:${parts.length}`,
+              sessionID: projection.sessionId,
+              messageID: messageId,
+              type: "reasoning",
+              text: part.text,
+            } as any);
+          } else if (part.type === "tool") {
+            parts.push({
+              id: `${messageId}:tool:${parts.length}`,
+              sessionID: projection.sessionId,
+              messageID: messageId,
+              type: "tool",
+              tool: part.tool,
+              callID: part.callID,
+              state: part.state,
+            } as any);
+          } else if (part.type === "file") {
+            parts.push({
+              id: `${messageId}:file:${parts.length}`,
+              sessionID: projection.sessionId,
+              messageID: messageId,
+              type: "file",
+              mime: part.mime,
+              filename: part.filename,
+              url: part.url,
+            } as any);
+          } else {
+            parts.push({
+              ...part,
+              id: `${messageId}:${part.type}:${parts.length}`,
+              sessionID: projection.sessionId,
+              messageID: messageId,
+            } as any);
+          }
+        }
+        
+        // If no text part exists, add synthetic shell with visible ID
+        if (!hasTextPart) {
+          parts.unshift({
+            id: `${messageId}:text:shell`,
+            sessionID: projection.sessionId,
+            messageID: messageId,
+            type: "text",
+            text: message.contentText,
+          });
+        }
+      } else {
+        parts.push({
+          id: `${messageId}:text`,
+          sessionID: projection.sessionId,
+          messageID: messageId,
+          type: "text",
+          text: message.contentText,
+        });
+      }
+
       return {
         info: {
           id: messageId,
@@ -210,15 +291,7 @@ export function projectProjectionToEnvelopes(
             modelID: "projection-replay",
           },
         },
-        parts: [
-          {
-            id: `${messageId}:text`,
-            sessionID: projection.sessionId,
-            messageID: messageId,
-            type: "text",
-            text: message.contentText,
-          },
-        ],
+        parts,
       } as MessagesTransformEnvelope;
     }),
   );

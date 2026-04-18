@@ -56,6 +56,23 @@ export function prependVisibleId(
   return contentText.trim().length === 0 ? prefix : `${prefix} ${contentText}`;
 }
 
+export function prependVisibleIdRange(
+  startSeq: number,
+  endSeq: number,
+  stableKey: string,
+  contentText: string,
+): string {
+  if (startSeq === endSeq) {
+    const visibleId = buildStableVisibleId("referable", startSeq, stableKey);
+    return prependVisibleId(visibleId, contentText);
+  }
+
+  const startId = buildStableVisibleId("referable", startSeq, stableKey);
+  const endId = buildStableVisibleId("referable", endSeq, stableKey);
+  const prefix = `[${startId}~${endId}]`;
+  return contentText.trim().length === 0 ? prefix : `${prefix} ${contentText}`;
+}
+
 export function parseVisibleId(visibleId: string): ParsedVisibleId {
   const [kind, seq, ...suffixParts] = visibleId.split("_");
   const visibleSeq = Number.parseInt(seq ?? "", 10);

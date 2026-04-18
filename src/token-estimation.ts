@@ -35,13 +35,34 @@ function estimateTokenCountFromCharacters(content: string): number {
 function readEnvelopeText(envelope: TransformEnvelope): string {
   return envelope.parts
     .flatMap((part) => {
-      if (
-        part.type === "text" &&
-        typeof (part as { text?: unknown }).text === "string"
-      ) {
+      if (part.type === "text" && typeof (part as { text?: unknown }).text === "string") {
         return [(part as { text: string }).text];
       }
-
+      if (part.type === "reasoning" && typeof (part as { text?: unknown }).text === "string") {
+        return [(part as { text: string }).text];
+      }
+      if (part.type === "tool") {
+        const toolPart = part as any;
+        const toolName = toolPart.tool || "unknown_tool";
+        const callID = toolPart.callID || "";
+        const state = toolPart.state || {};
+        
+        if (state.status === "completed" && typeof state.output === "string") {
+          return [`[Tool: ${toolName}] ${state.output}`];
+        }
+        if (state.status === "running" && typeof state.title === "string") {
+          return [`[Tool: ${toolName}] Running: ${state.title}`];
+        }
+        if (state.status === "pending") {
+          return [`[Tool: ${toolName}] Pending`];
+        }
+        return [`[Tool: ${toolName}]`];
+      }
+      if (part.type === "file") {
+        const filePart = part as any;
+        const filename = filePart.filename || "file";
+        return [`[File: ${filename}]`];
+      }
       return [];
     })
     .join("\n")

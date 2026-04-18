@@ -22,6 +22,7 @@ import {
 } from "../state/sidecar-store.js";
 import { createResultGroupRepository } from "../state/result-group-repository.js";
 import { createFileBackedRuntimeArtifactRecorder } from "./runtime-artifacts.js";
+import { createCompactionDispatcher } from "./compaction-dispatcher.js";
 
 export function createDefaultRuntimePluginSeamServices(
   input: PluginInput,
@@ -58,6 +59,9 @@ export function createDefaultRuntimePluginSeamServices(
             startSeq,
             endSeq,
           }),
+        dispatch: createCompactionDispatcher({
+          pluginDirectory: input.directory,
+        }),
       }),
     }),
     sendEntryGate: createFileLockBackedSendEntryGate({

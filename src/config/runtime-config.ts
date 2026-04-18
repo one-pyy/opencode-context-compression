@@ -50,6 +50,7 @@ interface RuntimeConfigInput {
   readonly schedulerMarkThreshold?: unknown;
   readonly runtimeLogPath?: unknown;
   readonly seamLogPath?: unknown;
+  readonly debugSnapshotPath?: unknown;
   readonly logging?: {
     readonly level?: unknown;
   };
@@ -149,6 +150,7 @@ export interface LoadedRuntimeConfig {
       readonly compressionFailed: number;
     };
   };
+  readonly transport?: import("../compaction/transport/types.js").CompactionTransport;
 }
 
 export class OpencodeContextCompressionRuntimeConfigError extends Error {
@@ -215,6 +217,7 @@ const ALLOWED_ROOT_KEYS = new Set([
   "schedulerMarkThreshold",
   "runtimeLogPath",
   "seamLogPath",
+  "debugSnapshotPath",
   "logging",
   "compressing",
   "reminder",
@@ -292,7 +295,8 @@ export async function loadRuntimeConfig(
       fieldPath: seamLogOverride ? RUNTIME_CONFIG_ENV.seamLogPath : "seamLogPath",
     },
   );
-  const debugSnapshotValue = readOptionalEnv(env, RUNTIME_CONFIG_ENV.debugSnapshotPath);
+  const debugSnapshotOverride = readOptionalEnv(env, RUNTIME_CONFIG_ENV.debugSnapshotPath);
+  const debugSnapshotValue = debugSnapshotOverride ?? parsed.debugSnapshotPath;
 
   const prompt = resolvePromptAsset(promptPath, {
     kind: "compaction prompt asset",
@@ -402,10 +406,13 @@ export async function loadRuntimeConfig(
     runtimeLogPath,
     seamLogPath,
     debugSnapshotPath: debugSnapshotValue
-      ? resolveRuntimePathFromRepoRoot(debugSnapshotValue, {
-          repoRoot,
-          fieldPath: RUNTIME_CONFIG_ENV.debugSnapshotPath,
-        })
+      ? resolveRuntimePathFromRepoRoot(
+          typeof debugSnapshotValue === "string" ? debugSnapshotValue : readRequiredString(debugSnapshotValue, "debugSnapshotPath"),
+          {
+            repoRoot,
+            fieldPath: debugSnapshotOverride ? RUNTIME_CONFIG_ENV.debugSnapshotPath : "debugSnapshotPath",
+          }
+        )
       : undefined,
     logging: {
       level: loggingLevel,

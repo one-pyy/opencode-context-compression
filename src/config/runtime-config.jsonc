@@ -14,13 +14,14 @@
   "schedulerMarkThreshold": 1,
   "runtimeLogPath": "logs/runtime-events.jsonl",
   "seamLogPath": "logs/seam-observation.jsonl",
-  "markedTokenAutoCompactionThreshold": 60000,
+  "debugSnapshotPath": "logs/debug-snapshots",
+  "markedTokenAutoCompactionThreshold": 5000,
   "smallUserMessageThreshold": 1536,
   "reminder": {
     // Reminder prompt assets are plain-text files selected by severity × allowDelete.
-    "hsoft": 60000,
-    "hhard": 200000,
-    "softRepeatEveryTokens": 30000,
+    "hsoft": 10000,
+    "hhard": 31000,
+    "softRepeatEveryTokens": 10000,
     "hardRepeatEveryTokens": 10000,
     "promptPaths": {
       "compactOnly": {
@@ -34,7 +35,7 @@
     }
   },
   "logging": {
-    "level": "off"
+    "level": "debug"
   },
   "compressing": {
     "timeoutSeconds": 600

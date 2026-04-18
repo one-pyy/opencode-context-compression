@@ -13,6 +13,7 @@ export type CompressionMarkErrorCode =
 export interface CompressionMarkTarget {
   readonly startVisibleMessageID: string;
   readonly endVisibleMessageID: string;
+  readonly hint?: string;
 }
 
 export interface CompressionMarkInputV1 {

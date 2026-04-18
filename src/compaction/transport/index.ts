@@ -18,6 +18,12 @@ export {
   type ScriptedCompactionTransportStep,
 } from "./scripted.js";
 export {
+  createPluginClientCompactionTransport,
+} from "./plugin-client.js";
+export {
+  createDirectLLMCompactionTransport,
+} from "./direct-llm.js";
+export {
   validateCompactionTransportPayload,
 } from "./validation.js";
 export type {

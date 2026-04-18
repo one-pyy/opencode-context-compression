@@ -6,11 +6,12 @@ import type {
 
 export type CanonicalHostMessageRole = "system" | "user" | "assistant" | "tool";
 
-export interface CanonicalHostMessagePart {
-  readonly type: "text";
-  readonly text: string;
-  readonly messageId?: string;
-}
+export type CanonicalHostMessagePart = 
+  | { readonly type: "text"; readonly text: string; readonly messageId?: string; }
+  | { readonly type: "reasoning"; readonly text: string; readonly messageId?: string; }
+  | { readonly type: "tool"; readonly tool: string; readonly callID: string; readonly state: unknown; readonly messageId?: string; }
+  | { readonly type: "file"; readonly mime: string; readonly filename?: string; readonly url: string; readonly messageId?: string; }
+  | { readonly type: string; readonly messageId?: string; [key: string]: unknown; };
 
 export interface CanonicalHostMessage {
   readonly info: {
@@ -25,6 +26,7 @@ export interface ReplayedHistoryMessage {
   readonly canonicalId: string;
   readonly role: CanonicalHostMessageRole;
   readonly contentText: string;
+  readonly parts: readonly CanonicalHostMessagePart[];
   readonly hostMessage: CanonicalHostMessage;
 }
 
@@ -35,6 +37,7 @@ export interface ReplayedMarkIntent {
   readonly endVisibleMessageId: string;
   readonly sourceMessageId: string;
   readonly sourceSequence: number;
+  readonly hint?: string;
 }
 
 export interface ReplayedCompressionMarkToolCall {
@@ -147,6 +150,7 @@ export function replayHistoryFromSources(
           canonicalId,
           role: entry.message.info.role,
           contentText: readCanonicalMessageText(entry.message),
+          parts: entry.message.parts,
           hostMessage: entry.message,
         } satisfies ReplayedHistoryMessage);
       }),
@@ -190,7 +194,12 @@ export function replayHistoryFromSources(
 
 function readCanonicalMessageText(message: CanonicalHostMessage): string {
   return message.parts
-    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .flatMap((part) => {
+      if (part.type === "text" || part.type === "reasoning") {
+        return [part.text];
+      }
+      return [];
+    })
     .join("\n")
     .trim();
 }

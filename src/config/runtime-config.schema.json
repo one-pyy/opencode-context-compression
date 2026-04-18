@@ -60,6 +60,11 @@
       "minLength": 1,
       "description": "Repo-relative or absolute seam observation log path."
     },
+    "debugSnapshotPath": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Repo-relative or absolute debug snapshot directory path for messages.transform input/output snapshots."
+    },
     "logging": {
       "type": "object",
       "additionalProperties": false,
