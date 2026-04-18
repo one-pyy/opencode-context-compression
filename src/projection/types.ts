@@ -19,6 +19,7 @@ export interface MarkTreeNode {
   readonly endSequence: number;
   readonly depth: number;
   readonly children: readonly MarkTreeNode[];
+  readonly hint?: string;
 }
 
 export interface MarkTree {

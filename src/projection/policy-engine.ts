@@ -127,6 +127,7 @@ export function createFlatPolicyEngine(
           startSequence,
           endSequence,
           children: [],
+          hint: mark.hint,
         };
         const conflict = insertMarkTreeNode(roots, mutableNode);
         if (conflict) {

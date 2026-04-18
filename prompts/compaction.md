@@ -17,7 +17,16 @@ Some messages in the input are wrapped in `<opaque slot="Sx">...</opaque>`. Thes
 
 # Core Instructions
 
-## 1. Anti-Over-Compression
+## 1. Compression Hint (Optional)
+If a "Compression hint" is provided at the start of the input, use it to guide your compression strategy. The hint describes what aspects of the conversation should be prioritized or preserved.
+
+Examples:
+- "Preserve all file paths and error messages from this debugging session" → Keep exact paths and error details
+- "Focus on the final solution, compress intermediate exploration steps" → Summarize trial-and-error, detail the final approach
+- "Keep tool parameters and results, summarize conversational parts" → Retain technical details, compress pleasantries
+- "This is context gathering, retain all discovered file locations" → List all files found, compress the search process
+
+## 2. Anti-Over-Compression
 - **Entities & Numbers:** Retain ALL file paths, function names, specific error codes, line numbers, and tool parameters.
 - **Logic Visualization:** Use bullet points to list parallel actions or sequential tool uses. Do not merge 5 tool actions into 1 vague sentence like "I searched the codebase." List them.
 - **NO JSON REGURGITATION:** DO NOT regurgitate or copy the raw JSON tool formats (e.g. `[Tool Use: ...] { ... }`). You MUST synthesize tool invocations into fluid natural language summaries while retaining the exact arguments (file paths, search terms, commands).
@@ -35,11 +44,11 @@ Example transformation:
 ```
 → "Read `/root/DESIGN.md` (1000 lines)."
 
-## 2. Runtime mode and delete permission
+## 3. Runtime mode and delete permission
 - `executionMode=compact` — produce the structured memory trace.
 - `executionMode=delete` — produce a concise delete notice (only if instructed by the user).
 
-## 3. Planning Phase
+## 4. Planning Phase
 Before generating the final trace, you MUST output an `<analysis>` block.
 - List all `<opaque slot="Sx">` tags found in the input.
 - List the key entities, paths, and facts that must survive the compression.

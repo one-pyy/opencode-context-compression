@@ -21,6 +21,7 @@ export interface CompactionTransportRequest {
   readonly transcript: readonly CompactionTransportTranscriptEntry[];
   readonly timeoutMs: number;
   readonly signal?: AbortSignal;
+  readonly hint?: string;
 }
 
 export interface CompactionTransport {

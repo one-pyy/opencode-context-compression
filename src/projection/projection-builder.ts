@@ -180,7 +180,7 @@ function injectReminderArtifacts(
       projected.push(
         Object.freeze({
           source: "reminder",
-          role: "system",
+          role: "user",
           visibleId: reminder.visibleId,
           contentText: reminder.contentText,
         } satisfies ProjectedPromptMessage),

@@ -104,26 +104,26 @@ export function validateCompressionMarkInput(
   const record = asRecord(input);
   if (record === undefined) {
     return invalidRange(
-      "compression_mark input must be an object with contractVersion, mode, and target.startVisibleMessageID / target.endVisibleMessageID.",
+      'compression_mark input must be a JSON object. Example: {"contractVersion":"v1","mode":"compact","target":{"startVisibleMessageID":"msg_abc","endVisibleMessageID":"msg_xyz"}}',
     );
   }
 
   if (record.contractVersion !== COMPRESSION_MARK_CONTRACT_VERSION) {
     return invalidRange(
-      "compression_mark contractVersion must be 'v1'.",
+      `compression_mark contractVersion must be exactly "v1" (current version). You provided: ${JSON.stringify(record.contractVersion)}`,
     );
   }
 
   if (record.mode !== "compact" && record.mode !== "delete") {
     return invalidRange(
-      "compression_mark mode must be 'compact' or 'delete'.",
+      `compression_mark mode must be "compact" (recommended) or "delete". You provided: ${JSON.stringify(record.mode)}`,
     );
   }
 
   const target = asRecord(record.target);
   if (target === undefined || Array.isArray(record.target)) {
     return invalidRange(
-      "compression_mark target must be one object and must use target.startVisibleMessageID / target.endVisibleMessageID. Batch ranges are not supported.",
+      'compression_mark target must be a single object with startVisibleMessageID and endVisibleMessageID. Example: {"startVisibleMessageID":"msg_abc","endVisibleMessageID":"msg_xyz"}. Batch ranges are not supported.',
     );
   }
 
@@ -133,9 +133,11 @@ export function validateCompressionMarkInput(
   const endVisibleMessageID = readNonEmptyString(target.endVisibleMessageID);
   if (startVisibleMessageID === undefined || endVisibleMessageID === undefined) {
     return invalidRange(
-      "compression_mark target.startVisibleMessageID and target.endVisibleMessageID must both be non-empty strings.",
+      `compression_mark target.startVisibleMessageID and target.endVisibleMessageID must both be non-empty strings (format: msg_...). You provided: start=${JSON.stringify(target.startVisibleMessageID)}, end=${JSON.stringify(target.endVisibleMessageID)}`,
     );
   }
+
+  const hint = target.hint !== undefined ? readNonEmptyString(target.hint) : undefined;
 
   return {
     ok: true,
@@ -145,6 +147,7 @@ export function validateCompressionMarkInput(
       target: {
         startVisibleMessageID,
         endVisibleMessageID,
+        ...(hint !== undefined ? { hint } : {}),
       },
     },
   };

@@ -26,6 +26,7 @@ export interface BuildCompactionTransportRequestInput {
   readonly transcript: readonly BuildCompactionTransportTranscriptEntryInput[];
   readonly timeoutMs: number;
   readonly signal?: AbortSignal;
+  readonly hint?: string;
 }
 
 export function buildCompactionTransportRequest(
@@ -92,6 +93,7 @@ export function buildCompactionTransportRequest(
     transcript,
     timeoutMs,
     signal: input.signal,
+    hint: input.hint,
   } satisfies CompactionTransportRequest);
 }
 

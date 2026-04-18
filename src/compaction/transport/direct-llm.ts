@@ -41,7 +41,7 @@ export function createDirectLLMCompactionTransport(
         const { providerID, modelID } = parseModel(request.model);
         
         const systemPrompt = request.promptText;
-        const userMessage = buildUserMessage(request.transcript, request.executionMode);
+        const userMessage = buildUserMessage(request.transcript, request.executionMode, request.hint);
 
         const contentText = await callLLM(
           pluginInput,
@@ -77,8 +77,15 @@ export function createDirectLLMCompactionTransport(
 function buildUserMessage(
   transcript: readonly CompactionTransportTranscriptEntry[],
   executionMode: "compact" | "delete",
+  hint?: string,
 ): string {
-  let message = `executionMode=${executionMode}\nallowDelete=${executionMode === "delete" ? "true" : "false"}\n\n`;
+  let message = `executionMode=${executionMode}\nallowDelete=${executionMode === "delete" ? "true" : "false"}\n`;
+  
+  if (hint) {
+    message += `\nCompression hint: ${hint}\n`;
+  }
+  
+  message += `\n`;
 
   const opaqueSlots: string[] = [];
 

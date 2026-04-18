@@ -44,14 +44,14 @@ export function createCompressionMarkAdmission(options: {
     if (input.sessionID.trim().length === 0) {
       return createCompressionMarkFailure(
         "SESSION_NOT_READY",
-        "compression_mark requires a non-empty sessionID before replay and scheduling can reason about the request.",
+        "compression_mark cannot be used yet because the session is not ready. This typically happens at the very start of a conversation before any messages exist.",
       );
     }
 
     if (input.mode === "delete" && !options.allowDelete) {
       return createCompressionMarkFailure(
         "DELETE_NOT_ALLOWED",
-        "compression_mark mode='delete' is blocked by the current delete-admission policy.",
+        'compression_mark mode="delete" is not allowed in this session. Use mode="compact" instead to compress messages into summaries while preserving important information.',
       );
     }
 
@@ -97,20 +97,56 @@ export function createCompressionMarkTool(
 ): ToolDefinition {
   return tool({
     description:
-      "Record one replayable compression or delete mark for a visible message range. Optionally provide a hint to guide compression strategy.\n\n" +
-      "Hint examples:\n" +
+      "Mark a range of conversation messages for compression or deletion. This reduces context size while preserving important information.\n\n" +
+      "## When to use:\n" +
+      "- **compact**: Compress verbose conversations into dense summaries (recommended for most cases)\n" +
+      "- **delete**: Completely remove messages (use only for truly irrelevant content)\n\n" +
+      "## How to identify message IDs:\n" +
+      "Look for visible message IDs in the conversation history. They appear as `msg_...` identifiers.\n" +
+      "Example: To compress messages from msg_abc to msg_xyz, use those as start/end IDs.\n\n" +
+      "## Hint (optional):\n" +
+      "Guide the compression strategy with a brief instruction:\n" +
       "- 'Preserve all file paths and error messages from this debugging session'\n" +
       "- 'Focus on the final solution, compress intermediate exploration steps'\n" +
       "- 'Keep tool parameters and results, summarize conversational parts'\n" +
-      "- 'This is context gathering, retain all discovered file locations'",
+      "- 'This is context gathering, retain all discovered file locations'\n\n" +
+      "## Example usage:\n" +
+      "```json\n" +
+      "{\n" +
+      '  "contractVersion": "v1",\n' +
+      '  "mode": "compact",\n' +
+      '  "target": {\n' +
+      '    "startVisibleMessageID": "msg_d9c014aa2001Fj6KX6ypuz0nNf",\n' +
+      '    "endVisibleMessageID": "msg_d9c01b4e2001def",\n' +
+      '    "hint": "Preserve file paths and error messages"\n' +
+      "  }\n" +
+      "}\n" +
+      "```\n\n" +
+      "## What happens after:\n" +
+      "- Returns a markId for tracking\n" +
+      "- Compression happens asynchronously in the background\n" +
+      "- Compressed content replaces the original range in future context\n" +
+      "- You can continue working immediately; compression doesn't block your workflow",
     args: {
-      contractVersion: tool.schema.literal(COMPRESSION_MARK_CONTRACT_VERSION),
-      mode: tool.schema.enum(["compact", "delete"]),
+      contractVersion: tool.schema.literal(COMPRESSION_MARK_CONTRACT_VERSION).describe(
+        'Must be "v1" (the current contract version)'
+      ),
+      mode: tool.schema.enum(["compact", "delete"]).describe(
+        'Use "compact" to compress messages into summaries, or "delete" to remove them entirely'
+      ),
       target: tool.schema.object({
-        startVisibleMessageID: tool.schema.string().min(1),
-        endVisibleMessageID: tool.schema.string().min(1),
-        hint: tool.schema.string().optional(),
-      }),
+        startVisibleMessageID: tool.schema.string().min(1).describe(
+          "The visible message ID where the range starts (format: msg_...)"
+        ),
+        endVisibleMessageID: tool.schema.string().min(1).describe(
+          "The visible message ID where the range ends (format: msg_...)"
+        ),
+        hint: tool.schema.string().optional().describe(
+          "Optional guidance for the compression strategy (e.g., 'Preserve all file paths')"
+        ),
+      }).describe(
+        "The target range and optional compression hint"
+      ),
     },
     async execute(args, context) {
       const result = await executeCompressionMark(

@@ -15,13 +15,13 @@
   "runtimeLogPath": "logs/runtime-events.jsonl",
   "seamLogPath": "logs/seam-observation.jsonl",
   "debugSnapshotPath": "logs/debug-snapshots",
-  "markedTokenAutoCompactionThreshold": 5000,
+  "markedTokenAutoCompactionThreshold": 50000,
   "smallUserMessageThreshold": 1536,
   "reminder": {
     // Reminder prompt assets are plain-text files selected by severity × allowDelete.
-    "hsoft": 10000,
-    "hhard": 31000,
-    "softRepeatEveryTokens": 10000,
+    "hsoft": 75000,
+    "hhard": 150000,
+    "softRepeatEveryTokens": 30000,
     "hardRepeatEveryTokens": 10000,
     "promptPaths": {
       "compactOnly": {

@@ -39,6 +39,7 @@ export function buildCompactionRunInputForMark(
       timeoutMs: options.timeoutMs,
       signal: options.signal,
       transcript,
+      hint: markNode.hint,
     },
     ...(options.compactionModels
       ? { compactionModels: options.compactionModels }

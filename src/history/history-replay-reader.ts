@@ -169,6 +169,7 @@ export function replayHistoryFromSources(
             endVisibleMessageId: entry.input.target.endVisibleMessageID,
             sourceMessageId: entry.sourceMessageId,
             sourceSequence: entry.sequence,
+            hint: entry.input.target.hint,
           } satisfies ReplayedMarkIntent),
         ];
       }),
