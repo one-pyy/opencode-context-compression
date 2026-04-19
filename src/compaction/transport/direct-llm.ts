@@ -3,6 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import { parse as parseJsonc } from "jsonc-parser";
 import type { PluginInput } from "@opencode-ai/plugin";
+import type { RuntimeArtifactRecorder } from "../../runtime/runtime-artifacts.js";
 import {
   CompactionTransportAbortedError,
   CompactionTransportFatalError,
@@ -17,6 +18,9 @@ import type {
 
 export function createDirectLLMCompactionTransport(
   pluginInput: PluginInput,
+  options: {
+    readonly runtimeArtifacts: RuntimeArtifactRecorder;
+  },
 ): CompactionTransport {
   return {
     async invoke(request: CompactionTransportRequest): Promise<unknown> {
@@ -45,6 +49,8 @@ export function createDirectLLMCompactionTransport(
 
         const contentText = await callLLM(
           pluginInput,
+          options.runtimeArtifacts,
+          request.sessionID,
           providerID,
           modelID,
           systemPrompt,
@@ -111,13 +117,20 @@ function buildUserMessage(
 
 async function callLLM(
   pluginInput: PluginInput,
+  runtimeArtifacts: RuntimeArtifactRecorder,
+  sessionID: string,
   providerID: string,
   modelID: string,
   systemPrompt: string,
   userMessage: string,
   signal?: AbortSignal,
 ): Promise<string> {
-  const provider = await getProviderConfig(pluginInput, providerID);
+  const provider = await getProviderConfig(
+    pluginInput,
+    runtimeArtifacts,
+    sessionID,
+    providerID,
+  );
 
   if (provider.type === "gemini") {
     return callGemini(provider, modelID, systemPrompt, userMessage, signal);
@@ -144,46 +157,114 @@ interface LLMProviderConfig {
 
 async function getProviderConfig(
   _pluginInput: PluginInput,
+  runtimeArtifacts: RuntimeArtifactRecorder,
+  sessionID: string,
   providerID: string,
 ): Promise<LLMProviderConfig> {
   try {
     const configPath = path.join(os.homedir(), ".config/opencode/opencode.jsonc");
-    
-    console.log(`[direct-llm] Reading config from: ${configPath}`);
+
+    await runtimeArtifacts.writeDiagnostic({
+      sessionID,
+      scope: "direct-llm",
+      severity: "debug",
+      message: "Reading OpenCode provider config for direct LLM transport.",
+      payload: { configPath, providerID },
+    });
     
     if (!fs.existsSync(configPath)) {
       throw new Error(`OpenCode config not found at ${configPath}`);
     }
 
     const configContent = fs.readFileSync(configPath, "utf-8");
-    console.log(`[direct-llm] Config file size: ${configContent.length} bytes`);
+    await runtimeArtifacts.writeDiagnostic({
+      sessionID,
+      scope: "direct-llm",
+      severity: "debug",
+      message: "Loaded OpenCode provider config file.",
+      payload: { providerID, configSizeBytes: configContent.length },
+    });
     
     let config: any;
     try {
       config = parseJsonc(configContent);
-      console.log(`[direct-llm] Config parsed successfully`);
+      await runtimeArtifacts.writeDiagnostic({
+        sessionID,
+        scope: "direct-llm",
+        severity: "debug",
+        message: "Parsed OpenCode provider config successfully.",
+        payload: { providerID },
+      });
     } catch (parseError) {
-      console.error(`[direct-llm] JSONC parse error:`, parseError);
+      await runtimeArtifacts.writeDiagnostic({
+        sessionID,
+        scope: "direct-llm",
+        severity: "error",
+        message: "Failed to parse OpenCode provider config JSONC.",
+        payload: { providerID, error: formatError(parseError) },
+      });
       throw parseError;
     }
 
     const providers = config?.provider as Record<string, any> | undefined;
-    console.log(`[direct-llm] Available providers:`, providers ? Object.keys(providers) : 'none');
+    await runtimeArtifacts.writeDiagnostic({
+      sessionID,
+      scope: "direct-llm",
+      severity: "debug",
+      message: "Enumerated available providers from config.",
+      payload: {
+        providerID,
+        availableProviders: providers ? Object.keys(providers) : [],
+      },
+    });
     
     const providerData = providers?.[providerID];
 
     if (!providerData) {
-      console.error(`[direct-llm] Provider ${providerID} not found. Available:`, Object.keys(providers || {}));
+      await runtimeArtifacts.writeDiagnostic({
+        sessionID,
+        scope: "direct-llm",
+        severity: "error",
+        message: "Requested provider is missing from config.",
+        payload: {
+          providerID,
+          availableProviders: Object.keys(providers || {}),
+        },
+      });
       throw new Error(`Provider ${providerID} not found in config`);
     }
-
-    console.log(`[direct-llm] Provider ${providerID} data:`, JSON.stringify(providerData, null, 2));
 
     const baseURL = providerData.options?.baseURL as string | undefined;
     const apiKey = providerData.options?.apiKey as string | undefined;
 
+    await runtimeArtifacts.writeDiagnostic({
+      sessionID,
+      scope: "direct-llm",
+      severity: "debug",
+      message: "Resolved provider configuration shape.",
+      payload: {
+        providerID,
+        optionKeys:
+          providerData !== null && typeof providerData === "object"
+            ? Object.keys(providerData as Record<string, unknown>)
+            : [],
+        hasBaseURL: Boolean(baseURL),
+        hasApiKey: Boolean(apiKey),
+      },
+    });
+
     if (!baseURL || !apiKey) {
-      console.error(`[direct-llm] Provider ${providerID} missing credentials. baseURL: ${!!baseURL}, apiKey: ${!!apiKey}`);
+      await runtimeArtifacts.writeDiagnostic({
+        sessionID,
+        scope: "direct-llm",
+        severity: "error",
+        message: "Provider config is missing required credentials.",
+        payload: {
+          providerID,
+          hasBaseURL: Boolean(baseURL),
+          hasApiKey: Boolean(apiKey),
+        },
+      });
       throw new Error(`Provider ${providerID} missing baseURL or apiKey`);
     }
 
@@ -198,10 +279,22 @@ async function getProviderConfig(
       throw new Error(`Unknown provider type for ${providerID}`);
     }
 
-    console.log(`[direct-llm] Provider config resolved: type=${type}, baseURL=${baseURL}`);
+    await runtimeArtifacts.writeDiagnostic({
+      sessionID,
+      scope: "direct-llm",
+      severity: "debug",
+      message: "Resolved provider type for direct LLM transport.",
+      payload: { providerID, providerType: type, hasBaseURL: true },
+    });
     return { type, baseURL, apiKey };
   } catch (error) {
-    console.error(`[direct-llm] Failed to get provider config:`, error);
+    await runtimeArtifacts.writeDiagnostic({
+      sessionID,
+      scope: "direct-llm",
+      severity: "error",
+      message: "Failed to resolve provider config for direct LLM transport.",
+      payload: { providerID, error: formatError(error) },
+    });
     throw new CompactionTransportFatalError(
       `Failed to get provider config: ${formatError(error)}`,
     );

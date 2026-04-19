@@ -1,6 +1,7 @@
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
+import type { RuntimeLogLevel } from "../config/runtime-config.js";
 import { resolveSessionSidecarLayout } from "./sidecar-layout.js";
 
 export interface RuntimeEventRecord {
@@ -12,6 +13,17 @@ export interface RuntimeEventRecord {
     | "tool.execute.before";
   readonly stage: string;
   readonly payload: unknown;
+}
+
+export type RuntimeDiagnosticSeverity = "error" | "info" | "debug";
+
+export interface RuntimeDiagnosticRecord {
+  readonly createdAt: string;
+  readonly sessionID: string;
+  readonly scope: string;
+  readonly severity: RuntimeDiagnosticSeverity;
+  readonly message: string;
+  readonly payload?: unknown;
 }
 
 export interface RuntimeArtifactRecorder {
@@ -26,6 +38,13 @@ export interface RuntimeArtifactRecorder {
     readonly phase: "in" | "out";
     readonly payload: unknown;
   }): Promise<void>;
+  writeDiagnostic(input: {
+    readonly sessionID: string;
+    readonly scope: string;
+    readonly severity: RuntimeDiagnosticSeverity;
+    readonly message: string;
+    readonly payload?: unknown;
+  }): Promise<void>;
 }
 
 export function createNoopRuntimeArtifactRecorder(): RuntimeArtifactRecorder {
@@ -36,6 +55,9 @@ export function createNoopRuntimeArtifactRecorder(): RuntimeArtifactRecorder {
     async writeMessagesTransformSnapshot() {
       return;
     },
+    async writeDiagnostic() {
+      return;
+    },
   } satisfies RuntimeArtifactRecorder;
 }
 
@@ -44,6 +66,7 @@ export function createFileBackedRuntimeArtifactRecorder(options: {
   readonly runtimeLogPath: string;
   readonly seamLogPath: string;
   readonly debugSnapshotPath?: string;
+  readonly loggingLevel: RuntimeLogLevel;
   readonly now?: () => string;
 }): RuntimeArtifactRecorder {
   const now = options.now ?? (() => new Date().toISOString());
@@ -92,7 +115,45 @@ export function createFileBackedRuntimeArtifactRecorder(options: {
       await ensureParentDirectory(filePath);
       await writeFile(filePath, `${JSON.stringify(input.payload, null, 2)}\n`, "utf8");
     },
+    async writeDiagnostic(input) {
+      if (!shouldWriteDiagnostic(options.loggingLevel, input.severity)) {
+        return;
+      }
+
+      const layout = resolveSessionSidecarLayout({
+        pluginDirectory: options.pluginDirectory,
+        sessionID: input.sessionID,
+        runtimeLogPath: options.runtimeLogPath,
+        seamLogPath: options.seamLogPath,
+        debugSnapshotPath: options.debugSnapshotPath,
+      });
+      const event: RuntimeDiagnosticRecord = Object.freeze({
+        createdAt: now(),
+        sessionID: input.sessionID,
+        scope: input.scope,
+        severity: input.severity,
+        message: input.message,
+        ...(input.payload === undefined ? {} : { payload: input.payload }),
+      });
+
+      await ensureParentDirectory(layout.runtimeLogPath);
+      await appendFile(layout.runtimeLogPath, `${JSON.stringify(event)}\n`, "utf8");
+    },
   } satisfies RuntimeArtifactRecorder;
+}
+
+function shouldWriteDiagnostic(
+  configuredLevel: RuntimeLogLevel,
+  severity: RuntimeDiagnosticSeverity,
+): boolean {
+  const ranks: Record<RuntimeLogLevel | RuntimeDiagnosticSeverity, number> = {
+    off: 99,
+    error: 0,
+    info: 1,
+    debug: 2,
+  };
+
+  return ranks[severity] <= ranks[configuredLevel];
 }
 
 async function ensureParentDirectory(filePath: string): Promise<void> {

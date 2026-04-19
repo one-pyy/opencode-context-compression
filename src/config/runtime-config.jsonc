@@ -20,7 +20,7 @@
   "smallUserMessageThreshold": 1536,
   "reminder": {
     // Reminder prompt assets are plain-text files selected by severity × allowDelete.
-    "hsoft": 75000,
+    "hsoft": 50000,
     "hhard": 150000,
     "softRepeatEveryTokens": 30000,
     "hardRepeatEveryTokens": 10000,

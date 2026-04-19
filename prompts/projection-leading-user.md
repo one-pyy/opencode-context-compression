@@ -1,1 +1,1 @@
-Do not invent, rewrite, or autocomplete visible message IDs. Copy only the IDs that already appear verbatim in this prompt when you refer to messages or call `compression_mark`.
+You can use the `compression_mark` tool to mark context that is no longer needed. Marked context will be compressed or deleted at an appropriate time. Message IDs are inserted automatically — **NEVER** write a message ID at the beginning of your response.

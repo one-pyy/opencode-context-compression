@@ -201,10 +201,17 @@ export function createContextCompressionHooks(
           executeBackgroundCompactions({
             pluginInput: options.pluginInput,
             runtimeConfig: options.runtimeConfig,
+            runtimeArtifacts,
             sessionId: sessionID,
             projectionState,
           }).catch((error) => {
-            console.error("[plugin-hooks] Background compaction failed:", error);
+            runtimeArtifacts.writeDiagnostic({
+              sessionID,
+              scope: "plugin-hooks",
+              severity: "error",
+              message: "Background compaction executor failed.",
+              payload: { error: serializeError(error) },
+            }).catch(() => {});
           });
         }
       }

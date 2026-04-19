@@ -26,7 +26,7 @@ export const RUNTIME_CONFIG_ENV = {
   debugSnapshotPath: "OPENCODE_CONTEXT_COMPRESSION_DEBUG_SNAPSHOT_PATH",
 } as const;
 
-type RuntimeLogLevel = "off" | "error" | "info" | "debug";
+export type RuntimeLogLevel = "off" | "error" | "info" | "debug";
 type ReminderSeverity = "soft" | "hard";
 
 interface ReminderPromptPathVariantInput {

@@ -36,6 +36,7 @@ export function createDefaultRuntimePluginSeamServices(
       runtimeLogPath: runtimeConfig.runtimeLogPath,
       seamLogPath: runtimeConfig.seamLogPath,
       debugSnapshotPath: runtimeConfig.debugSnapshotPath,
+      loggingLevel: runtimeConfig.logging.level,
     }),
     messagesTransformProjector: createDefaultMessagesTransformProjector({
       pluginDirectory: input.directory,

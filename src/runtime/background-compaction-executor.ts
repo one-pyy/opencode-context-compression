@@ -1,6 +1,7 @@
 import type { PluginInput } from "@opencode-ai/plugin";
 import type { LoadedRuntimeConfig } from "../config/runtime-config.js";
 import type { ProjectedMessageSet } from "../projection/types.js";
+import type { RuntimeArtifactRecorder } from "./runtime-artifacts.js";
 import { resolvePluginStateDirectory, resolveSessionDatabasePath } from "./sidecar-layout.js";
 import { bootstrapSessionSidecar, openSessionSidecarRepository } from "../state/sidecar-store.js";
 import { readPendingCompactions, markCompactionsProcessed } from "../state/sidecar-store/pending-compactions.js";
@@ -14,6 +15,7 @@ import { createDirectLLMCompactionTransport } from "../compaction/transport/dire
 export interface BackgroundCompactionExecutorOptions {
   readonly pluginInput: PluginInput;
   readonly runtimeConfig: LoadedRuntimeConfig;
+  readonly runtimeArtifacts: RuntimeArtifactRecorder;
   readonly sessionId: string;
   readonly projectionState: ProjectedMessageSet;
 }
@@ -21,7 +23,7 @@ export interface BackgroundCompactionExecutorOptions {
 export async function executeBackgroundCompactions(
   options: BackgroundCompactionExecutorOptions,
 ): Promise<void> {
-  const { sessionId, projectionState, pluginInput, runtimeConfig } = options;
+  const { sessionId, projectionState, pluginInput, runtimeConfig, runtimeArtifacts } = options;
 
   const stateDirectory = resolvePluginStateDirectory(pluginInput.directory);
   const databasePath = resolveSessionDatabasePath(stateDirectory, sessionId);
@@ -36,12 +38,22 @@ export async function executeBackgroundCompactions(
       return;
     }
 
-    console.log(`[background-compaction] Found ${pendingCompactions.length} pending compactions for session ${sessionId}`);
-    console.log(`[background-compaction] Projection state has ${projectionState.state.markTree.marks.length} marks`);
+    await runtimeArtifacts.writeDiagnostic({
+      sessionID: sessionId,
+      scope: "background-compaction",
+      severity: "info",
+      message: "Found pending compactions for session.",
+      payload: {
+        pendingCompactionCount: pendingCompactions.length,
+        projectionMarkCount: projectionState.state.markTree.marks.length,
+      },
+    });
 
     const resultGroupRepo = createResultGroupRepository(sidecar);
     
-    const transport = runtimeConfig.transport ?? createDirectLLMCompactionTransport(pluginInput);
+    const transport = runtimeConfig.transport ?? createDirectLLMCompactionTransport(pluginInput, {
+      runtimeArtifacts,
+    });
     const inputBuilder = createCompactionInputBuilder();
     const outputValidator = createOutputValidator();
     
@@ -66,12 +78,24 @@ export async function executeBackgroundCompactions(
       try {
         const existing = await resultGroupRepo.getCompleteGroup(pending.markId);
         if (existing !== null) {
-          console.log(`[background-compaction] Mark ${pending.markId} already processed, skipping`);
+          await runtimeArtifacts.writeDiagnostic({
+            sessionID: sessionId,
+            scope: "background-compaction",
+            severity: "debug",
+            message: "Skipping mark because a committed result group already exists.",
+            payload: { markId: pending.markId },
+          });
           processedIds.push(pending.id);
           continue;
         }
 
-        console.log(`[background-compaction] Executing compaction for mark ${pending.markId}`);
+        await runtimeArtifacts.writeDiagnostic({
+          sessionID: sessionId,
+          scope: "background-compaction",
+          severity: "info",
+          message: "Executing background compaction for mark.",
+          payload: { markId: pending.markId },
+        });
 
         const runInput = buildCompactionRunInputForMark({
           sessionId,
@@ -87,10 +111,25 @@ export async function executeBackgroundCompactions(
 
         await runner.run(runInput);
         
-        console.log(`[background-compaction] Successfully completed compaction for mark ${pending.markId}`);
+        await runtimeArtifacts.writeDiagnostic({
+          sessionID: sessionId,
+          scope: "background-compaction",
+          severity: "info",
+          message: "Background compaction completed successfully.",
+          payload: { markId: pending.markId },
+        });
         processedIds.push(pending.id);
       } catch (error) {
-        console.error(`[background-compaction] Failed to process mark ${pending.markId}:`, error);
+        await runtimeArtifacts.writeDiagnostic({
+          sessionID: sessionId,
+          scope: "background-compaction",
+          severity: "error",
+          message: "Background compaction failed for mark.",
+          payload: {
+            markId: pending.markId,
+            error: formatError(error),
+          },
+        });
       }
     }
 
@@ -100,4 +139,12 @@ export async function executeBackgroundCompactions(
   } finally {
     sidecar.close();
   }
+}
+
+function formatError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
 }
