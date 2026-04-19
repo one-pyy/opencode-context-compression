@@ -30,6 +30,8 @@ test("prompt resolution selects reminder variants by severity and allowDelete", 
   assert.match(softCompactOnly.text, /Compress material/u);
   assert.match(hardDeleteAllowed.path, /reminder-hard-delete-allowed\.md$/u);
   assert.match(hardDeleteAllowed.text, /delete-style cleanup directly/u);
+  assert.match(runtimeConfig.leadingUserPromptPath, /projection-leading-user\.md$/u);
+  assert.match(runtimeConfig.leadingUserPromptText, /Do not invent, rewrite, or autocomplete/u);
 });
 
 test("repo-relative paths resolve from repo root and absolute paths stay absolute", () => {

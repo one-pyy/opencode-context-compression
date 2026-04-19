@@ -26,6 +26,7 @@ export interface ProjectionBuilderDependencies {
   readonly resultGroupRepository: ResultGroupRepository;
   readonly canonicalIdentityService: CanonicalIdentityService;
   readonly reminderService: ReminderService;
+  readonly leadingUserPromptText?: string;
 }
 
 export const PROJECTION_BUILDER_INTERNAL_CONTRACT =
@@ -111,7 +112,10 @@ export function createProjectionBuilder(
       return {
         sessionId: input.sessionId,
         messages: Object.freeze(
-          injectReminderArtifacts(renderedBaseMessages, reminders),
+          prependLeadingUserPrompt(
+            injectReminderArtifacts(renderedBaseMessages, reminders),
+            dependencies.leadingUserPromptText,
+          ),
         ),
         reminders,
         conflicts,
@@ -189,4 +193,22 @@ function injectReminderArtifacts(
   });
 
   return projected;
+}
+
+function prependLeadingUserPrompt(
+  messages: readonly ProjectedPromptMessage[],
+  leadingUserPromptText?: string,
+): ProjectedPromptMessage[] {
+  if (!leadingUserPromptText || leadingUserPromptText.trim().length === 0) {
+    return [...messages];
+  }
+
+  return [
+    Object.freeze({
+      source: "synthetic",
+      role: "user",
+      contentText: leadingUserPromptText.trim(),
+    } satisfies ProjectedPromptMessage),
+    ...messages,
+  ];
 }

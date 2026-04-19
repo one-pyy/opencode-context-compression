@@ -7,16 +7,17 @@ import type {
 export type CanonicalHostMessageRole = "system" | "user" | "assistant" | "tool";
 
 export type CanonicalHostMessagePart = 
-  | { readonly type: "text"; readonly text: string; readonly messageId?: string; }
-  | { readonly type: "reasoning"; readonly text: string; readonly messageId?: string; }
-  | { readonly type: "tool"; readonly tool: string; readonly callID: string; readonly state: unknown; readonly messageId?: string; }
-  | { readonly type: "file"; readonly mime: string; readonly filename?: string; readonly url: string; readonly messageId?: string; }
+  | { readonly type: "text"; readonly text: string; readonly messageId?: string; [key: string]: unknown; }
+  | { readonly type: "reasoning"; readonly text: string; readonly messageId?: string; [key: string]: unknown; }
+  | { readonly type: "tool"; readonly tool: string; readonly callID: string; readonly state: unknown; readonly messageId?: string; [key: string]: unknown; }
+  | { readonly type: "file"; readonly mime: string; readonly filename?: string; readonly url: string; readonly messageId?: string; [key: string]: unknown; }
   | { readonly type: string; readonly messageId?: string; [key: string]: unknown; };
 
 export interface CanonicalHostMessage {
   readonly info: {
     readonly id: string;
     readonly role: CanonicalHostMessageRole;
+    [key: string]: unknown;
   };
   readonly parts: readonly CanonicalHostMessagePart[];
 }
@@ -60,6 +61,9 @@ export interface ReplayedHistory {
   readonly marks: readonly ReplayedMarkIntent[];
   readonly compressionMarkToolCalls: readonly ReplayedCompressionMarkToolCall[];
 }
+
+const LEADING_VISIBLE_ID_PREFIX_PATTERN =
+  /^\[(?:protected|compressible|referable)_\d{6}_[0-9A-Za-z]{2}\]\s?/u;
 
 export interface HistoryReplayReader {
   read(sessionId: string): Promise<ReplayedHistory>;
@@ -196,11 +200,12 @@ export function replayHistoryFromSources(
 function readCanonicalMessageText(message: CanonicalHostMessage): string {
   return message.parts
     .flatMap((part) => {
-      if (part.type === "text" || part.type === "reasoning") {
+      if (part.type === "text") {
         return [part.text];
       }
       return [];
     })
     .join("\n")
+    .replace(LEADING_VISIBLE_ID_PREFIX_PATTERN, "")
     .trim();
 }

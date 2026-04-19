@@ -93,41 +93,34 @@ function collectReplayableEntries(
         Object.freeze({
           sequence: nextSequence++,
           message: {
-            info: {
-              id: envelope.info.id,
-              role: envelope.info.role,
-            },
+            info: envelope.info as any,
             parts: envelope.parts.flatMap((part): CanonicalHostMessagePart[] => {
               if (part.type === "text") {
                 return [{
-                  type: "text" as const,
-                  text: part.text,
                   messageId: part.messageID,
+                  ...part,
+                  type: "text" as const,
                 }];
               }
               if (part.type === "reasoning") {
                 return [{
-                  type: "reasoning" as const,
-                  text: part.text,
                   messageId: part.messageID,
+                  ...part,
+                  type: "reasoning" as const,
                 }];
               }
               if (part.type === "tool") {
                 return [{
-                  type: "tool" as const,
-                  tool: part.tool,
-                  callID: part.callID,
-                  state: part.state,
                   messageId: part.messageID,
+                  ...part,
+                  type: "tool" as const,
                 }];
               }
               if (part.type === "file") {
                 return [{
-                  type: "file" as const,
-                  mime: part.mime,
-                  filename: part.filename,
-                  url: part.url,
                   messageId: part.messageID,
+                  ...part,
+                  type: "file" as const,
                 }];
               }
               return [{

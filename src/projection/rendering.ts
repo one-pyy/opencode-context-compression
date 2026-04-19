@@ -227,6 +227,7 @@ function renderOriginalRange(input: {
         visibleId: policy.visibleId,
         contentText: prependVisibleId(policy.visibleId, message.contentText),
         parts: message.parts,
+        hostMessage: message.hostMessage,
       } satisfies ProjectedPromptMessage),
     );
   }

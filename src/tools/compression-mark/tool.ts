@@ -104,6 +104,10 @@ export function createCompressionMarkTool(
       "## How to identify message IDs:\n" +
       "Look for visible message IDs in the conversation history. They appear as `msg_...` identifiers.\n" +
       "Example: To compress messages from msg_abc to msg_xyz, use those as start/end IDs.\n\n" +
+      "## Marking multiple segments:\n" +
+      "A single tool call marks one continuous range. If one reply needs to mark multiple separate segments, call this tool multiple times in the same reply.\n\n" +
+      "## Protected messages:\n" +
+      "Protected messages are preserved automatically and do not need special handling. You may still include them inside a marked range; the runtime will protect them as needed.\n\n" +
       "## Hint (optional):\n" +
       "Guide the compression strategy with a brief instruction:\n" +
       "- 'Preserve all file paths and error messages from this debugging session'\n" +

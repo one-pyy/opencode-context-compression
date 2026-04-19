@@ -29,6 +29,11 @@
       "minLength": 1,
       "description": "Repo-relative or absolute path to the compaction prompt asset."
     },
+    "leadingUserPromptPath": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Repo-relative or absolute path to the synthetic user prompt injected at the start of every projection."
+    },
     "compactionModels": {
       "type": "array",
       "minItems": 1,

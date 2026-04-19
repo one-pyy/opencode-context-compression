@@ -38,9 +38,6 @@ function readEnvelopeText(envelope: TransformEnvelope): string {
       if (part.type === "text" && typeof (part as { text?: unknown }).text === "string") {
         return [(part as { text: string }).text];
       }
-      if (part.type === "reasoning" && typeof (part as { text?: unknown }).text === "string") {
-        return [(part as { text: string }).text];
-      }
       if (part.type === "tool") {
         const toolPart = part as any;
         const toolName = toolPart.tool || "unknown_tool";

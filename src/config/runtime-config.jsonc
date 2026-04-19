@@ -7,6 +7,7 @@
   "version": 1,
   "allowDelete": false,
   "promptPath": "prompts/compaction.md",
+  "leadingUserPromptPath": "prompts/projection-leading-user.md",
   "compactionModels": [
     "google.right/gemini-3-flash-preview",
     "google.doro/gemini-3-flash-preview"

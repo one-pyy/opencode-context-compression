@@ -3,3 +3,4 @@ logs/
 state/
 .tmp/
 dist/
+.sisyphus/evidence/task-3-hermetic-e2e/e2e-compaction--message-id-stripping/

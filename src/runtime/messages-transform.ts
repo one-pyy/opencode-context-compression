@@ -33,6 +33,7 @@ export interface MessagesTransformProjectionDebugState {
     readonly canonical: number;
     readonly resultGroup: number;
     readonly reminder: number;
+    readonly synthetic: number;
   };
   readonly visibleKindCounts: {
     readonly protected: number;
@@ -215,39 +216,36 @@ export function projectProjectionToEnvelopes(
             const isFirstTextPart = !hasTextPart;
             hasTextPart = true;
             parts.push({
+              ...part,
               id: `${messageId}:text:${parts.length}`,
               sessionID: projection.sessionId,
               messageID: messageId,
               type: "text",
               text: isFirstTextPart ? message.contentText : (part.text as string),
-            });
+            } as any);
           } else if (part.type === "reasoning") {
             parts.push({
+              ...part,
               id: `${messageId}:reasoning:${parts.length}`,
               sessionID: projection.sessionId,
               messageID: messageId,
               type: "reasoning",
-              text: part.text,
             } as any);
           } else if (part.type === "tool") {
             parts.push({
+              ...part,
               id: `${messageId}:tool:${parts.length}`,
               sessionID: projection.sessionId,
               messageID: messageId,
               type: "tool",
-              tool: part.tool,
-              callID: part.callID,
-              state: part.state,
             } as any);
           } else if (part.type === "file") {
             parts.push({
+              ...part,
               id: `${messageId}:file:${parts.length}`,
               sessionID: projection.sessionId,
               messageID: messageId,
               type: "file",
-              mime: part.mime,
-              filename: part.filename,
-              url: part.url,
             } as any);
           } else {
             parts.push({
@@ -279,17 +277,25 @@ export function projectProjectionToEnvelopes(
         });
       }
 
+      // For canonical messages, preserve original info; for synthetic, use projection identity
+      const isCanonical = message.source === "canonical";
+      const baseInfo = isCanonical && message.hostMessage?.info 
+        ? message.hostMessage.info 
+        : {
+            agent: "atlas",
+            model: {
+              providerID: "opencode-context-compression",
+              modelID: "projection-replay",
+            },
+          };
+
       return {
         info: {
+          ...baseInfo,
           id: messageId,
           sessionID: projection.sessionId,
           role: message.role,
           time: { created: index + 1 },
-          agent: "atlas",
-          model: {
-            providerID: "opencode-context-compression",
-            modelID: "projection-replay",
-          },
         },
         parts,
       } as MessagesTransformEnvelope;
@@ -318,6 +324,8 @@ function summarizeProjectionDebugState(
         counts.resultGroup += 1;
       } else if (message.source === "reminder") {
         counts.reminder += 1;
+      } else if (message.source === "synthetic") {
+        counts.synthetic += 1;
       }
 
       return counts;
@@ -326,6 +334,7 @@ function summarizeProjectionDebugState(
       canonical: 0,
       resultGroup: 0,
       reminder: 0,
+      synthetic: 0,
     },
   );
 

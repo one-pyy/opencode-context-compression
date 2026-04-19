@@ -78,6 +78,7 @@ export function createDefaultMessagesTransformProjector(
                 options.runtimeConfig.reminder.prompts.deleteAllowed.hard.text,
             },
           }),
+          leadingUserPromptText: options.runtimeConfig.leadingUserPromptText,
         });
 
         return await projectionBuilder.build({ sessionId });

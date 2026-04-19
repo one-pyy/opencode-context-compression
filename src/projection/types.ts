@@ -75,7 +75,7 @@ export interface ProjectionBuildInput {
 }
 
 export interface ProjectedPromptMessage {
-  readonly source: "canonical" | "result-group" | "reminder";
+  readonly source: "canonical" | "result-group" | "reminder" | "synthetic";
   readonly role: "system" | "user" | "assistant" | "tool";
   readonly canonicalId?: string;
   readonly sourceMarkId?: string;
@@ -83,6 +83,7 @@ export interface ProjectedPromptMessage {
   readonly visibleId?: string;
   readonly contentText: string;
   readonly parts?: readonly import("../history/history-replay-reader.js").CanonicalHostMessagePart[];
+  readonly hostMessage?: import("../history/history-replay-reader.js").CanonicalHostMessage;
 }
 
 export interface ProjectedMessageSet {

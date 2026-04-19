@@ -160,7 +160,7 @@ function parseModel(modelString: string): {
 
 function extractContentText(parts: Array<{ type: string; text?: string }>): string {
   const textParts = parts
-    .filter((part) => (part.type === "text" || part.type === "reasoning") && part.text)
+    .filter((part) => part.type === "text" && part.text)
     .map((part) => part.text)
     .filter((text): text is string => text !== undefined);
 

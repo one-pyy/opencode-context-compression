@@ -44,6 +44,7 @@ interface RuntimeConfigInput {
   readonly version?: unknown;
   readonly allowDelete?: unknown;
   readonly promptPath?: unknown;
+  readonly leadingUserPromptPath?: unknown;
   readonly compactionModels?: unknown;
   readonly markedTokenAutoCompactionThreshold?: unknown;
   readonly smallUserMessageThreshold?: unknown;
@@ -112,6 +113,8 @@ export interface LoadedRuntimeConfig {
   readonly allowDelete: boolean;
   readonly promptPath: string;
   readonly promptText: string;
+  readonly leadingUserPromptPath: string;
+  readonly leadingUserPromptText: string;
   readonly models: readonly string[];
   readonly markedTokenAutoCompactionThreshold: number;
   readonly smallUserMessageThreshold: number;
@@ -168,6 +171,7 @@ const DEFAULT_RUNTIME_CONFIG_PATH = join(
 
 const DEFAULTS = {
   allowDelete: false,
+  leadingUserPromptPath: "prompts/projection-leading-user.md",
   markedTokenAutoCompactionThreshold: 20_000,
   smallUserMessageThreshold: 1_024,
   schedulerMarkThreshold: 1,
@@ -211,6 +215,7 @@ const ALLOWED_ROOT_KEYS = new Set([
   "version",
   "allowDelete",
   "promptPath",
+  "leadingUserPromptPath",
   "compactionModels",
   "markedTokenAutoCompactionThreshold",
   "smallUserMessageThreshold",
@@ -264,6 +269,13 @@ export async function loadRuntimeConfig(
       readRequiredString(parsed.promptPath, "promptPath"),
     { repoRoot, fieldPath: "promptPath" },
   );
+  const leadingUserPromptPath = resolveRuntimePathFromRepoRoot(
+    readRequiredString(
+      parsed.leadingUserPromptPath ?? DEFAULTS.leadingUserPromptPath,
+      "leadingUserPromptPath",
+    ),
+    { repoRoot, fieldPath: "leadingUserPromptPath" },
+  );
   const modelsOverride = readOptionalEnv(env, RUNTIME_CONFIG_ENV.models);
   const runtimeLogOverride = readOptionalEnv(env, RUNTIME_CONFIG_ENV.runtimeLogPath);
   const seamLogOverride = readOptionalEnv(env, RUNTIME_CONFIG_ENV.seamLogPath);
@@ -301,6 +313,10 @@ export async function loadRuntimeConfig(
   const prompt = resolvePromptAsset(promptPath, {
     kind: "compaction prompt asset",
     templateMode: "template",
+  });
+  const leadingUserPrompt = resolvePromptAsset(leadingUserPromptPath, {
+    kind: "leading user prompt asset",
+    templateMode: "plain-text",
   });
 
   const reminderPromptPaths = {
@@ -389,6 +405,8 @@ export async function loadRuntimeConfig(
         ),
     promptPath: prompt.path,
     promptText: prompt.text,
+    leadingUserPromptPath: leadingUserPrompt.path,
+    leadingUserPromptText: leadingUserPrompt.text,
     models,
     markedTokenAutoCompactionThreshold: readPositiveInteger(
       parsed.markedTokenAutoCompactionThreshold ??
