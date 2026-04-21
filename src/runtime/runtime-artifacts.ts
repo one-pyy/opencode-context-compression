@@ -35,7 +35,7 @@ export interface RuntimeArtifactRecorder {
   }): Promise<void>;
   writeMessagesTransformSnapshot(input: {
     readonly sessionID: string;
-    readonly phase: "in" | "out";
+    readonly phase: "hook-in" | "projection-in" | "out";
     readonly payload: unknown;
   }): Promise<void>;
   writeDiagnostic(input: {
@@ -104,9 +104,11 @@ export function createFileBackedRuntimeArtifactRecorder(options: {
         debugSnapshotPath: options.debugSnapshotPath,
       });
       const filePath =
-        input.phase === "in"
-          ? layout.debugSnapshotInputPath
-          : layout.debugSnapshotOutputPath;
+        input.phase === "hook-in"
+          ? layout.debugSnapshotHookInputPath
+          : input.phase === "projection-in"
+            ? layout.debugSnapshotProjectionInputPath
+            : layout.debugSnapshotOutputPath;
 
       if (filePath === undefined) {
         return;

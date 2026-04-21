@@ -1,5 +1,7 @@
 import { isAbsolute, resolve } from "node:path";
 
+import { resolveRuntimeConfigRepoRoot } from "../config/runtime-config.js";
+
 import {
   DEFAULT_LOCK_DIRECTORY_NAME,
   resolvePluginLockDirectory,
@@ -11,7 +13,8 @@ import {
 } from "./path-safety.js";
 
 export const DEFAULT_STATE_DIRECTORY_NAME = "state";
-export const DEFAULT_DEBUG_SNAPSHOT_INPUT_SUFFIX = ".in.json";
+export const DEFAULT_DEBUG_SNAPSHOT_HOOK_INPUT_SUFFIX = ".hook-in.json";
+export const DEFAULT_DEBUG_SNAPSHOT_PROJECTION_INPUT_SUFFIX = ".projection-in.json";
 export const DEFAULT_DEBUG_SNAPSHOT_OUTPUT_SUFFIX = ".out.json";
 
 export interface SessionSidecarLayoutOptions {
@@ -32,7 +35,8 @@ export interface SessionSidecarLayout {
   readonly runtimeLogPath: string;
   readonly seamLogPath: string;
   readonly debugSnapshotDirectory?: string;
-  readonly debugSnapshotInputPath?: string;
+  readonly debugSnapshotHookInputPath?: string;
+  readonly debugSnapshotProjectionInputPath?: string;
   readonly debugSnapshotOutputPath?: string;
 }
 
@@ -76,10 +80,15 @@ export function resolveSessionSidecarLayout(
     options.pluginDirectory,
     options.debugSnapshotPath,
   );
-  const debugSnapshotInputPath = resolveSessionDebugSnapshotPath(
+  const debugSnapshotHookInputPath = resolveSessionDebugSnapshotPath(
     debugSnapshotDirectory,
     options.sessionID,
-    "in",
+    "hook-in",
+  );
+  const debugSnapshotProjectionInputPath = resolveSessionDebugSnapshotPath(
+    debugSnapshotDirectory,
+    options.sessionID,
+    "projection-in",
   );
   const debugSnapshotOutputPath = resolveSessionDebugSnapshotPath(
     debugSnapshotDirectory,
@@ -95,16 +104,17 @@ export function resolveSessionSidecarLayout(
     runtimeLogPath,
     seamLogPath,
     debugSnapshotDirectory,
-    debugSnapshotInputPath,
+    debugSnapshotHookInputPath,
+    debugSnapshotProjectionInputPath,
     debugSnapshotOutputPath,
   };
 }
 
 export function resolvePluginStateDirectory(
-  pluginDirectory: string,
+  _pluginDirectory: string,
   stateDirectoryName = DEFAULT_STATE_DIRECTORY_NAME,
 ): string {
-  return resolve(pluginDirectory, stateDirectoryName);
+  return resolve(resolveRuntimeConfigRepoRoot(), stateDirectoryName);
 }
 
 export function resolveSessionDatabasePath(
@@ -131,13 +141,15 @@ export function resolveRepoOwnedArtifactPath(
 export function resolveSessionDebugSnapshotPath(
   snapshotDirectory: string,
   sessionID: string,
-  phase: "in" | "out",
+  phase: "hook-in" | "projection-in" | "out",
 ): string {
   const safeSessionID = assertSafeSessionIDSegment(sessionID);
   const suffix =
-    phase === "in"
-      ? DEFAULT_DEBUG_SNAPSHOT_INPUT_SUFFIX
-      : DEFAULT_DEBUG_SNAPSHOT_OUTPUT_SUFFIX;
+    phase === "hook-in"
+      ? DEFAULT_DEBUG_SNAPSHOT_HOOK_INPUT_SUFFIX
+      : phase === "projection-in"
+        ? DEFAULT_DEBUG_SNAPSHOT_PROJECTION_INPUT_SUFFIX
+        : DEFAULT_DEBUG_SNAPSHOT_OUTPUT_SUFFIX;
   return resolvePathWithinDirectory(
     snapshotDirectory,
     `${safeSessionID}${suffix}`,

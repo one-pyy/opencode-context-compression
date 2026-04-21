@@ -8,12 +8,18 @@ import {
   openSessionSidecarRepository,
 } from "../../../src/state/sidecar-store.js";
 import { createSqliteDatabase } from "../../../src/state/sqlite-runtime.js";
+import {
+  resolvePluginStateDirectory,
+} from "../../../src/runtime/sidecar-layout.js";
 
 test("result-group creation is atomic and failed multi-fragment writes stay fully invisible", async () => {
   const pluginDirectory = await mkdtemp(
     join(tmpdir(), "opencode-context-compression-result-group-atomicity-"),
   );
-  const databasePath = join(pluginDirectory, "state", "session-atomicity.db");
+  const databasePath = join(
+    resolvePluginStateDirectory(pluginDirectory),
+    "session-atomicity.db",
+  );
   const repository = await openSessionSidecarRepository({ databasePath });
 
   try {

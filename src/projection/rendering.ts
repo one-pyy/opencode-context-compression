@@ -225,7 +225,11 @@ function renderOriginalRange(input: {
         canonicalId: message.canonicalId,
         visibleKind: policy.visibleKind,
         visibleId: policy.visibleId,
-        contentText: prependVisibleId(policy.visibleId, message.contentText),
+        // Preserve trailing empty assistant placeholders from the host without surfacing a visible-id-only text shell.
+        contentText:
+          message.contentText.trim().length === 0
+            ? ""
+            : prependVisibleId(policy.visibleId, message.contentText),
         parts: message.parts,
         hostMessage: message.hostMessage,
       } satisfies ProjectedPromptMessage),

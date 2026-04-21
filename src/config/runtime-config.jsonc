@@ -9,8 +9,8 @@
   "promptPath": "prompts/compaction.md",
   "leadingUserPromptPath": "prompts/projection-leading-user.md",
   "compactionModels": [
+    "google.doro/gemini-3-flash-preview",
     "google.right/gemini-3-flash-preview",
-    "google.doro/gemini-3-flash-preview"
   ],
   "schedulerMarkThreshold": 1,
   "runtimeLogPath": "logs/runtime-events.jsonl",

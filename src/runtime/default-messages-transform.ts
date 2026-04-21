@@ -15,6 +15,7 @@ import {
 import {
   createProjectionBackedMessagesTransformProjector,
   type MessagesTransformProjector,
+  type MessagesTransformEnvelope,
   resolveMessagesTransformSessionId,
 } from "./messages-transform.js";
 import {
@@ -26,6 +27,10 @@ export interface DefaultMessagesTransformProjectorOptions {
   readonly pluginDirectory: string;
   readonly runtimeConfig: LoadedRuntimeConfig;
   readonly readSessionMessages: SessionHistoryReader["readSessionMessages"];
+  readonly onProjectionInputRead?: (input: {
+    readonly sessionId: string;
+    readonly messages: readonly MessagesTransformEnvelope[];
+  }) => Promise<void> | void;
   readonly now?: () => string;
 }
 
@@ -48,7 +53,14 @@ export function createDefaultMessagesTransformProjector(
         const resultGroups = createResultGroupRepository(sidecar);
         const projectionBuilder = createProjectionBuilder({
           historyReplayReader: createHistoryReplayReaderFromSessionMessages({
-            readSessionMessages: options.readSessionMessages,
+            readSessionMessages: async (sessionId) => {
+              const messages = await options.readSessionMessages(sessionId);
+              await options.onProjectionInputRead?.({
+                sessionId,
+                messages: messages as readonly MessagesTransformEnvelope[],
+              });
+              return messages;
+            },
           }),
           policyEngine: createFlatPolicyEngine({
             smallUserMessageThreshold:

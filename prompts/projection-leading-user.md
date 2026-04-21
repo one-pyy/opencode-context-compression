@@ -1,1 +1,1 @@
-You can use the `compression_mark` tool to mark context that is no longer needed. Marked context will be compressed or deleted at an appropriate time. Message IDs are inserted automatically — **NEVER** write a message ID at the beginning of your response.
+Use the `compression_mark` tool to flag unnecessary context for compression or deletion. Message IDs (`[xxx_\d{6}_checksum]`) are automatically inserted—**NEVER** write them when your response.

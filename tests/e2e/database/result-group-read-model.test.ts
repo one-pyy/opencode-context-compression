@@ -8,12 +8,18 @@ import {
   openSessionSidecarRepository,
 } from "../../../src/state/sidecar-store.js";
 import { createSqliteDatabase } from "../../../src/state/sqlite-runtime.js";
+import {
+  resolvePluginStateDirectory,
+} from "../../../src/runtime/sidecar-layout.js";
 
 test("read-model returns complete ordered fragments and lists committed groups by source range", async () => {
   const pluginDirectory = await mkdtemp(
     join(tmpdir(), "opencode-context-compression-result-group-read-model-"),
   );
-  const databasePath = join(pluginDirectory, "state", "session-read-model.db");
+  const databasePath = join(
+    resolvePluginStateDirectory(pluginDirectory),
+    "session-read-model.db",
+  );
   const repository = await openSessionSidecarRepository({ databasePath });
 
   try {
@@ -74,7 +80,10 @@ test("read-model fails fast when persisted fragment completeness or order is cor
   const pluginDirectory = await mkdtemp(
     join(tmpdir(), "opencode-context-compression-result-group-corruption-"),
   );
-  const databasePath = join(pluginDirectory, "state", "session-read-model-corrupt.db");
+  const databasePath = join(
+    resolvePluginStateDirectory(pluginDirectory),
+    "session-read-model-corrupt.db",
+  );
 
   try {
     const repository = await openSessionSidecarRepository({ databasePath });

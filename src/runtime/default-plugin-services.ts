@@ -43,6 +43,19 @@ export function createDefaultRuntimePluginSeamServices(
       runtimeConfig,
       readSessionMessages: (sessionId) =>
         readSessionMessagesFromHost(input, sessionId),
+      onProjectionInputRead: async ({ sessionId, messages }) => {
+        await createFileBackedRuntimeArtifactRecorder({
+          pluginDirectory: input.directory,
+          runtimeLogPath: runtimeConfig.runtimeLogPath,
+          seamLogPath: runtimeConfig.seamLogPath,
+          debugSnapshotPath: runtimeConfig.debugSnapshotPath,
+          loggingLevel: runtimeConfig.logging.level,
+        }).writeMessagesTransformSnapshot({
+          sessionID: sessionId,
+          phase: "projection-in",
+          payload: { messages },
+        });
+      },
     }),
     chatParamsScheduler: createRuntimeChatParamsSchedulerService({
       scheduler: createHistoryBackedChatParamsScheduler({

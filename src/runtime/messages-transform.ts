@@ -206,6 +206,12 @@ export function projectProjectionToEnvelopes(
         `${message.source}-${projection.sessionId}-${index + 1}`;
 
       const parts: MessagesTransformEnvelope["parts"] = [];
+      const hasRenderableContent = message.contentText.trim().length > 0;
+      const isTrailingEmptyHostPlaceholder =
+        index === projection.messages.length - 1 &&
+        message.source === "canonical" &&
+        Array.isArray(message.parts) &&
+        message.parts.length === 0;
 
       if (message.parts && message.parts.length > 0) {
         let hasTextPart = false;
@@ -221,7 +227,10 @@ export function projectProjectionToEnvelopes(
               sessionID: projection.sessionId,
               messageID: messageId,
               type: "text",
-              text: isFirstTextPart ? message.contentText : (part.text as string),
+              text:
+                isFirstTextPart && hasRenderableContent
+                  ? message.contentText
+                  : (part.text as string),
             } as any);
           } else if (part.type === "reasoning") {
             parts.push({
@@ -257,8 +266,8 @@ export function projectProjectionToEnvelopes(
           }
         }
         
-        // If no text part exists, add synthetic shell with visible ID
-        if (!hasTextPart) {
+        // Preserve the host's trailing empty assistant placeholder without synthesizing a visible-id-only text part.
+        if (!hasTextPart && hasRenderableContent && !isTrailingEmptyHostPlaceholder) {
           parts.unshift({
             id: `${messageId}:text:shell`,
             sessionID: projection.sessionId,
@@ -267,7 +276,7 @@ export function projectProjectionToEnvelopes(
             text: message.contentText,
           });
         }
-      } else {
+      } else if (hasRenderableContent && !isTrailingEmptyHostPlaceholder) {
         parts.push({
           id: `${messageId}:text`,
           sessionID: projection.sessionId,

@@ -112,7 +112,7 @@ export function createContextCompressionHooks(
       });
       await runtimeArtifacts.writeMessagesTransformSnapshot({
         sessionID,
-        phase: "in",
+        phase: "hook-in",
         payload: {
           messages: output.messages,
         },
