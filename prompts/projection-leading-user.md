@@ -1,1 +1,0 @@
-Use the `compression_mark` tool to flag unnecessary context for compression or deletion. Message IDs (`[xxx_\d{6}_checksum]`) are automatically inserted—**NEVER** write them when your response.

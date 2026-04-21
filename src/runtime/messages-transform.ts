@@ -207,12 +207,6 @@ export function projectProjectionToEnvelopes(
 
       const parts: MessagesTransformEnvelope["parts"] = [];
       const hasRenderableContent = message.contentText.trim().length > 0;
-      const isTrailingEmptyHostPlaceholder =
-        index === projection.messages.length - 1 &&
-        message.source === "canonical" &&
-        Array.isArray(message.parts) &&
-        message.parts.length === 0;
-
       if (message.parts && message.parts.length > 0) {
         let hasTextPart = false;
         
@@ -266,8 +260,9 @@ export function projectProjectionToEnvelopes(
           }
         }
         
-        // Preserve the host's trailing empty assistant placeholder without synthesizing a visible-id-only text part.
-        if (!hasTextPart && hasRenderableContent && !isTrailingEmptyHostPlaceholder) {
+        // Keep a synthetic text shell even for the host's trailing empty assistant placeholder
+        // so that every visible assistant message still carries a msg_id-bearing text part.
+        if (!hasTextPart && hasRenderableContent) {
           parts.unshift({
             id: `${messageId}:text:shell`,
             sessionID: projection.sessionId,
@@ -276,7 +271,7 @@ export function projectProjectionToEnvelopes(
             text: message.contentText,
           });
         }
-      } else if (hasRenderableContent && !isTrailingEmptyHostPlaceholder) {
+      } else if (hasRenderableContent) {
         parts.push({
           id: `${messageId}:text`,
           sessionID: projection.sessionId,

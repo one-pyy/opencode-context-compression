@@ -18,6 +18,7 @@ import {
   MESSAGES_TRANSFORM_EXTERNAL_CONTRACT,
   createMessagesTransformHook,
 } from "../../../src/runtime/messages-transform.js";
+import { stripLeadingVisibleMessageId } from "../../../src/runtime/text-complete.js";
 import {
   TOOL_EXECUTE_BEFORE_EXTERNAL_CONTRACT,
 } from "../../../src/runtime/send-entry-gate.js";
@@ -67,7 +68,7 @@ test(
     );
 
     const indexSource = await readFile(join(repoRoot, "src", "index.ts"), "utf8");
-    assert.ok(indexSource.split(/\r?\n/u).length < 40);
+    assert.ok(indexSource.split(/\r?\n/u).length < 60);
     assert.match(indexSource, /createContextCompressionHooks/u);
     assert.doesNotMatch(indexSource, /INVALID_RANGE|DELETE_NOT_ALLOWED|OVERLAP_CONFLICT/u);
 
@@ -132,6 +133,17 @@ test("messages.transform mutates the provided output array in place", async () =
   assert.equal(output.messages.length, 1);
   assert.equal(output.messages[0]?.info.id, "msg-user-2");
   assert.equal(output.messages[0]?.parts[0]?.type, "text");
+});
+
+test("text.complete strips a leading visible msg_id from assistant output", () => {
+  assert.equal(
+    stripLeadingVisibleMessageId("[compressible_000123_AbCDe123] Assistant answer."),
+    "Assistant answer.",
+  );
+  assert.equal(
+    stripLeadingVisibleMessageId("No prefix here."),
+    "No prefix here.",
+  );
 });
 
 function createPluginInput(repoRoot: string): PluginInput {

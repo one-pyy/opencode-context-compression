@@ -25,6 +25,7 @@ import {
   type SendEntryGate,
   type ToolExecutionGateService,
 } from "./send-entry-gate.js";
+import { createTextCompleteHook } from "./text-complete.js";
 import {
   createCompressionMarkTool,
   type CompressionMarkToolOptions,
@@ -43,6 +44,7 @@ import type { PluginInput } from "@opencode-ai/plugin";
 
 export const ALLOWED_PLUGIN_EXTERNAL_HOOKS = Object.freeze([
   "experimental.chat.messages.transform",
+  "experimental.text.complete",
   "chat.params",
   "tool.execute.before",
 ] as const);
@@ -90,6 +92,7 @@ export function createContextCompressionHooks(
   const chatParams = createChatParamsSchedulerHook({
     scheduler: options.chatParamsScheduler,
   });
+  const textComplete = createTextCompleteHook();
   const toolExecuteBefore = createToolExecuteBeforeHook({
     gate: toolExecutionGate,
   });
@@ -225,6 +228,9 @@ export function createContextCompressionHooks(
         stage: "completed",
         payload: output.options[CHAT_PARAMS_METADATA_KEY] ?? null,
       });
+    },
+    "experimental.text.complete": async (input, output) => {
+      await textComplete(input, output);
     },
     "tool.execute.before": async (input, output) => {
       const gateDecision = await toolExecutionGate.beforeExecution(input);
