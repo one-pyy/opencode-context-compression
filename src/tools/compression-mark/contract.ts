@@ -1,7 +1,6 @@
 import type { ToolContext } from "@opencode-ai/plugin/tool";
 
 export const COMPRESSION_MARK_TOOL_NAME = "compression_mark";
-export const COMPRESSION_MARK_CONTRACT_VERSION = "v1";
 
 export type CompressionMarkMode = "compact" | "delete";
 export type CompressionMarkErrorCode =
@@ -10,16 +9,11 @@ export type CompressionMarkErrorCode =
   | "OVERLAP_CONFLICT"
   | "SESSION_NOT_READY";
 
-export interface CompressionMarkTarget {
-  readonly startVisibleMessageID: string;
-  readonly endVisibleMessageID: string;
-  readonly hint?: string;
-}
-
 export interface CompressionMarkInputV1 {
-  readonly contractVersion: typeof COMPRESSION_MARK_CONTRACT_VERSION;
   readonly mode: CompressionMarkMode;
-  readonly target: CompressionMarkTarget;
+  readonly from: string;
+  readonly to: string;
+  readonly hint?: string;
 }
 
 export interface CompressionMarkSuccess {
@@ -58,7 +52,7 @@ export type CompressionMarkValidationResult =
 
 export interface CompressionMarkExternalContract {
   readonly toolName: "compression_mark";
-  readonly inputShape: "{ contractVersion: 'v1', mode, target.startVisibleMessageID, target.endVisibleMessageID }";
+  readonly inputShape: "{ mode, from, to, hint? }";
   readonly outputShape: "JSON-serialized CompressionMarkResult";
   readonly callTiming: "when the model invokes the DCP tool during a chat turn";
   readonly visibleSideEffects: readonly [
@@ -78,8 +72,7 @@ export interface CompressionMarkExternalContract {
 
 export const COMPRESSION_MARK_EXTERNAL_CONTRACT = Object.freeze({
   toolName: "compression_mark",
-  inputShape:
-    "{ contractVersion: 'v1', mode, target.startVisibleMessageID, target.endVisibleMessageID }",
+  inputShape: "{ mode, from, to, hint? }",
   outputShape: "JSON-serialized CompressionMarkResult",
   callTiming: "when the model invokes the DCP tool during a chat turn",
   visibleSideEffects: [
@@ -104,13 +97,7 @@ export function validateCompressionMarkInput(
   const record = asRecord(input);
   if (record === undefined) {
     return invalidRange(
-      'compression_mark input must be a JSON object. Example: {"contractVersion":"v1","mode":"compact","target":{"startVisibleMessageID":"msg_abc","endVisibleMessageID":"msg_xyz"}}',
-    );
-  }
-
-  if (record.contractVersion !== COMPRESSION_MARK_CONTRACT_VERSION) {
-    return invalidRange(
-      `compression_mark contractVersion must be exactly "v1" (current version). You provided: ${JSON.stringify(record.contractVersion)}`,
+      'compression_mark input must be a JSON object. Example: {"mode":"compact","from":"msg_abc","to":"msg_xyz"}',
     );
   }
 
@@ -120,35 +107,23 @@ export function validateCompressionMarkInput(
     );
   }
 
-  const target = asRecord(record.target);
-  if (target === undefined || Array.isArray(record.target)) {
+  const from = readNonEmptyString(record.from);
+  const to = readNonEmptyString(record.to);
+  if (from === undefined || to === undefined) {
     return invalidRange(
-      'compression_mark target must be a single object with startVisibleMessageID and endVisibleMessageID. Example: {"startVisibleMessageID":"msg_abc","endVisibleMessageID":"msg_xyz"}. Batch ranges are not supported.',
+      `compression_mark from and to must both be non-empty strings (format: msg_...). You provided: from=${JSON.stringify(record.from)}, to=${JSON.stringify(record.to)}`,
     );
   }
 
-  const startVisibleMessageID = readNonEmptyString(
-    target.startVisibleMessageID,
-  );
-  const endVisibleMessageID = readNonEmptyString(target.endVisibleMessageID);
-  if (startVisibleMessageID === undefined || endVisibleMessageID === undefined) {
-    return invalidRange(
-      `compression_mark target.startVisibleMessageID and target.endVisibleMessageID must both be non-empty strings (format: msg_...). You provided: start=${JSON.stringify(target.startVisibleMessageID)}, end=${JSON.stringify(target.endVisibleMessageID)}`,
-    );
-  }
-
-  const hint = target.hint !== undefined ? readNonEmptyString(target.hint) : undefined;
+  const hint = record.hint !== undefined ? readNonEmptyString(record.hint) : undefined;
 
   return {
     ok: true,
     value: {
-      contractVersion: COMPRESSION_MARK_CONTRACT_VERSION,
       mode: record.mode,
-      target: {
-        startVisibleMessageID,
-        endVisibleMessageID,
-        ...(hint !== undefined ? { hint } : {}),
-      },
+      from,
+      to,
+      ...(hint !== undefined ? { hint } : {}),
     },
   };
 }

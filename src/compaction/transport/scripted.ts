@@ -172,6 +172,8 @@ function cloneRequestForRecording(
     promptText: request.promptText,
     transcript: structuredClone(request.transcript),
     timeoutMs: request.timeoutMs,
+    firstTokenTimeoutMs: request.firstTokenTimeoutMs,
+    streamIdleTimeoutMs: request.streamIdleTimeoutMs,
     signalState:
       request.signal === undefined
         ? "missing"

@@ -66,12 +66,9 @@ test(
 
     const blockedResult = await executeCompressionMark(
       {
-        contractVersion: "v1",
         mode: "delete",
-        target: {
-          startVisibleMessageID: visibleIds.assistant1,
-          endVisibleMessageID: visibleIds.tool1,
-        },
+        from: visibleIds.assistant1,
+        to: visibleIds.tool1,
       },
       createToolContext(fixture.sessionID),
       {
@@ -84,7 +81,7 @@ test(
       ok: false,
       errorCode: "DELETE_NOT_ALLOWED",
       message:
-        "compression_mark mode='delete' is blocked by the current delete-admission policy.",
+        'compression_mark mode="delete" is not allowed in this session. Use mode="compact" instead to compress messages into summaries while preserving important information.',
     });
 
     const projection = await buildProjectionSnapshot({
@@ -98,12 +95,9 @@ test(
           sourceMessageId: "tool-mark-delete-blocked",
           toolName: "compression_mark" as const,
           input: {
-            contractVersion: "v1" as const,
             mode: "delete" as const,
-            target: {
-              startVisibleMessageID: visibleIds.assistant1,
-              endVisibleMessageID: visibleIds.tool1,
-            },
+            from: visibleIds.assistant1,
+            to: visibleIds.tool1,
           },
           result: blockedResult,
         },
@@ -165,12 +159,9 @@ test(
 
     const allowedResult = await executeCompressionMark(
       {
-        contractVersion: "v1",
         mode: "delete",
-        target: {
-          startVisibleMessageID: visibleIds.assistant1,
-          endVisibleMessageID: visibleIds.tool1,
-        },
+        from: visibleIds.assistant1,
+        to: visibleIds.tool1,
       },
       createToolContext(fixture.sessionID),
       {
@@ -342,17 +333,14 @@ async function buildProjectionSnapshot(input: {
   readonly identity: ReturnType<typeof createCanonicalIdentityService>;
   readonly hostHistory: readonly ReturnType<typeof hostEntry>[];
   readonly toolHistory: ReadonlyArray<ReturnType<typeof createDeleteMarkToolEntry> | {
-    readonly sequence: number;
-    readonly sourceMessageId: string;
-    readonly toolName: "compression_mark";
-    readonly input: {
-      readonly contractVersion: "v1";
-      readonly mode: "delete";
-      readonly target: {
-        readonly startVisibleMessageID: string;
-        readonly endVisibleMessageID: string;
+      readonly sequence: number;
+      readonly sourceMessageId: string;
+      readonly toolName: "compression_mark";
+      readonly input: {
+        readonly mode: "delete";
+        readonly from: string;
+        readonly to: string;
       };
-    };
     readonly result: Awaited<ReturnType<typeof executeCompressionMark>>;
   }>;
 }): Promise<string[]> {
@@ -388,12 +376,9 @@ function createDeleteMarkToolEntry(input: {
     sourceMessageId: input.sourceMessageId,
     toolName: "compression_mark" as const,
     input: {
-      contractVersion: "v1" as const,
       mode: "delete" as const,
-      target: {
-        startVisibleMessageID: input.startVisibleMessageId,
-        endVisibleMessageID: input.endVisibleMessageId,
-      },
+      from: input.startVisibleMessageId,
+      to: input.endVisibleMessageId,
     },
     result: {
       ok: true as const,

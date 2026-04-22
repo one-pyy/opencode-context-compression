@@ -36,12 +36,9 @@ test(
             partID: "tool-accepted",
             callID: "call-accepted",
             input: {
-              contractVersion: "v1",
               mode: "compact",
-              target: {
-                startVisibleMessageID: "compressible_000001_a1",
-                endVisibleMessageID: "compressible_000002_a2",
-              },
+              from: "compressible_000001_a1",
+              to: "compressible_000002_a2",
             },
             output: JSON.stringify({
               ok: true,
@@ -54,12 +51,9 @@ test(
             partID: "tool-rejected",
             callID: "call-rejected",
             input: {
-              contractVersion: "v1",
               mode: "delete",
-              target: {
-                startVisibleMessageID: "compressible_000003_b1",
-                endVisibleMessageID: "compressible_000004_b2",
-              },
+              from: "compressible_000003_b1",
+              to: "compressible_000004_b2",
             },
             output: JSON.stringify({
               ok: false,
@@ -74,12 +68,13 @@ test(
             partID: "tool-invalid-input",
             callID: "call-invalid-input",
             input: {
-              contractVersion: "v1",
               mode: "compact",
-              range: {
-                startVisibleMessageID: "compressible_000005_c1",
-                endVisibleMessageID: "compressible_000006_c2",
-              },
+              target: [
+                {
+                  startVisibleMessageID: "compressible_000005_c1",
+                  endVisibleMessageID: "compressible_000006_c2",
+                },
+              ],
             },
             output: JSON.stringify({
               ok: true,
@@ -92,12 +87,9 @@ test(
             partID: "tool-invalid-result",
             callID: "call-invalid-result",
             input: {
-              contractVersion: "v1",
               mode: "compact",
-              target: {
-                startVisibleMessageID: "compressible_000007_d1",
-                endVisibleMessageID: "compressible_000008_d2",
-              },
+              from: "compressible_000007_d1",
+              to: "compressible_000008_d2",
             },
             output: "not-json",
           }),

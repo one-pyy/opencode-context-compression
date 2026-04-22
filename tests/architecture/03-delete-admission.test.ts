@@ -11,7 +11,8 @@ test("Admission Gate - allowDelete: false rejects delete mode", async () => {
   const result = await admission({
     sessionID: "ses_1",
     mode: "delete",
-    target: { startVisibleMessageID: "vis_1", endVisibleMessageID: "vis_2" }
+    from: "vis_1",
+    to: "vis_2",
   });
   
   assert.equal("ok" in result && result.ok, false, "Implementation violates 6.2: Must return an error when allowDelete=false and mode=delete");
@@ -23,7 +24,8 @@ test("Admission Gate - allowDelete: true allows delete mode", async () => {
   const result = await admission({
     sessionID: "ses_1",
     mode: "delete",
-    target: { startVisibleMessageID: "vis_1", endVisibleMessageID: "vis_2" }
+    from: "vis_1",
+    to: "vis_2",
   });
   
   assert.equal((result as any).ok, true);
@@ -34,7 +36,8 @@ test("Admission Gate - compact mode is always allowed", async () => {
   const result = await admission({
     sessionID: "ses_1",
     mode: "compact",
-    target: { startVisibleMessageID: "vis_1", endVisibleMessageID: "vis_2" }
+    from: "vis_1",
+    to: "vis_2",
   });
   
   assert.equal((result as any).ok, true);

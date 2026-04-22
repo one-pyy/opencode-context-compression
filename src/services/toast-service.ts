@@ -61,32 +61,39 @@ export class ToastService {
     title: string,
     message: string,
     duration?: number,
-  ): Promise<void> {
-    await this.input.client.tui
-      .showToast({
+  ): Promise<boolean> {
+    try {
+      await this.input.client.tui.showToast({
         body: {
           variant,
           title,
           message,
           duration,
         },
-      })
-      .catch(() => {});
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
-  async showPluginStarted(): Promise<void> {
+  async showPluginStarted(): Promise<boolean> {
     if (!this.shouldShowToast("startup")) {
-      return;
+      return false;
     }
 
-    await this.showToast(
+    const shown = await this.showToast(
       "info",
       "Context Compression",
       "Plugin started and monitoring context usage",
       this.config.durations?.startup ?? 3000,
     );
 
-    this.recordToastShown("startup");
+    if (shown) {
+      this.recordToastShown("startup");
+    }
+
+    return shown;
   }
 
   async showSoftReminder(compressibleTokens: number): Promise<void> {

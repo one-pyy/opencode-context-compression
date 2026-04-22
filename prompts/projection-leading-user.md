@@ -1,0 +1,1 @@
+Message IDs (e.g., `[xxx_\d{6} _check_sum]`) are automatically inserted—**NEVER** include them in your responses.

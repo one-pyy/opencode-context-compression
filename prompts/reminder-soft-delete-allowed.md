@@ -1,1 +1,1 @@
-Soft reminder: older compressible context is accumulating. If the target span is no longer needed, you may either produce a compact referable replacement or use delete-style cleanup directly.
+Auto-prompt: Use `compression_mark` to compress context no longer needed. You may also mark previously compressed context for deletion. Ignore this message if the current task is incomplete. After completing the mark, continue your task without stopping. You may mark multiple non-contiguous context blocks in a single response.

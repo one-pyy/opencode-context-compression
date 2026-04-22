@@ -57,6 +57,8 @@ interface RuntimeConfigInput {
   };
   readonly compressing?: {
     readonly timeoutSeconds?: unknown;
+    readonly firstTokenTimeoutSeconds?: unknown;
+    readonly streamIdleTimeoutSeconds?: unknown;
   };
   readonly reminder?: {
     readonly hsoft?: unknown;
@@ -128,6 +130,10 @@ export interface LoadedRuntimeConfig {
   readonly compressing: {
     readonly timeoutSeconds: number;
     readonly timeoutMs: number;
+    readonly firstTokenTimeoutSeconds: number;
+    readonly firstTokenTimeoutMs: number;
+    readonly streamIdleTimeoutSeconds: number;
+    readonly streamIdleTimeoutMs: number;
   };
   readonly reminder: RuntimeConfigReminderThresholds & {
     readonly promptPaths: {
@@ -196,6 +202,8 @@ const DEFAULTS = {
   },
   compressing: {
     timeoutSeconds: 600,
+    firstTokenTimeoutSeconds: 40,
+    streamIdleTimeoutSeconds: 40,
   },
   toast: {
     enabled: true,
@@ -230,7 +238,11 @@ const ALLOWED_ROOT_KEYS = new Set([
 ]);
 
 const ALLOWED_LOGGING_KEYS = new Set(["level"]);
-const ALLOWED_COMPRESSING_KEYS = new Set(["timeoutSeconds"]);
+const ALLOWED_COMPRESSING_KEYS = new Set([
+  "timeoutSeconds",
+  "firstTokenTimeoutSeconds",
+  "streamIdleTimeoutSeconds",
+]);
 const ALLOWED_REMINDER_KEYS = new Set([
   "hsoft",
   "hhard",
@@ -317,6 +329,7 @@ export async function loadRuntimeConfig(
   const leadingUserPrompt = resolvePromptAsset(leadingUserPromptPath, {
     kind: "leading user prompt asset",
     templateMode: "plain-text",
+    allowEmpty: true,
   });
 
   const reminderPromptPaths = {
@@ -369,6 +382,16 @@ export async function loadRuntimeConfig(
     timeoutOverride
       ? RUNTIME_CONFIG_ENV.compressingTimeoutSeconds
       : "compressing.timeoutSeconds",
+  );
+  const firstTokenTimeoutSeconds = readPositiveInteger(
+    parsed.compressing?.firstTokenTimeoutSeconds ??
+      DEFAULTS.compressing.firstTokenTimeoutSeconds,
+    "compressing.firstTokenTimeoutSeconds",
+  );
+  const streamIdleTimeoutSeconds = readPositiveInteger(
+    parsed.compressing?.streamIdleTimeoutSeconds ??
+      DEFAULTS.compressing.streamIdleTimeoutSeconds,
+    "compressing.streamIdleTimeoutSeconds",
   );
 
   const reminderPrompts = {
@@ -438,6 +461,10 @@ export async function loadRuntimeConfig(
     compressing: {
       timeoutSeconds,
       timeoutMs: timeoutSeconds * 1_000,
+      firstTokenTimeoutSeconds,
+      firstTokenTimeoutMs: firstTokenTimeoutSeconds * 1_000,
+      streamIdleTimeoutSeconds,
+      streamIdleTimeoutMs: streamIdleTimeoutSeconds * 1_000,
     },
     reminder: {
       hsoft: readPositiveInteger(parsed.reminder?.hsoft ?? DEFAULTS.reminder.hsoft, "reminder.hsoft"),
@@ -539,6 +566,7 @@ export function resolvePromptAsset(
   options: {
     readonly kind: string;
     readonly templateMode: "template" | "plain-text";
+    readonly allowEmpty?: boolean;
   },
 ): LoadedPromptAsset {
   if (!existsSync(assetPath)) {
@@ -548,7 +576,7 @@ export function resolvePromptAsset(
   }
 
   const text = readFileSync(assetPath, "utf8");
-  if (text.trim().length === 0) {
+  if (text.trim().length === 0 && !options.allowEmpty) {
     throw new OpencodeContextCompressionRuntimeConfigError(
       `${options.kind} at '${assetPath}' must contain non-empty prompt text.`,
     );

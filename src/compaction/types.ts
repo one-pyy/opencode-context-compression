@@ -25,6 +25,8 @@ export interface CompactionBuildInput {
   readonly promptText: string;
   readonly transcript: readonly CompactionBuildTranscriptEntry[];
   readonly timeoutMs: number;
+  readonly firstTokenTimeoutMs?: number;
+  readonly streamIdleTimeoutMs?: number;
   readonly signal?: AbortSignal;
   readonly hint?: string;
 }

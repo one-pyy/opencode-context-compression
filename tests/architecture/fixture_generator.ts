@@ -63,7 +63,7 @@ export function createSession(sessionID: string = "ses_test") {
       };
     },
 
-    createMarkTool(callID: string, mode: "compact" | "delete", targetRange: { startVisibleMessageID: string, endVisibleMessageID: string }, markIdResult?: string | Error): ToolPart {
+    createMarkTool(callID: string, mode: "compact" | "delete", targetRange: { from: string, to: string }, markIdResult?: string | Error): ToolPart {
       return {
         type: "tool",
         id: `prt_${prtCounter++}`,
@@ -72,7 +72,7 @@ export function createSession(sessionID: string = "ses_test") {
         callID,
         state: {
           status: markIdResult instanceof Error ? "error" : "completed",
-          input: { contractVersion: "v1", mode, target: targetRange },
+          input: { mode, from: targetRange.from, to: targetRange.to },
           output: markIdResult instanceof Error ? markIdResult.message : markIdResult
         }
       };

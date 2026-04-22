@@ -193,8 +193,8 @@ function collectReplayableEntries(
             sourceMessageId: syntheticMessageId,
             outcome: "invalid-result",
             mode: parsedInput.value.mode,
-            startVisibleMessageId: parsedInput.value.target.startVisibleMessageID,
-            endVisibleMessageId: parsedInput.value.target.endVisibleMessageID,
+            startVisibleMessageId: parsedInput.value.from,
+            endVisibleMessageId: parsedInput.value.to,
           } satisfies ReplayedCompressionMarkToolCall),
         );
         continue;
@@ -206,8 +206,8 @@ function collectReplayableEntries(
           sourceMessageId: syntheticMessageId,
           outcome: parsedResult.ok === true ? "accepted" : "rejected",
           mode: parsedInput.value.mode,
-          startVisibleMessageId: parsedInput.value.target.startVisibleMessageID,
-          endVisibleMessageId: parsedInput.value.target.endVisibleMessageID,
+          startVisibleMessageId: parsedInput.value.from,
+          endVisibleMessageId: parsedInput.value.to,
           ...(parsedResult.ok === true
             ? {}
             : { errorCode: parsedResult.errorCode }),

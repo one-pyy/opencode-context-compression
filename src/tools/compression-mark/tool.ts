@@ -3,7 +3,6 @@ import { randomBytes } from "node:crypto";
 import { tool, type ToolDefinition } from "@opencode-ai/plugin";
 
 import {
-  COMPRESSION_MARK_CONTRACT_VERSION,
   createCompressionMarkFailure,
   serializeCompressionMarkResult,
   toCompressionMarkToolInvocationContext,
@@ -11,7 +10,6 @@ import {
   type CompressionMarkInputV1,
   type CompressionMarkMode,
   type CompressionMarkResult,
-  type CompressionMarkTarget,
   type CompressionMarkToolInvocationContext,
   validateCompressionMarkInput,
 } from "./contract.js";
@@ -19,7 +17,9 @@ import {
 export interface CompressionMarkAdmissionInput {
   readonly sessionID: string;
   readonly mode: CompressionMarkMode;
-  readonly target: CompressionMarkTarget;
+  readonly from: string;
+  readonly to: string;
+  readonly hint?: string;
 }
 
 export type CompressionMarkAdmissionResult =
@@ -76,7 +76,9 @@ export async function executeCompressionMark(
   const admissionInput = {
     sessionID: context.sessionID,
     mode: parsed.value.mode,
-    target: parsed.value.target,
+    from: parsed.value.from,
+    to: parsed.value.to,
+    hint: parsed.value.hint,
   } satisfies CompressionMarkAdmissionInput;
   const admission =
     options.admission ?? createCompressionMarkAdmission({ allowDelete: false });
@@ -117,13 +119,10 @@ export function createCompressionMarkTool(
       "## Example usage:\n" +
       "```json\n" +
       "{\n" +
-      '  "contractVersion": "v1",\n' +
       '  "mode": "compact",\n' +
-      '  "target": {\n' +
-      '    "startVisibleMessageID": "msg_d9c014aa2001Fj6KX6ypuz0nNf",\n' +
-      '    "endVisibleMessageID": "msg_d9c01b4e2001def",\n' +
-      '    "hint": "Preserve file paths and error messages"\n' +
-      "  }\n" +
+      '  "from": "msg_d9c014aa2001Fj6KX6ypuz0nNf",\n' +
+      '  "to": "msg_d9c01b4e2001def",\n' +
+      '  "hint": "Preserve file paths and error messages"\n' +
       "}\n" +
       "```\n\n" +
       "## What happens after:\n" +
@@ -132,24 +131,17 @@ export function createCompressionMarkTool(
       "- Compressed content replaces the original range in future context\n" +
       "- You can continue working immediately; compression doesn't block your workflow",
     args: {
-      contractVersion: tool.schema.literal(COMPRESSION_MARK_CONTRACT_VERSION).describe(
-        'Must be "v1" (the current contract version)'
-      ),
       mode: tool.schema.enum(["compact", "delete"]).describe(
         'Use "compact" to compress messages into summaries, or "delete" to remove them entirely'
       ),
-      target: tool.schema.object({
-        startVisibleMessageID: tool.schema.string().min(1).describe(
-          "The visible message ID where the range starts (format: msg_...)"
-        ),
-        endVisibleMessageID: tool.schema.string().min(1).describe(
-          "The visible message ID where the range ends (format: msg_...)"
-        ),
-        hint: tool.schema.string().optional().describe(
-          "Optional guidance for the compression strategy (e.g., 'Preserve all file paths')"
-        ),
-      }).describe(
-        "The target range and optional compression hint"
+      from: tool.schema.string().min(1).describe(
+        "The visible message ID where the range starts (format: msg_...)"
+      ),
+      to: tool.schema.string().min(1).describe(
+        "The visible message ID where the range ends (format: msg_...)"
+      ),
+      hint: tool.schema.string().optional().describe(
+        "Optional guidance for the compression strategy (e.g., 'Preserve all file paths')"
       ),
     },
     async execute(args, context) {

@@ -20,7 +20,7 @@
   "smallUserMessageThreshold": 1536,
   "reminder": {
     // Reminder prompt assets are plain-text files selected by severity × allowDelete.
-    "hsoft": 50000,
+    "hsoft": 40000,
     "hhard": 150000,
     "softRepeatEveryTokens": 30000,
     "hardRepeatEveryTokens": 10000,
@@ -39,7 +39,9 @@
     "level": "debug"
   },
   "compressing": {
-    "timeoutSeconds": 600
+    "timeoutSeconds": 600,
+    "firstTokenTimeoutSeconds": 40,
+    "streamIdleTimeoutSeconds": 40
   },
   "toast": {
     "enabled": true,

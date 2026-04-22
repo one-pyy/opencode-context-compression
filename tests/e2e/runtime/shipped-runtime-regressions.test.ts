@@ -61,12 +61,12 @@ test(
 
     await hooks["experimental.chat.messages.transform"]?.({}, output);
 
-    assert.equal(output.messages.length, 3);
+    assert.equal(output.messages.length, 4);
     assert.match(
-      output.messages[2]?.parts[0]?.type === "text"
-        ? output.messages[2].parts[0].text
+      output.messages[3]?.parts[0]?.type === "text"
+        ? output.messages[3].parts[0].text
         : "",
-      /^\[compressible_000003_[0-9A-Za-z]{8}\] Tool emits the final diagnostic payload\.$/u,
+      /^\[compressible_000003_[0-9A-Za-z]{2}\] Tool emits the final diagnostic payload\.$/u,
     );
 
     const evidencePath = await fixture.evidence.writeJson(
@@ -101,12 +101,9 @@ test(
     );
     const blockedSerialized = await blockedHooks.tool?.compression_mark?.execute(
       {
-        contractVersion: "v1",
         mode: "delete",
-        target: {
-          startVisibleMessageID: "compressible_000001_a1",
-          endVisibleMessageID: "compressible_000002_b2",
-        },
+        from: "compressible_000001_a1",
+        to: "compressible_000002_b2",
       },
       createToolContext(fixture.sessionID),
     );
@@ -115,7 +112,7 @@ test(
       ok: false,
       errorCode: "DELETE_NOT_ALLOWED",
       message:
-        "compression_mark mode='delete' is blocked by the current delete-admission policy.",
+        'compression_mark mode="delete" is not allowed in this session. Use mode="compact" instead to compress messages into summaries while preserving important information.',
     });
 
     const allowedHooks = await withRuntimeConfigPath(
@@ -129,12 +126,9 @@ test(
     );
     const allowedSerialized = await allowedHooks.tool?.compression_mark?.execute(
       {
-        contractVersion: "v1",
         mode: "delete",
-        target: {
-          startVisibleMessageID: "compressible_000001_a1",
-          endVisibleMessageID: "compressible_000002_b2",
-        },
+        from: "compressible_000001_a1",
+        to: "compressible_000002_b2",
       },
       createToolContext(fixture.sessionID),
     );
@@ -257,6 +251,16 @@ test(
       })),
       [
         {
+          seam: undefined,
+          stage: undefined,
+          sessionID: "plugin-startup",
+        },
+        {
+          seam: undefined,
+          stage: undefined,
+          sessionID: "plugin-startup",
+        },
+        {
           seam: "experimental.chat.messages.transform",
           stage: "gate",
           sessionID: fixture.sessionID,
@@ -268,25 +272,25 @@ test(
         },
       ],
     );
-    assert.equal(runtimeEvents[1]?.payload?.projectionDebug?.canonicalMessageCount, 2);
-    assert.equal(runtimeEvents[1]?.payload?.projectionDebug?.projectedMessageCount, 2);
+    assert.equal(runtimeEvents[3]?.payload?.projectionDebug?.canonicalMessageCount, 2);
+    assert.equal(runtimeEvents[3]?.payload?.projectionDebug?.projectedMessageCount, 3);
     assert.equal(
-      runtimeEvents[1]?.payload?.projectionDebug?.compressionMarkToolCalls.total,
+      runtimeEvents[3]?.payload?.projectionDebug?.compressionMarkToolCalls.total,
       0,
     );
     assert.equal(
-      runtimeEvents[1]?.payload?.projectionDebug?.compressionMarkToolCalls.accepted,
+      runtimeEvents[3]?.payload?.projectionDebug?.compressionMarkToolCalls.accepted,
       0,
     );
     assert.equal(
-      runtimeEvents[1]?.payload?.projectionDebug?.replayedMarkIntents.total,
+      runtimeEvents[3]?.payload?.projectionDebug?.replayedMarkIntents.total,
       0,
     );
-    assert.equal(runtimeEvents[1]?.payload?.projectionDebug?.resultGroups.count, 0);
-    assert.equal(runtimeEvents[1]?.payload?.projectionDebug?.reminders.count, 0);
+    assert.equal(runtimeEvents[3]?.payload?.projectionDebug?.resultGroups.count, 0);
+    assert.equal(runtimeEvents[3]?.payload?.projectionDebug?.reminders.count, 0);
 
     const inputSnapshot = JSON.parse(
-      await readFile(join(debugSnapshotPath, `${fixture.sessionID}.in.json`), "utf8"),
+      await readFile(join(debugSnapshotPath, `${fixture.sessionID}.hook-in.json`), "utf8"),
     ) as {
       messages: Array<{ parts: Array<{ text?: string }> }>;
     };
@@ -295,18 +299,29 @@ test(
     ) as {
       messages: Array<{ parts: Array<{ text?: string }> }>;
     };
+    const projectedTexts = outputSnapshot.messages.map(
+      (message) => message.parts[0]?.text ?? "",
+    );
+    const projectedUserMessage = projectedTexts.find((text) =>
+      text.includes("User asks for the diagnostic recap."),
+    );
+    const projectedAssistantMessage = projectedTexts.find((text) =>
+      text.includes("Assistant begins the recap."),
+    );
 
     assert.equal(
       inputSnapshot.messages[0]?.parts[0]?.text,
       "User asks for the diagnostic recap.",
     );
+    assert.ok(projectedUserMessage);
     assert.match(
-      outputSnapshot.messages[0]?.parts[0]?.text ?? "",
-      /^\[protected_000001_[0-9A-Za-z]{8}\] User asks for the diagnostic recap\.$/u,
+      projectedUserMessage,
+      /^\[protected_000001_[0-9A-Za-z]{2}\] User asks for the diagnostic recap\.$/u,
     );
+    assert.ok(projectedAssistantMessage);
     assert.match(
-      outputSnapshot.messages[1]?.parts[0]?.text ?? "",
-      /^\[compressible_000002_[0-9A-Za-z]{8}\] Assistant begins the recap\.$/u,
+      projectedAssistantMessage,
+      /^\[compressible_000002_[0-9A-Za-z]{2}\] Assistant begins the recap\.$/u,
     );
   },
 );

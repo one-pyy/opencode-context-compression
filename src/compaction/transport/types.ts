@@ -20,6 +20,8 @@ export interface CompactionTransportRequest {
   readonly promptText: string;
   readonly transcript: readonly CompactionTransportTranscriptEntry[];
   readonly timeoutMs: number;
+  readonly firstTokenTimeoutMs?: number;
+  readonly streamIdleTimeoutMs?: number;
   readonly signal?: AbortSignal;
   readonly hint?: string;
 }
@@ -36,6 +38,8 @@ export interface RecordedCompactionTransportRequest {
   readonly promptText: string;
   readonly transcript: readonly CompactionTransportTranscriptEntry[];
   readonly timeoutMs: number;
+  readonly firstTokenTimeoutMs?: number;
+  readonly streamIdleTimeoutMs?: number;
   readonly signalState: "missing" | "active" | "aborted";
 }
 

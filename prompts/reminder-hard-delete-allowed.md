@@ -1,1 +1,1 @@
-Hard reminder: reduce older compressible context now. If the target span is no longer needed, you may either produce a compact referable replacement or use delete-style cleanup directly.
+Auto-prompt: Immediately use `compression_mark` to compress context no longer needed. You may also mark previously compressed context for deletion. You may store intermediate result documents in `.sisyphus/tmp` for the compressed content. You may mark multiple non-contiguous context blocks in a single response.

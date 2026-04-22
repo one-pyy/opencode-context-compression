@@ -42,6 +42,8 @@ export function createCompactionInputBuilder(): CompactionInputBuilder {
         executionMode: input.executionMode,
         promptText: input.promptText,
         timeoutMs: input.timeoutMs,
+        firstTokenTimeoutMs: input.firstTokenTimeoutMs,
+        streamIdleTimeoutMs: input.streamIdleTimeoutMs,
         signal: input.signal,
         transcript: input.transcript.map((entry) => ({
           role: entry.role,

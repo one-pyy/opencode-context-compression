@@ -1,11 +1,11 @@
-## dcp-runtime-uses-sidecar-gated-compaction-and-derived-reminders
+## runtime-uses-sidecar-gated-compaction-and-derived-reminders
 Date: 2026-04-19
 
 ### Decision
-当前 clean-slate DCP 设计应采用 SQLite sidecar、显式 compaction model array、derived reminder/visible-id 逻辑，以及 compaction pending 时的受控 send gate。
+当前设计应采用 SQLite sidecar、显式 compaction model array、derived reminder/visible-id 逻辑，以及 compaction pending 时的受控 send gate。
 
 ### Rationale
-旧 notepads 中关于 `new-dcp-plugin-config-and-compaction-gates` 与生命周期教程收敛到一个更窄、更一致的方向：
+旧文档体系中关于 `new-dcp-plugin-config-and-compaction-gates` 与生命周期教程的内容，曾收敛到一个更窄、更一致的方向：
 
 - canonical host history 仍然是唯一真相源
 - SQLite sidecar 保存派生状态，而不是复制第二套历史
@@ -20,8 +20,8 @@ Date: 2026-04-19
 - 只保留单一 compaction model：拒绝，因为有序数组更清楚地表达 retry/fallback 次序。
 
 ### Consequences
-- 当前 DCP 文档与实现讨论必须围绕 host history + SQLite sidecar + projection + scheduling 这条主线。
+- 当前设计与实现讨论必须围绕 host history + SQLite sidecar + projection + scheduling 这条主线。
 - 运行时设计中的 debug snapshots、route、compaction models 与 blocking gate 都是第一类配置/行为，不应再埋入临时实现细节。
 - 与生命周期缺口相关的未完成部分，应记录到 problems/docs，而不是稀释这条主决策。
 
-Tags: #dcp #architecture #runtime #compaction
+Tags: #architecture #runtime #compaction #history

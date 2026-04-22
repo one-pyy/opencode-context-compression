@@ -85,6 +85,12 @@
       "properties": {
         "timeoutSeconds": {
           "$ref": "#/$defs/positiveInteger"
+        },
+        "firstTokenTimeoutSeconds": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "streamIdleTimeoutSeconds": {
+          "$ref": "#/$defs/positiveInteger"
         }
       }
     },

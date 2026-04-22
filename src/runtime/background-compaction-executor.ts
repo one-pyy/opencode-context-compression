@@ -2,6 +2,11 @@ import type { PluginInput } from "@opencode-ai/plugin";
 import type { LoadedRuntimeConfig } from "../config/runtime-config.js";
 import type { ProjectedMessageSet } from "../projection/types.js";
 import type { RuntimeArtifactRecorder } from "./runtime-artifacts.js";
+import {
+  acquireSessionFileLock,
+  settleAndReleaseSessionFileLock,
+  resolvePluginLockDirectory,
+} from "./file-lock.js";
 import { resolvePluginStateDirectory, resolveSessionDatabasePath } from "./sidecar-layout.js";
 import { bootstrapSessionSidecar, openSessionSidecarRepository } from "../state/sidecar-store.js";
 import { readPendingCompactions, markCompactionsProcessed } from "../state/sidecar-store/pending-compactions.js";
@@ -24,6 +29,7 @@ export async function executeBackgroundCompactions(
   options: BackgroundCompactionExecutorOptions,
 ): Promise<void> {
   const { sessionId, projectionState, pluginInput, runtimeConfig, runtimeArtifacts } = options;
+  const lockDirectory = resolvePluginLockDirectory(pluginInput.directory);
 
   const stateDirectory = resolvePluginStateDirectory(pluginInput.directory);
   const databasePath = resolveSessionDatabasePath(stateDirectory, sessionId);
@@ -33,9 +39,20 @@ export async function executeBackgroundCompactions(
 
   try {
     const pendingCompactions = readPendingCompactions(sidecar.database);
-    
+
     if (pendingCompactions.length === 0) {
       return;
+    }
+
+    const lockResult = await acquireSessionFileLock({
+      lockDirectory,
+      sessionID: sessionId,
+      note: `background compaction batch (${pendingCompactions.length} pending marks)`,
+    });
+    if (!lockResult.acquired) {
+      throw new Error(
+        `background compaction lock acquisition failed unexpectedly for session '${sessionId}'`,
+      );
     }
 
     await runtimeArtifacts.writeDiagnostic({
@@ -73,6 +90,8 @@ export async function executeBackgroundCompactions(
     });
 
     const processedIds: number[] = [];
+    let didFail = false;
+    let firstFailureMessage: string | undefined;
 
     for (const pending of pendingCompactions) {
       try {
@@ -104,6 +123,8 @@ export async function executeBackgroundCompactions(
           model: runtimeConfig.models[0],
           promptText: runtimeConfig.promptText,
           timeoutMs: runtimeConfig.compressing.timeoutMs,
+          firstTokenTimeoutMs: runtimeConfig.compressing.firstTokenTimeoutMs,
+          streamIdleTimeoutMs: runtimeConfig.compressing.streamIdleTimeoutMs,
           compactionModels: runtimeConfig.models.slice(1),
           maxAttemptsPerModel: 2,
           createdAt: pending.createdAt,
@@ -120,6 +141,8 @@ export async function executeBackgroundCompactions(
         });
         processedIds.push(pending.id);
       } catch (error) {
+        didFail = true;
+        firstFailureMessage ??= formatError(error);
         await runtimeArtifacts.writeDiagnostic({
           sessionID: sessionId,
           scope: "background-compaction",
@@ -136,6 +159,15 @@ export async function executeBackgroundCompactions(
     if (processedIds.length > 0) {
       markCompactionsProcessed(sidecar.database, processedIds);
     }
+
+    await settleAndReleaseSessionFileLock({
+      lockDirectory,
+      sessionID: sessionId,
+      status: didFail ? "failed" : "succeeded",
+      note: didFail
+        ? `background compaction completed with failure: ${firstFailureMessage ?? "unknown error"}`
+        : `background compaction completed successfully (${processedIds.length} marks processed)`,
+    });
   } finally {
     sidecar.close();
   }

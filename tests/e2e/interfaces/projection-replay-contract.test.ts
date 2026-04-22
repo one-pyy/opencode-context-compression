@@ -84,12 +84,9 @@ test(
             sourceMessageId: "tool-mark-child",
             toolName: "compression_mark",
             input: {
-              contractVersion: "v1",
               mode: "compact",
-              target: {
-                startVisibleMessageID: visibleIds.assistant1.assignedVisibleId,
-                endVisibleMessageID: visibleIds.tool1.assignedVisibleId,
-              },
+              from: visibleIds.assistant1.assignedVisibleId,
+              to: visibleIds.tool1.assignedVisibleId,
             },
             result: {
               ok: true,
@@ -101,12 +98,9 @@ test(
             sourceMessageId: "tool-mark-parent",
             toolName: "compression_mark",
             input: {
-              contractVersion: "v1",
               mode: "compact",
-              target: {
-                startVisibleMessageID: visibleIds.user1.assignedVisibleId,
-                endVisibleMessageID: visibleIds.user2.assignedVisibleId,
-              },
+              from: visibleIds.user1.assignedVisibleId,
+              to: visibleIds.user2.assignedVisibleId,
             },
             result: {
               ok: true,

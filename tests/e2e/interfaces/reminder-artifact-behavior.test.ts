@@ -62,12 +62,9 @@ test(
           sourceMessageId: "tool-mark-window",
           toolName: "compression_mark",
           input: {
-            contractVersion: "v1",
             mode: "compact",
-            target: {
-              startVisibleMessageID: assistantVisibleId.assignedVisibleId,
-              endVisibleMessageID: toolVisibleId.assignedVisibleId,
-            },
+            from: assistantVisibleId.assignedVisibleId,
+            to: toolVisibleId.assignedVisibleId,
           },
           result: {
             ok: true,

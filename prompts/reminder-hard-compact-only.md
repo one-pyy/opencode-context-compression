@@ -1,1 +1,1 @@
-Hard reminder: compress older compressible context now. The target span must be preserved through normal compaction and must not be treated as deletable.
+Auto-prompt: Immediately use `compression_mark` to compress context no longer needed. You may store intermediate result documents in `.sisyphus/tmp` for the compressed content. You may mark multiple non-contiguous context blocks in a single response.

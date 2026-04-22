@@ -457,12 +457,9 @@ function createCompactMarkToolEntry(input: {
     sourceMessageId: input.sourceMessageId,
     toolName: "compression_mark" as const,
     input: {
-      contractVersion: "v1" as const,
       mode: "compact" as const,
-      target: {
-        startVisibleMessageID: input.startVisibleMessageId,
-        endVisibleMessageID: input.endVisibleMessageId,
-      },
+      from: input.startVisibleMessageId,
+      to: input.endVisibleMessageId,
     },
     result: {
       ok: true as const,

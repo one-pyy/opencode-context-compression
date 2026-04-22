@@ -1,5 +1,4 @@
 export {
-  COMPRESSION_MARK_CONTRACT_VERSION,
   COMPRESSION_MARK_EXTERNAL_CONTRACT,
   COMPRESSION_MARK_TOOL_NAME,
   createCompressionMarkFailure,
@@ -14,7 +13,6 @@ export {
   type CompressionMarkMode,
   type CompressionMarkResult,
   type CompressionMarkSuccess,
-  type CompressionMarkTarget,
   type CompressionMarkToolInvocationContext,
 } from "./compression-mark/contract.js";
 export {

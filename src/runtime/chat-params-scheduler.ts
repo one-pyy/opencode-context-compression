@@ -39,7 +39,6 @@ export interface FrozenCompactionBatchSnapshot {
 }
 
 export interface ChatParamsSchedulingMetadata {
-  readonly contractVersion: "v1";
   readonly schedulerState: "idle" | "eligible" | "scheduled";
   readonly scheduled: boolean;
   readonly reason: string;
@@ -175,7 +174,6 @@ export const CHAT_PARAMS_EXTERNAL_CONTRACT = Object.freeze({
 
 export function createStaticChatParamsScheduler(
   metadata: ChatParamsSchedulingMetadata = {
-    contractVersion: "v1",
     schedulerState: "idle",
     scheduled: false,
     reason: "scheduler seam not dispatched by the Task 6 contract adapter",
@@ -561,7 +559,6 @@ function buildMetadata(input: {
   readonly dispatchedBatch?: FrozenCompactionBatchSnapshot;
 }): ChatParamsSchedulingMetadata {
   return Object.freeze({
-    contractVersion: "v1",
     schedulerState: input.schedulerState,
     scheduled: input.scheduled,
     reason: input.reason,

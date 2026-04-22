@@ -11,6 +11,8 @@ export interface BuildCompactionRunInputForMarkOptions {
   readonly model: string;
   readonly promptText: string;
   readonly timeoutMs: number;
+  readonly firstTokenTimeoutMs?: number;
+  readonly streamIdleTimeoutMs?: number;
   readonly signal?: AbortSignal;
   readonly compactionModels?: readonly string[];
   readonly maxAttemptsPerModel?: number;
@@ -37,6 +39,12 @@ export function buildCompactionRunInputForMark(
       executionMode: markNode.mode,
       promptText: options.promptText,
       timeoutMs: options.timeoutMs,
+      ...(options.firstTokenTimeoutMs !== undefined
+        ? { firstTokenTimeoutMs: options.firstTokenTimeoutMs }
+        : {}),
+      ...(options.streamIdleTimeoutMs !== undefined
+        ? { streamIdleTimeoutMs: options.streamIdleTimeoutMs }
+        : {}),
       signal: options.signal,
       transcript,
       hint: markNode.hint,

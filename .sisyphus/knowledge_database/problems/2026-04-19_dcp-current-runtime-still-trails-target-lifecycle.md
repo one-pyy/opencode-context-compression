@@ -1,8 +1,8 @@
-## dcp-current-runtime-still-trails-target-lifecycle
+## current-runtime-still-trails-target-lifecycle
 Date: 2026-04-19
 
 ### Symptom
-当前 DCP 运行时在若干关键点上仍未达到目标生命周期模型，导致系统在局部行为上可用，但整体仍偏离目标的 reminder → mark → compaction → cleanup 流。
+当前运行时在若干关键点上仍未达到目标生命周期模型，导致系统在局部行为上可用，但整体仍偏离目标的 reminder → mark → compaction → cleanup 流。
 
 ### Trigger Conditions
 当把现有 runtime 与完整生命周期参考对照时，这些缺口会暴露出来：
@@ -15,6 +15,6 @@ Date: 2026-04-19
 ### Resolution
 UNRESOLVED
 
-当前应把这个问题当作子项目的长期基线问题，而不是单次调试缺陷。后续工作需要同时参考当前运行时设计文档与生命周期 reference，并逐步把缺口收敛到可验证的实现语义。
+当前应把这个问题当作子项目的长期基线问题，而不是单次调试缺陷。后续工作需要同时参考当前 docs 中的运行时设计文档与生命周期相关语义，并逐步把缺口收敛到可验证的实现语义。
 
-Tags: #dcp #lifecycle #gap #architecture
+Tags: #runtime #lifecycle #gap #architecture

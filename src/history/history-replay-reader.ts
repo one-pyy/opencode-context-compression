@@ -169,11 +169,11 @@ export function replayHistoryFromSources(
           Object.freeze({
             markId: entry.result.markId,
             mode: entry.input.mode,
-            startVisibleMessageId: entry.input.target.startVisibleMessageID,
-            endVisibleMessageId: entry.input.target.endVisibleMessageID,
+            startVisibleMessageId: entry.input.from,
+            endVisibleMessageId: entry.input.to,
             sourceMessageId: entry.sourceMessageId,
             sourceSequence: entry.sequence,
-            hint: entry.input.target.hint,
+            hint: entry.input.hint,
           } satisfies ReplayedMarkIntent),
         ];
       }),
@@ -186,8 +186,8 @@ export function replayHistoryFromSources(
             sourceMessageId: entry.sourceMessageId,
             outcome: entry.result.ok === true ? "accepted" : "rejected",
             mode: entry.input.mode,
-            startVisibleMessageId: entry.input.target.startVisibleMessageID,
-            endVisibleMessageId: entry.input.target.endVisibleMessageID,
+            startVisibleMessageId: entry.input.from,
+            endVisibleMessageId: entry.input.to,
             ...(entry.result.ok === true
               ? {}
               : { errorCode: entry.result.errorCode }),

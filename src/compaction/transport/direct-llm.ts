@@ -31,14 +31,14 @@ export function createDirectLLMCompactionTransport(
         });
       }
 
-      const timeoutController = new AbortController();
-      const timeoutId = setTimeout(() => {
-        timeoutController.abort("timeout");
+      const totalTimeoutController = new AbortController();
+      const totalTimeoutId = setTimeout(() => {
+        totalTimeoutController.abort("total-timeout");
       }, request.timeoutMs);
 
       const combinedSignal = combineAbortSignals([
         request.signal,
-        timeoutController.signal,
+        totalTimeoutController.signal,
       ]);
 
       try {
@@ -55,17 +55,18 @@ export function createDirectLLMCompactionTransport(
           modelID,
           systemPrompt,
           userMessage,
+          request,
           combinedSignal,
         );
 
-        clearTimeout(timeoutId);
+        clearTimeout(totalTimeoutId);
 
         return { contentText };
       } catch (error) {
-        clearTimeout(timeoutId);
+        clearTimeout(totalTimeoutId);
 
         if (combinedSignal?.aborted) {
-          if (timeoutController.signal.aborted) {
+          if (totalTimeoutController.signal.aborted) {
             throw new CompactionTransportTimeoutError(request.timeoutMs);
           }
           throw new CompactionTransportAbortedError({
@@ -123,6 +124,7 @@ async function callLLM(
   modelID: string,
   systemPrompt: string,
   userMessage: string,
+  request: CompactionTransportRequest,
   signal?: AbortSignal,
 ): Promise<string> {
   const provider = await getProviderConfig(
@@ -133,15 +135,15 @@ async function callLLM(
   );
 
   if (provider.type === "gemini") {
-    return callGemini(provider, modelID, systemPrompt, userMessage, signal);
+    return callGemini(provider, modelID, systemPrompt, userMessage, request, signal);
   }
 
   if (provider.type === "anthropic") {
-    return callAnthropic(provider, modelID, systemPrompt, userMessage, signal);
+    return callAnthropic(provider, modelID, systemPrompt, userMessage, request, signal);
   }
 
   if (provider.type === "openai") {
-    return callOpenAI(provider, modelID, systemPrompt, userMessage, signal);
+    return callOpenAI(provider, modelID, systemPrompt, userMessage, request, signal);
   }
 
   throw new CompactionTransportFatalError(
@@ -308,9 +310,10 @@ async function callGemini(
   modelID: string,
   systemPrompt: string,
   userMessage: string,
+  request: CompactionTransportRequest,
   signal?: AbortSignal,
 ): Promise<string> {
-  const url = `${provider.baseURL}/models/${modelID}:generateContent?key=${provider.apiKey}`;
+  const url = `${provider.baseURL}/models/${modelID}:streamGenerateContent?alt=sse&key=${provider.apiKey}`;
 
   const response = await fetch(url, {
     method: "POST",
@@ -331,14 +334,7 @@ async function callGemini(
     throw new Error(`Gemini API error: ${response.status} ${text}`);
   }
 
-  const data = await response.json() as any;
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (!text) {
-    throw new Error("Gemini response missing text content");
-  }
-
-  return text;
+  return readStreamingText(response, request, parseGeminiSseChunk);
 }
 
 async function callAnthropic(
@@ -346,6 +342,7 @@ async function callAnthropic(
   modelID: string,
   systemPrompt: string,
   userMessage: string,
+  request: CompactionTransportRequest,
   signal?: AbortSignal,
 ): Promise<string> {
   const url = `${provider.baseURL}/v1/messages`;
@@ -363,6 +360,7 @@ async function callAnthropic(
       system: systemPrompt,
       messages: [{ role: "user", content: userMessage }],
       temperature: 0,
+      stream: true,
     }),
     signal,
   });
@@ -372,14 +370,7 @@ async function callAnthropic(
     throw new Error(`Anthropic API error: ${response.status} ${text}`);
   }
 
-  const data = await response.json() as any;
-  const text = data.content?.[0]?.text;
-
-  if (!text) {
-    throw new Error("Anthropic response missing text content");
-  }
-
-  return text;
+  return readStreamingText(response, request, parseAnthropicSseChunk);
 }
 
 async function callOpenAI(
@@ -387,6 +378,7 @@ async function callOpenAI(
   modelID: string,
   systemPrompt: string,
   userMessage: string,
+  request: CompactionTransportRequest,
   signal?: AbortSignal,
 ): Promise<string> {
   const url = `${provider.baseURL}/v1/chat/completions`;
@@ -404,6 +396,7 @@ async function callOpenAI(
         { role: "user", content: userMessage },
       ],
       temperature: 0,
+      stream: true,
     }),
     signal,
   });
@@ -413,14 +406,148 @@ async function callOpenAI(
     throw new Error(`OpenAI API error: ${response.status} ${text}`);
   }
 
-  const data = await response.json() as any;
-  const text = data.choices?.[0]?.message?.content;
+  return readStreamingText(response, request, parseOpenAISseChunk);
+}
 
-  if (!text) {
-    throw new Error("OpenAI response missing text content");
+async function readStreamingText(
+  response: Response,
+  request: CompactionTransportRequest,
+  parseChunk: (data: string) => string,
+): Promise<string> {
+  if (!response.body) {
+    throw new Error("Streaming response body is missing.");
   }
 
-  return text;
+  const decoder = new TextDecoder();
+  const reader = response.body.getReader();
+  const firstTokenTimeoutMs = request.firstTokenTimeoutMs ?? request.timeoutMs;
+  const streamIdleTimeoutMs = request.streamIdleTimeoutMs ?? request.timeoutMs;
+  let buffer = "";
+  let aggregated = "";
+  let receivedAnyToken = false;
+  let firstTokenTimer: ReturnType<typeof setTimeout> | undefined;
+  let streamIdleTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const clearTimers = () => {
+    if (firstTokenTimer) {
+      clearTimeout(firstTokenTimer);
+      firstTokenTimer = undefined;
+    }
+    if (streamIdleTimer) {
+      clearTimeout(streamIdleTimer);
+      streamIdleTimer = undefined;
+    }
+  };
+
+  const armFirstTokenTimer = () => {
+    firstTokenTimer = setTimeout(() => {
+      reader.cancel("first-token-timeout").catch(() => {});
+    }, firstTokenTimeoutMs);
+  };
+
+  const armStreamIdleTimer = () => {
+    if (streamIdleTimer) {
+      clearTimeout(streamIdleTimer);
+    }
+    streamIdleTimer = setTimeout(() => {
+      reader.cancel("stream-idle-timeout").catch(() => {});
+    }, streamIdleTimeoutMs);
+  };
+
+  armFirstTokenTimer();
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const frames = buffer.split(/\n\n/);
+      buffer = frames.pop() ?? "";
+
+      for (const frame of frames) {
+        const chunk = parseSseFrame(frame, parseChunk);
+        if (!chunk) {
+          continue;
+        }
+
+        if (!receivedAnyToken) {
+          receivedAnyToken = true;
+          if (firstTokenTimer) {
+            clearTimeout(firstTokenTimer);
+            firstTokenTimer = undefined;
+          }
+        }
+
+        aggregated += chunk;
+        armStreamIdleTimer();
+      }
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("first-token-timeout")) {
+      throw new CompactionTransportTimeoutError(firstTokenTimeoutMs);
+    }
+    if (message.includes("stream-idle-timeout")) {
+      throw new CompactionTransportTimeoutError(streamIdleTimeoutMs);
+    }
+    throw error;
+  } finally {
+    clearTimers();
+    reader.releaseLock();
+  }
+
+  if (!receivedAnyToken || aggregated.trim().length === 0) {
+    throw new Error("Streaming response produced no text content.");
+  }
+
+  return aggregated;
+}
+
+function parseSseFrame(
+  frame: string,
+  parseChunk: (data: string) => string,
+): string {
+  const trimmed = frame.trim();
+  if (trimmed.length === 0) {
+    return "";
+  }
+
+  const dataLines = trimmed
+    .split("\n")
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trim());
+
+  if (dataLines.length === 0) {
+    return "";
+  }
+
+  const data = dataLines.join("\n");
+  if (data === "[DONE]") {
+    return "";
+  }
+
+  return parseChunk(data);
+}
+
+function parseGeminiSseChunk(data: string): string {
+  const parsed = JSON.parse(data) as any;
+  return parsed.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+}
+
+function parseAnthropicSseChunk(data: string): string {
+  const parsed = JSON.parse(data) as any;
+  if (parsed.type === "content_block_delta" && parsed.delta?.type === "text_delta") {
+    return parsed.delta.text ?? "";
+  }
+  return "";
+}
+
+function parseOpenAISseChunk(data: string): string {
+  const parsed = JSON.parse(data) as any;
+  return parsed.choices?.[0]?.delta?.content ?? "";
 }
 
 function parseModel(modelString: string): {

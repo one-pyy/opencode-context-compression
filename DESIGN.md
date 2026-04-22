@@ -562,9 +562,8 @@ AI 唯一的 DCP 工具是 `compression_mark`，职责仅为**打 tag/mark**：
 
 ### 6.2 工具契约
 
-- `contractVersion` 是 `v1`
 - `mode` 是 `"compact" | "delete"`
-- `target.startVisibleMessageID` 和 `target.endVisibleMessageID` 来自当前 projected visible view
+- `from` 与 `to` 来自当前 projected visible view
 - 工具调用成功时立即返回随机 mark id
 - 如果 `mode=delete` 且当前策略不允许 delete，该次 tool 调用返回错误信息
 

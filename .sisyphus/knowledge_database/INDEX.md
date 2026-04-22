@@ -1,28 +1,36 @@
 # opencode-context-compression — Knowledge Database Index
 
 Project: /root/_/opencode/opencode-context-compression
-Purpose: 记录 context-compression / DCP 子项目的 durable 设计决策、问题、规律与教程。
+Purpose: 记录本子项目中旧但仍有价值的决策、问题、规律与教程。
 
 ---
 
 ## Summary
 
-这个子项目目前最重要的稳定知识有三类：
-
-- 当前 clean-slate 设计采用 host history + SQLite sidecar + derived reminder/mark/compaction gating 的架构。
-- 目标生命周期已经比较清晰，但当前运行时仍落后于该目标模型，尤其是在 durable reminder / mark / cleanup 语义上。
-- DCP 相关知识必须区分“设计契约/当前实现参考”和“运行时问题/规律”；前者进 docs，后者进 knowledge database。
+这个知识库现在只承接“旧但仍有价值”的内容：设计决策、历史问题、运行规律与可复用教程。最新设计与当前正式实现参考应进入 `docs/`；这里保留的是能帮助未来避免重复踩坑、理解演化背景、或复用既有判断方法的 durable 信息。
 
 ## Decisions
 
-[decisions/2026-04-19_dcp-runtime-uses-sidecar-gated-compaction-and-derived-reminders.md] — DCP clean-slate 运行时采用 sidecar、显式 compaction gates 与受控 send gate #dcp #architecture #runtime
+[decisions/2026-04-19_dcp-runtime-uses-sidecar-gated-compaction-and-derived-reminders.md] — 旧阶段曾收敛到 host history + sidecar + gate 的主线，可作为演化背景参考 #history #architecture #runtime
+[decisions/2026-04-22_repo-owned-operator-contract-remains-the-doc-truth-boundary.md] — operator-facing 文档与 live verification 必须继续坚持 repo-owned truth boundary #operator #docs #verification #contract
+[decisions/2026-04-22_design-contract-keeps-token-cadence-and-delete-permission.md] — 设计契约继续采用 token cadence reminder 与真实 delete permission 语义 #design #reminder #delete-permission #contract
+[decisions/2026-04-22_assistant-visible-id-rendering-rule.md] — assistant 与 tool result 的 visible id 渲染规则收敛为稳定前置模式 #visible-id #rendering #projection #design
 
 ## Issues
 
 ## Learnings
 
+[learnings/2026-04-22_hook-observation-and-session-prompt-transport-must-stay-separated.md] — seam observation 与默认 compaction transport 选择必须分开判断 #hooks #transport #seams #runtime #pattern
+[learnings/2026-04-22_batch-lock-must-not-outlive-undurable-freeze.md] — 先拿 lock 后写 batch 时，持久化失败必须立即清锁 #lock #batch #compaction #runtime #trap
+[learnings/2026-04-22_send-entry-wait-must-join-lock-and-batch-status.md] — send-entry wait 必须联合 live lock 与 batch terminal status 判断结果 #send-gate #lock #batch-status #runtime #pattern
+[learnings/2026-04-22_transform-hook-role-surface-cannot-express-literal-system-artifacts.md] — 当前 transform hook 类型面不应被误当作可随意输出字面 system-role artifact #projection #types #hooks #artifact #pattern
+
 ## Tutorials
+
+[tutorials/2026-04-22_repo-owned-operator-docs-and-live-verification-maintenance.md] — operator docs / live verification / durable memory 的协同维护流程 #operator #verification #docs #workflow
+[tutorials/2026-04-22_read-design-and-changelog-without-confusing-target-and-current-state.md] — 阅读 design 与 changelog 时区分目标态和当前态的标准流程 #design #changelog #workflow #docs
+[tutorials/2026-04-22_live-host-debug-needs-correct-config-activation-and-artifact-truth.md] — 真实宿主调试时如何先确认配置激活与 artifact truth #live-debug #artifacts #verification #workflow
 
 ## Problems
 
-[problems/2026-04-19_dcp-current-runtime-still-trails-target-lifecycle.md] — 当前 DCP 运行时仍落后于目标生命周期模型 #dcp #lifecycle #gap
+[problems/2026-04-19_dcp-current-runtime-still-trails-target-lifecycle.md] — 当前运行时仍落后于目标生命周期模型 #runtime #lifecycle #gap

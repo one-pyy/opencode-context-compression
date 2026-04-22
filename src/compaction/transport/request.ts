@@ -25,6 +25,8 @@ export interface BuildCompactionTransportRequestInput {
   readonly promptText: string;
   readonly transcript: readonly BuildCompactionTransportTranscriptEntryInput[];
   readonly timeoutMs: number;
+  readonly firstTokenTimeoutMs?: number;
+  readonly streamIdleTimeoutMs?: number;
   readonly signal?: AbortSignal;
   readonly hint?: string;
 }
@@ -37,6 +39,14 @@ export function buildCompactionTransportRequest(
   const model = ensureNonEmptyString(input.model, "model");
   const promptText = ensureNonEmptyString(input.promptText, "promptText");
   const timeoutMs = ensurePositiveInteger(input.timeoutMs, "timeoutMs");
+  const firstTokenTimeoutMs =
+    input.firstTokenTimeoutMs === undefined
+      ? undefined
+      : ensurePositiveInteger(input.firstTokenTimeoutMs, "firstTokenTimeoutMs");
+  const streamIdleTimeoutMs =
+    input.streamIdleTimeoutMs === undefined
+      ? undefined
+      : ensurePositiveInteger(input.streamIdleTimeoutMs, "streamIdleTimeoutMs");
 
   if (input.transcript.length === 0) {
     throw new CompactionTransportConfigurationError(
@@ -92,6 +102,8 @@ export function buildCompactionTransportRequest(
     promptText,
     transcript,
     timeoutMs,
+    ...(firstTokenTimeoutMs !== undefined ? { firstTokenTimeoutMs } : {}),
+    ...(streamIdleTimeoutMs !== undefined ? { streamIdleTimeoutMs } : {}),
     signal: input.signal,
     hint: input.hint,
   } satisfies CompactionTransportRequest);
