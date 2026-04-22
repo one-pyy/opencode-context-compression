@@ -97,7 +97,7 @@ export function validateCompressionMarkInput(
   const record = asRecord(input);
   if (record === undefined) {
     return invalidRange(
-      'compression_mark input must be a JSON object. Example: {"mode":"compact","from":"msg_abc","to":"msg_xyz"}',
+      'compression_mark input must be a JSON object. Example: {"mode":"compact","from":"compressible_000123_ab","to":"referable_000130_q7"}',
     );
   }
 
@@ -111,7 +111,7 @@ export function validateCompressionMarkInput(
   const to = readNonEmptyString(record.to);
   if (from === undefined || to === undefined) {
     return invalidRange(
-      `compression_mark from and to must both be non-empty strings (format: msg_...). You provided: from=${JSON.stringify(record.from)}, to=${JSON.stringify(record.to)}`,
+      `compression_mark from and to must both be non-empty visible message IDs (format: <visible-type>_<seq6>_<base62>, for example compressible_000123_ab). You provided: from=${JSON.stringify(record.from)}, to=${JSON.stringify(record.to)}`,
     );
   }
 

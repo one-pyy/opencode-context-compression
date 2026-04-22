@@ -15,8 +15,8 @@
 ```json
 {
   "mode": "compact",
-  "from": "msg_...",
-  "to": "msg_...",
+  "from": "compressible_000123_ab",
+  "to": "referable_000130_q7",
   "hint": "optional guidance"
 }
 ```
@@ -27,15 +27,16 @@
   - `"compact"`：压缩成信息更密集的保留块
   - `"delete"`：请求删除风格处理；是否允许取决于当前运行时 delete permission
 - `from`
-  - 起始可见消息 id
+  - 起始可见消息 id，格式为 `<visible-type>_<seq6>_<base62>`
 - `to`
-  - 结束可见消息 id
+  - 结束可见消息 id，格式为 `<visible-type>_<seq6>_<base62>`
 - `hint`
   - 可选压缩指导，例如保留文件路径、错误信息或工具参数
 
 ## 如何选择消息范围
 
 - 目标 id 来自**当前 projection 可见视图**，不是宿主内部任意原始字段。
+- 当前可见 id 形如 `protected_000001_q7`、`compressible_000002_m2`、`referable_000003_w1`，不是 `msg_...`。
 - 应优先选择已经完成、后续不太需要逐条引用的历史片段。
 - 对最近几条消息、仍在进行中的任务或尚未收敛的问题，不应过早压缩。
 
@@ -60,7 +61,7 @@
 
 ### 2. 消息 id 来源错误
 
-应使用当前 visible view 中的 id，而不是自行猜测或使用旧文档里的其他 id 形式。
+应使用当前 visible view 中的 id，而不是 canonical host message id、宿主内部原始字段，或旧文档里的 `msg_...` 形式。
 
 ### 3. `delete` 模式当前不允许
 
