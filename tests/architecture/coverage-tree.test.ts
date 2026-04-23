@@ -10,9 +10,7 @@ function createMsg(seq: number, content: string): ReplayedHistoryMessage {
   return {
     sequence: seq,
     canonicalId: `msg_${seq}`,
-    role: "user",
-    contentText: content,
-    hostMessage: {
+    role: "user", contentText: content, parts: [], hostMessage: {
       info: { id: `msg_${seq}`, role: "user" },
       parts: [{ type: "text", text: content }]
     }
@@ -81,7 +79,7 @@ test("Coverage Tree Render - Basic Compact (15.28)", () => {
     ["m1", createResultGroup("m1", 2, 3, "COMPACTED_A1_T1")]
   ]);
 
-  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups });
+  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups, failedToolMessageIds: new Set() });
   
   assert.equal(output.messages.length, 3);
   assert.equal(output.messages[0].contentText.includes("U1"), true);
@@ -104,7 +102,7 @@ test("Coverage Tree Render - Big Covers Small - Big Pending (15.29)", () => {
     ["m_small", createResultGroup("m_small", 2, 3, "COMPACTED_SMALL")]
   ]);
 
-  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups });
+  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups, failedToolMessageIds: new Set() });
   
   // Output should fallback to U1, COMPACTED_SMALL, U2
   assert.equal(output.messages.length, 3);
@@ -128,7 +126,7 @@ test("Coverage Tree Render - Big Covers Small - Big Ready (15.30)", () => {
     ["m_big", createResultGroup("m_big", 1, 4, "COMPACTED_BIG")]
   ]);
 
-  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups });
+  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups, failedToolMessageIds: new Set() });
   
   assert.equal(output.messages.length, 1);
   assert.equal(output.messages[0].source, "result-group");
@@ -155,13 +153,13 @@ test("Coverage Tree Render - Gap Merging and Fragments (15.18 & 15.33)", () => {
       createdAt: new Date().toISOString(),
       payloadSha256: "hash",
       fragments: [
-        { markId: "m1", fragmentIndex: 0, sourceStartSeq: 1, sourceEndSeq: 1, replacementText: "FRAG_1" },
-        { markId: "m1", fragmentIndex: 1, sourceStartSeq: 3, sourceEndSeq: 3, replacementText: "FRAG_2" }
+        { fragmentIndex: 0, sourceStartSeq: 1, sourceEndSeq: 1, replacementText: "FRAG_1" },
+        { fragmentIndex: 1, sourceStartSeq: 3, sourceEndSeq: 3, replacementText: "FRAG_2" }
       ]
     }]
   ]);
 
-  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups });
+  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups, failedToolMessageIds: new Set() });
   
   // Should interleave Frag 1, Original C1, Frag 2
   assert.equal(output.messages.length, 3);

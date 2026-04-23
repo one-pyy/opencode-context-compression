@@ -48,9 +48,7 @@ function createMsg(seq: number, content: string): ReplayedHistoryMessage {
   return {
     sequence: seq,
     canonicalId: `msg_${seq}`,
-    role: "user",
-    contentText: content,
-    hostMessage: {
+    role: "user", contentText: content, parts: [], hostMessage: {
       info: { id: `msg_${seq}`, role: "user" },
       parts: [{ type: "text", text: content }]
     }
@@ -119,7 +117,7 @@ test("Delete Rendering - Completely Strips Source", () => {
     ["m_delete", createDeleteResultGroup("m_delete", 2, 2, "[Message Deleted]")]
   ]);
 
-  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups });
+  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups, failedToolMessageIds: new Set() });
   
   // Output should be U1, [Message Deleted], U2
   assert.equal(output.messages.length, 3);

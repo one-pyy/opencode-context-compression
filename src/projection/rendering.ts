@@ -13,6 +13,7 @@ export interface RenderProjectionInput {
   readonly messagePolicies: readonly MessageProjectionPolicy[];
   readonly markTree: MarkTree;
   readonly resultGroupsByMarkId: ReadonlyMap<string, CompleteResultGroup>;
+  readonly failedToolMessageIds: ReadonlySet<string>;
 }
 
 export interface RenderProjectionOutput {
@@ -38,6 +39,7 @@ export function renderProjectionMessages(
     policiesBySequence,
     resultGroupsByMarkId: input.resultGroupsByMarkId,
     suppressedCanonicalIds,
+    failedToolMessageIds: input.failedToolMessageIds,
   }).filter(
     (message) =>
       message.source !== "canonical" ||
@@ -59,6 +61,7 @@ interface RenderSequenceRangeInput {
   readonly policiesBySequence: ReadonlyMap<number, MessageProjectionPolicy>;
   readonly resultGroupsByMarkId: ReadonlyMap<string, CompleteResultGroup>;
   readonly suppressedCanonicalIds: Set<string>;
+  readonly failedToolMessageIds: ReadonlySet<string>;
 }
 
 function renderSequenceRange(
@@ -80,6 +83,7 @@ function renderSequenceRange(
           endSequence: child.startSequence - 1,
           historyBySequence: input.historyBySequence,
           policiesBySequence: input.policiesBySequence,
+          failedToolMessageIds: input.failedToolMessageIds,
         }),
       );
       rendered.push(
@@ -89,6 +93,7 @@ function renderSequenceRange(
           policiesBySequence: input.policiesBySequence,
           resultGroupsByMarkId: input.resultGroupsByMarkId,
           suppressedCanonicalIds: input.suppressedCanonicalIds,
+          failedToolMessageIds: input.failedToolMessageIds,
         }),
       );
       cursor = child.endSequence + 1;
@@ -100,6 +105,7 @@ function renderSequenceRange(
       endSequence: input.endSequence,
       historyBySequence: input.historyBySequence,
       policiesBySequence: input.policiesBySequence,
+      failedToolMessageIds: input.failedToolMessageIds,
     }),
   );
 
@@ -112,6 +118,7 @@ function renderMarkNode(input: {
   readonly policiesBySequence: ReadonlyMap<number, MessageProjectionPolicy>;
   readonly resultGroupsByMarkId: ReadonlyMap<string, CompleteResultGroup>;
   readonly suppressedCanonicalIds: Set<string>;
+  readonly failedToolMessageIds: ReadonlySet<string>;
 }): ProjectedPromptMessage[] {
   const resultGroup = input.resultGroupsByMarkId.get(input.node.markId);
   if (!resultGroup) {
@@ -123,6 +130,7 @@ function renderMarkNode(input: {
       policiesBySequence: input.policiesBySequence,
       resultGroupsByMarkId: input.resultGroupsByMarkId,
       suppressedCanonicalIds: input.suppressedCanonicalIds,
+      failedToolMessageIds: input.failedToolMessageIds,
       });
   }
 
@@ -146,6 +154,7 @@ function renderMarkNode(input: {
         policiesBySequence: input.policiesBySequence,
         resultGroupsByMarkId: input.resultGroupsByMarkId,
         suppressedCanonicalIds: input.suppressedCanonicalIds,
+        failedToolMessageIds: input.failedToolMessageIds,
       }),
     );
     rendered.push(renderResultGroupFragment(resultGroup, fragment));
@@ -161,6 +170,7 @@ function renderMarkNode(input: {
       policiesBySequence: input.policiesBySequence,
       resultGroupsByMarkId: input.resultGroupsByMarkId,
       suppressedCanonicalIds: input.suppressedCanonicalIds,
+      failedToolMessageIds: input.failedToolMessageIds,
     }),
   );
 
@@ -208,6 +218,7 @@ function renderOriginalRange(input: {
   readonly endSequence: number;
   readonly historyBySequence: ReadonlyMap<number, ReplayedHistoryMessage>;
   readonly policiesBySequence: ReadonlyMap<number, MessageProjectionPolicy>;
+  readonly failedToolMessageIds: ReadonlySet<string>;
 }): ProjectedPromptMessage[] {
   const rendered: ProjectedPromptMessage[] = [];
 
@@ -216,6 +227,33 @@ function renderOriginalRange(input: {
     const policy = input.policiesBySequence.get(sequence);
     if (!message || !policy) {
       continue;
+    }
+
+    let parts = message.parts;
+    let hostMessage = message.hostMessage;
+    
+    if (input.failedToolMessageIds.has(message.canonicalId)) {
+      const failureOutput = '{"ok":false,"errorCode":"COMPACTION_FAILED","message":"Mark failed to compact: execution failed or range was invalid."}';
+      
+      parts = message.parts.map(part => {
+        if (part.type === "tool" && part.tool === "compression_mark") {
+          const state = part.state as any;
+          return {
+            ...part,
+            state: {
+              ...state,
+              status: "completed",
+              output: failureOutput,
+            },
+          };
+        }
+        return part;
+      });
+      
+      hostMessage = {
+        ...message.hostMessage,
+        parts,
+      };
     }
 
     rendered.push(
@@ -230,8 +268,8 @@ function renderOriginalRange(input: {
           message.contentText.trim().length === 0
             ? ""
             : prependVisibleId(policy.visibleId, message.contentText),
-        parts: message.parts,
-        hostMessage: message.hostMessage,
+        parts,
+        hostMessage,
       } satisfies ProjectedPromptMessage),
     );
   }
@@ -279,6 +317,7 @@ function renderGapRange(input: {
   readonly policiesBySequence: ReadonlyMap<number, MessageProjectionPolicy>;
   readonly resultGroupsByMarkId: ReadonlyMap<string, CompleteResultGroup>;
   readonly suppressedCanonicalIds: Set<string>;
+  readonly failedToolMessageIds: ReadonlySet<string>;
 }): ProjectedPromptMessage[] {
   if (input.endSequence < input.startSequence) {
     return [];
@@ -296,5 +335,6 @@ function renderGapRange(input: {
     policiesBySequence: input.policiesBySequence,
     resultGroupsByMarkId: input.resultGroupsByMarkId,
     suppressedCanonicalIds: input.suppressedCanonicalIds,
+    failedToolMessageIds: input.failedToolMessageIds,
   });
 }

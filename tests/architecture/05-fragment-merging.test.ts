@@ -61,10 +61,7 @@ test("Output Validator - Missing Placeholder Throws Error (15.34 & 15.35)", asyn
   const request = {
     markID: "m1",
     model: "test-model",
-    executionMode: "auto",
-    mode: "compact" as const,
-    allowDelete: true,
-    transcript: [
+    executionMode: "auto", mode: "compact" as const, allowDelete: true, sessionID: "mock-session", promptText: "", timeoutMs: 1000, transcript: [
       { role: "user" as const, contentText: "U1", sequence: 1 },
       { role: "assistant" as const, contentText: "<opaque slot=\"S1\">C1</opaque>", sequence: 2, opaquePlaceholderSlot: "S1" },
       { role: "user" as const, contentText: "U2", sequence: 3 }

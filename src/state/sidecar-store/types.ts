@@ -114,5 +114,6 @@ export interface SessionSidecarRepository {
   upsertResultGroup(
     resultGroup: SessionSidecarResultGroupWrite,
   ): SessionSidecarResultGroupUpsertResult;
+  listPendingMarkIds(): readonly string[];
   close(): void;
 }

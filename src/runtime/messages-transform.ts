@@ -373,7 +373,16 @@ function summarizeProjectionDebugState(
   const tokenCountBySequence = new Map(
     projection.state.messagePolicies.map((policy) => [policy.sequence, policy.tokenCount]),
   );
-  const compressionMarkToolCalls = projection.state.history.compressionMarkToolCalls;
+  const compressionMarkToolCalls = projection.state.history.compressionMarkToolCalls.map(call => {
+    if (call.outcome === "accepted" && projection.state.failedToolMessageIds.has(call.sourceMessageId)) {
+      return {
+        ...call,
+        outcome: "rejected" as const,
+        errorCode: "COMPACTION_FAILED",
+      };
+    }
+    return call;
+  });
 
   return Object.freeze({
     canonicalMessageCount: projection.state.history.messages.length,

@@ -6,6 +6,7 @@ import {
 } from "./result-groups.js";
 import { openLockedSessionSidecarDatabase } from "./schema.js";
 import { allocateVisibleID, listVisibleIDs, readVisibleID } from "./visible-ids.js";
+import { readPendingCompactions } from "./pending-compactions.js";
 import type {
   OpenSessionSidecarRepositoryOptions,
   SessionSidecarRepository,
@@ -46,6 +47,9 @@ export async function openSessionSidecarRepository(
     },
     upsertResultGroup(resultGroup) {
       return upsertResultGroup(database, resultGroup);
+    },
+    listPendingMarkIds() {
+      return readPendingCompactions(database).map((p) => p.markId);
     },
     close() {
       database.close();

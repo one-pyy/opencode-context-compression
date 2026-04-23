@@ -55,6 +55,7 @@ export interface ResultGroupRepository {
   allocateVisibleId(
     input: VisibleIdAllocationInput,
   ): Promise<VisibleIdAllocation>;
+  listPendingMarkIds(): Promise<readonly string[]>;
 }
 
 export const RESULT_GROUP_REPOSITORY_INTERNAL_CONTRACT =
@@ -129,6 +130,9 @@ export function createResultGroupRepository(
       });
 
       return mapVisibleIdAllocation(allocation, input.visibleKind);
+    },
+    async listPendingMarkIds() {
+      return repository.listPendingMarkIds();
     },
   } satisfies ResultGroupRepository;
 }

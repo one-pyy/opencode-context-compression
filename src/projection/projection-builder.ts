@@ -86,6 +86,20 @@ export function createProjectionBuilder(
               rangeEnd,
             )
           : [];
+
+      const pendingMarkIds = new Set(await dependencies.resultGroupRepository.listPendingMarkIds());
+      const resultGroupMarkIds = new Set(resultGroups.map(g => g.markId));
+      
+      const failedToolMessageIds = new Set<string>();
+      history.marks.forEach(mark => {
+        const isConflict = conflicts.some(c => c.markId === mark.markId);
+        const isFailedExecution = !pendingMarkIds.has(mark.markId) && !resultGroupMarkIds.has(mark.markId);
+        
+        if (isConflict || isFailedExecution) {
+          failedToolMessageIds.add(mark.sourceMessageId);
+        }
+      });
+
       const renderedBaseMessages = renderProjectionMessages({
         history,
         messagePolicies,
@@ -93,6 +107,7 @@ export function createProjectionBuilder(
         resultGroupsByMarkId: new Map(
           resultGroups.map((resultGroup) => [resultGroup.markId, resultGroup]),
         ),
+        failedToolMessageIds,
       }).messages;
 
       const state = {
@@ -103,6 +118,7 @@ export function createProjectionBuilder(
         messagePolicies,
         visibleIdAllocations,
         resultGroups,
+        failedToolMessageIds,
       } satisfies ProjectionState;
       const reminders = dependencies.reminderService.compute({
         state,

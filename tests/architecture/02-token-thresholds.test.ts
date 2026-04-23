@@ -32,8 +32,7 @@ function createState(messages: { id: string; tokenCount: number; visibleKind: an
     conflicts: [],
     messagePolicies,
     visibleIdAllocations: [],
-    resultGroups: []
-  };
+    resultGroups: [], failedToolMessageIds: new Set() };
 }
 
 const promptTextByKind = {

@@ -68,6 +68,7 @@ export interface ProjectionState {
   readonly messagePolicies: readonly MessageProjectionPolicy[];
   readonly visibleIdAllocations: readonly VisibleIdAllocation[];
   readonly resultGroups: readonly CompleteResultGroup[];
+  readonly failedToolMessageIds: ReadonlySet<string>;
 }
 
 export interface ProjectionBuildInput {

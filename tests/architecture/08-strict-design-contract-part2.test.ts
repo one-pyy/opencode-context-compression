@@ -43,7 +43,7 @@ test("DESIGN.md Contract 2.4 & 14.13 - Tool-only assistant MUST have a synthetic
   const markTree: MarkTree = { marks: [], conflicts: [] };
   const resultGroups = new Map<string, CompleteResultGroup>();
 
-  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups });
+  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups, failedToolMessageIds: new Set() });
   
   assert.equal(output.messages.length, 1, "Should output exactly 1 message for the assistant");
   
@@ -79,7 +79,7 @@ test("DESIGN.md Contract 9.5 - Metadata is NOT truth, must rely on Sidecar Resul
   const markTree: MarkTree = { marks: [], conflicts: [] };
   const resultGroups = new Map<string, CompleteResultGroup>();
 
-  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups });
+  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups, failedToolMessageIds: new Set() });
   
   // The system MUST ignore the dirty metadata and render the original text.
   assert.ok(

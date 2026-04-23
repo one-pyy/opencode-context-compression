@@ -7,9 +7,7 @@ function createMsg(seq: number, content: string, length: number): ReplayedHistor
   return {
     sequence: seq,
     canonicalId: `msg_${seq}`,
-    role: "user",
-    contentText: content,
-    hostMessage: {
+    role: "user", contentText: content, parts: [], hostMessage: {
       info: { id: `msg_${seq}`, role: "user" },
       parts: [{ type: "text", text: content }]
     }
