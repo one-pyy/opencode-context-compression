@@ -28,6 +28,7 @@ Purpose: 记录本子项目当前最新设计与正式实现参考。
 [compaction/mark-tool-contract.md] — 已实现：`compression_mark` 公共契约与 replay 入口语义
 [compaction/compaction-lifecycle.md] — 半实现：压缩生命周期、replay-first 模型与 fallback 行为
 [compaction/lock-and-send-gate.md] — 已实现/半实现并列：lock、batch freeze 与普通对话等待边界
+[compaction/failure-handling-and-user-notice.md] — 未实现：失败累计、三次失败停重试、database-backed toast 与 user-role notice 追加规则
 
 ## Config
 
