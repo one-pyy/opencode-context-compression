@@ -17,7 +17,7 @@ export const RUNTIME_CONFIG_LOADER_INTERNAL_CONTRACT =
     outputs: ["ResolvedRuntimeConfig"],
     mutability: "read-only",
     reads: [
-      "repo-owned runtime-config.jsonc and prompt assets",
+      "OpenCode config-dir runtime config and repo-owned prompt assets",
       "field-level environment overrides",
     ],
     writes: [],

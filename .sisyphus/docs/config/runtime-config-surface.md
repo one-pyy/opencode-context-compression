@@ -6,7 +6,10 @@
 
 ## Canonical 配置文件
 
-- `src/config/runtime-config.jsonc`
+- 默认 live 配置文件：`~/.config/opencode/opencode-context-compression.jsonc`
+- 仓库内模板：`src/config/runtime-config.jsonc`
+
+默认 live 配置放在 OpenCode config 目录；配置中的相对 prompt / log 路径仍按插件仓库根目录解析。
 
 ## 关键字段
 
@@ -49,7 +52,7 @@
 
 ## Env 覆盖
 
-环境变量优先级高于配置文件，包括：
+环境变量优先级高于默认 live 配置文件，包括：
 
 - `OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH`
 - `OPENCODE_CONTEXT_COMPRESSION_ALLOW_DELETE`
@@ -68,9 +71,15 @@
 - `schedulerMarkThreshold`：内部 / test 兼容阈值，按 mark 数量工作
 - `markedTokenAutoCompactionThreshold`：真正的 marked-token readiness 阈值，按 token 工作
 
+marked-token 口径应来自共享 token estimator 或显式 token metadata；不要用 turn-level token delta 反推单条消息大小。
+
 ## Metadata 边界
 
 metadata 可以存在，但不是跨轮真相源。跨轮真相在 SQLite sidecar。
+
+## Cache 语义边界
+
+稳定 session/cache identity 与保留 provider exact-prefix cache 是两件事。配置或插件可以稳定 `promptCacheKey`、session headers 或 conversation identity，但只要 compaction / projection 重写早期 prompt-visible 内容，exact-prefix cache 仍会从重写点失效。
 
 ## 旧配置概念的命运
 

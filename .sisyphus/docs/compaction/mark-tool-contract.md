@@ -23,6 +23,7 @@
 
 - 成功结果：返回合法 `mark id`，表示创建了可重放的 mark intent
 - 错误结果：本次调用没有成功创建 mark；它仍留在历史与最终可见世界里，但不进入 mark 覆盖树
+- 失败结果在最终投影中会被改写为 `{"ok":false,"errorCode":"...","message":"..."}` 格式的 tool result，保留原始错误码与具体失败原因
 
 ## Mark 与 replacement 的关系
 

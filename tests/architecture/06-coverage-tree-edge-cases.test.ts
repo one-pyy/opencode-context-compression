@@ -81,7 +81,7 @@ test("Edge Case: Identical Range Override (15.31)", () => {
     ["m_old", createResultGroup("m_old", 1, 2, "OLD_COMPACT")]
   ]);
 
-  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups, failedToolMessageIds: new Set() });
+  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups, failedToolMessageIds: new Map() });
   
   // It should elegantly fallback to m_old
   assert.equal(output.messages.length, 1);
@@ -104,7 +104,7 @@ test("Edge Case: Invalid Child Swallowed Completely (15.14 & 15.34)", () => {
     ["m_big", createResultGroup("m_big", 1, 3, "BIG_COMPACT")]
   ]);
 
-  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups, failedToolMessageIds: new Set() });
+  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups, failedToolMessageIds: new Map() });
   
   // The small result MUST NOT appear. Once a parent is complete, subtree is swallowed.
   assert.equal(output.messages.length, 1);

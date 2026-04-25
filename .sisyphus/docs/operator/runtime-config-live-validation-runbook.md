@@ -47,7 +47,7 @@
 
 验证：
 
-- canonical repo config file 是否被正确选中
+- OpenCode config 目录下的 canonical live config file 是否被正确选中
 - field-level env override 是否按优先级覆盖
 - 空白 env 值是否被拒绝，而不是被静默当成 unset
 

@@ -90,14 +90,36 @@ export function createProjectionBuilder(
       const pendingMarkIds = new Set(await dependencies.resultGroupRepository.listPendingMarkIds());
       const resultGroupMarkIds = new Set(resultGroups.map(g => g.markId));
       
-      const failedToolMessageIds = new Set<string>();
+      const failedToolMessageIds = new Map<string, import("./types.js").ToolMessageFailure>();
+      
+      // Source 1: conflicts and failed execution from accepted marks
       history.marks.forEach(mark => {
-        const isConflict = conflicts.some(c => c.markId === mark.markId);
-        const isFailedExecution = !pendingMarkIds.has(mark.markId) && !resultGroupMarkIds.has(mark.markId);
-        
-        if (isConflict || isFailedExecution) {
-          failedToolMessageIds.add(mark.sourceMessageId);
+        const conflict = conflicts.find(c => c.markId === mark.markId);
+        if (conflict) {
+          failedToolMessageIds.set(mark.sourceMessageId, {
+            errorCode: conflict.errorCode,
+            message: conflict.message,
+          });
+          return;
         }
+        
+        const isFailedExecution = !pendingMarkIds.has(mark.markId) && !resultGroupMarkIds.has(mark.markId);
+        if (isFailedExecution) {
+          failedToolMessageIds.set(mark.sourceMessageId, {
+            errorCode: "COMPACTION_FAILED",
+            message: `Mark '${mark.markId}' was accepted but has no committed result group and is not pending execution.`,
+          });
+        }
+      });
+      
+      // Source 2: directly rejected / invalid tool calls (not in history.marks)
+      history.compressionMarkToolCalls.forEach(call => {
+        if (call.outcome === "accepted") return;
+        if (failedToolMessageIds.has(call.sourceMessageId)) return;
+        failedToolMessageIds.set(call.sourceMessageId, {
+          errorCode: call.errorCode ?? "COMPACTION_FAILED",
+          message: call.message ?? `compression_mark call was ${call.outcome}.`,
+        });
       });
 
       const renderedBaseMessages = renderProjectionMessages({

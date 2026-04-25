@@ -71,6 +71,12 @@ SQLite 不应承担：
 - `compaction-runner`：后台压缩任务、retry/fallback、lock 生命周期
 - `send-entry-gate`：普通对话等待入口
 
+## Host seam 输入边界（已实现 / 半实现）
+
+`chat.params` 不能被当成完整 transcript source。历史验证中，真实 OpenCode 1.3.7 payload 主要提供当前 `message`、`provider`、`model` 与 `session` 信息；完整 transcript 应来自 `experimental.chat.messages.transform` 或等价 session-level source，再由 runtime 缓存 normalized transcript 给调度/decision 路径读取。
+
+marked-token accounting 可以使用 tokenizer-backed estimator；live-context reminder input 必须来自 authoritative telemetry。若 decision 前没有 authoritative source，应暴露缺失状态，而不是用 transcript estimate 伪造 live-context total。
+
 ### 关于“下一轮”的消歧
 
 - `chat.params` / dispatcher 只负责根据当前 replay 结果冻结“这一轮待压缩 batch”并写入 pending queue

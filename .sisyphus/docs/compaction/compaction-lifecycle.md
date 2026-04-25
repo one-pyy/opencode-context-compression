@@ -66,6 +66,19 @@ SQLite 只需保存：
 
 若输出缺失应保留的占位符，则该次输出非法，进入 retry / fallback 流程。
 
+## 无效模型输出 retry 规则（已实现 / 半实现）
+
+当模型输出因 placeholder 缺失、未知 placeholder、顺序错误或 protected-text leakage 等验证失败而被判定为 `DCP_INVALID_MODEL_OUTPUT` 时，运行时可对同一模型尝试做一次窄 retry。
+
+边界：
+
+- retry 只针对模型输出形状/验证失败，不是无限重试机制
+- retry 不应跳过 validator，也不应放宽 placeholder / protected text 规则
+- state mutation 只能发生在验证通过之后
+- transport/provider 级失败仍按模型 fallback chain 处理
+
+默认 compaction prompt 应从第一次尝试起就强调 protected placeholder discipline，而不是把强约束留到 retry-only prompt。
+
 ## 流式 transport 与 timeout / fallback 契约
 
 当 compaction transport 改为流式实现时，单次模型尝试应遵守以下 timeout 语义：

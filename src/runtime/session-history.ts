@@ -178,6 +178,8 @@ function collectReplayableEntries(
             sequence: syntheticSequence,
             sourceMessageId: syntheticMessageId,
             outcome: "invalid-input",
+            errorCode: parsedInput.result.errorCode,
+            message: parsedInput.result.message,
           } satisfies ReplayedCompressionMarkToolCall),
         );
         continue;
@@ -195,6 +197,8 @@ function collectReplayableEntries(
             mode: parsedInput.value.mode,
             startVisibleMessageId: parsedInput.value.from,
             endVisibleMessageId: parsedInput.value.to,
+            errorCode: "COMPACTION_FAILED",
+            message: "compression_mark returned an invalid result payload.",
           } satisfies ReplayedCompressionMarkToolCall),
         );
         continue;
@@ -210,7 +214,7 @@ function collectReplayableEntries(
           endVisibleMessageId: parsedInput.value.to,
           ...(parsedResult.ok === true
             ? {}
-            : { errorCode: parsedResult.errorCode }),
+            : { errorCode: parsedResult.errorCode, message: parsedResult.message }),
         } satisfies ReplayedCompressionMarkToolCall),
       );
 

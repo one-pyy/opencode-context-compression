@@ -6,6 +6,7 @@ import type {
   MarkTreeNode,
   MessageProjectionPolicy,
   ProjectedPromptMessage,
+  ToolMessageFailure,
 } from "./types.js";
 
 export interface RenderProjectionInput {
@@ -13,7 +14,7 @@ export interface RenderProjectionInput {
   readonly messagePolicies: readonly MessageProjectionPolicy[];
   readonly markTree: MarkTree;
   readonly resultGroupsByMarkId: ReadonlyMap<string, CompleteResultGroup>;
-  readonly failedToolMessageIds: ReadonlySet<string>;
+  readonly failedToolMessageIds: ReadonlyMap<string, ToolMessageFailure>;
 }
 
 export interface RenderProjectionOutput {
@@ -61,7 +62,7 @@ interface RenderSequenceRangeInput {
   readonly policiesBySequence: ReadonlyMap<number, MessageProjectionPolicy>;
   readonly resultGroupsByMarkId: ReadonlyMap<string, CompleteResultGroup>;
   readonly suppressedCanonicalIds: Set<string>;
-  readonly failedToolMessageIds: ReadonlySet<string>;
+  readonly failedToolMessageIds: ReadonlyMap<string, ToolMessageFailure>;
 }
 
 function renderSequenceRange(
@@ -118,7 +119,7 @@ function renderMarkNode(input: {
   readonly policiesBySequence: ReadonlyMap<number, MessageProjectionPolicy>;
   readonly resultGroupsByMarkId: ReadonlyMap<string, CompleteResultGroup>;
   readonly suppressedCanonicalIds: Set<string>;
-  readonly failedToolMessageIds: ReadonlySet<string>;
+  readonly failedToolMessageIds: ReadonlyMap<string, ToolMessageFailure>;
 }): ProjectedPromptMessage[] {
   const resultGroup = input.resultGroupsByMarkId.get(input.node.markId);
   if (!resultGroup) {
@@ -187,6 +188,7 @@ function renderResultGroupFragment(
       role: "assistant",
       sourceMarkId: resultGroup.markId,
       contentText: fragment.replacementText,
+      parts: createCompressedReasoningParts(),
     } satisfies ProjectedPromptMessage);
   }
 
@@ -210,7 +212,17 @@ function renderResultGroupFragment(
     visibleKind: "referable",
     visibleId,
     contentText,
+    parts: createCompressedReasoningParts(),
   } satisfies ProjectedPromptMessage);
+}
+
+function createCompressedReasoningParts(): ProjectedPromptMessage["parts"] {
+  return Object.freeze([
+    Object.freeze({
+      type: "reasoning" as const,
+      text: "compressed",
+    }),
+  ]);
 }
 
 function renderOriginalRange(input: {
@@ -218,7 +230,7 @@ function renderOriginalRange(input: {
   readonly endSequence: number;
   readonly historyBySequence: ReadonlyMap<number, ReplayedHistoryMessage>;
   readonly policiesBySequence: ReadonlyMap<number, MessageProjectionPolicy>;
-  readonly failedToolMessageIds: ReadonlySet<string>;
+  readonly failedToolMessageIds: ReadonlyMap<string, ToolMessageFailure>;
 }): ProjectedPromptMessage[] {
   const rendered: ProjectedPromptMessage[] = [];
 
@@ -232,9 +244,9 @@ function renderOriginalRange(input: {
     let parts = message.parts;
     let hostMessage = message.hostMessage;
     
-    if (input.failedToolMessageIds.has(message.canonicalId)) {
-      const failureOutput = '{"ok":false,"errorCode":"COMPACTION_FAILED","message":"Mark failed to compact: execution failed or range was invalid."}';
-      
+    const failure = input.failedToolMessageIds.get(message.canonicalId);
+    const failureOutput = failure ? stringifyToolMessageFailure(failure) : undefined;
+    if (failure) {
       parts = message.parts.map(part => {
         if (part.type === "tool" && part.tool === "compression_mark") {
           const state = part.state as any;
@@ -265,9 +277,11 @@ function renderOriginalRange(input: {
         visibleId: policy.visibleId,
         // Preserve trailing empty assistant placeholders from the host without surfacing a visible-id-only text shell.
         contentText:
-          message.contentText.trim().length === 0
-            ? ""
-            : prependVisibleId(policy.visibleId, message.contentText),
+          failure
+            ? prependVisibleId(policy.visibleId, failureOutput!)
+            : message.contentText.trim().length === 0
+              ? ""
+              : prependVisibleId(policy.visibleId, message.contentText),
         parts,
         hostMessage,
       } satisfies ProjectedPromptMessage),
@@ -275,6 +289,14 @@ function renderOriginalRange(input: {
   }
 
   return rendered;
+}
+
+function stringifyToolMessageFailure(failure: ToolMessageFailure): string {
+  return JSON.stringify({
+    ok: false,
+    errorCode: failure.errorCode,
+    message: failure.message,
+  });
 }
 
 function collectSuppressedCanonicalIds(
@@ -317,7 +339,7 @@ function renderGapRange(input: {
   readonly policiesBySequence: ReadonlyMap<number, MessageProjectionPolicy>;
   readonly resultGroupsByMarkId: ReadonlyMap<string, CompleteResultGroup>;
   readonly suppressedCanonicalIds: Set<string>;
-  readonly failedToolMessageIds: ReadonlySet<string>;
+  readonly failedToolMessageIds: ReadonlyMap<string, ToolMessageFailure>;
 }): ProjectedPromptMessage[] {
   if (input.endSequence < input.startSequence) {
     return [];

@@ -26,6 +26,8 @@
 
 这些 reminder prompt 是纯文本提醒消息，不是模板。
 
+早期“三 prompt”结论中的 durable 部分是：soft/hard reminder 只应是纯文本提醒，模板变量只属于 compaction prompt。后续 `allowDelete` 设计把 reminder 文件扩展为 `severity × allowDelete` 四个变体；不要回退到旧的两个 reminder 文件。
+
 ## 当前状态
 
 旧 `prompts/reminder-soft.md` 和 `prompts/reminder-hard.md` 属于旧版资产，应由四个按 severity × allowDelete 拆分的文件替代。

@@ -53,6 +53,7 @@ export interface ReplayedCompressionMarkToolCall {
   readonly startVisibleMessageId?: string;
   readonly endVisibleMessageId?: string;
   readonly errorCode?: string;
+  readonly message?: string;
 }
 
 export interface ReplayedHistory {
@@ -190,7 +191,7 @@ export function replayHistoryFromSources(
             endVisibleMessageId: entry.input.to,
             ...(entry.result.ok === true
               ? {}
-              : { errorCode: entry.result.errorCode }),
+              : { errorCode: entry.result.errorCode, message: entry.result.message }),
           } satisfies ReplayedCompressionMarkToolCall),
         ),
     ),

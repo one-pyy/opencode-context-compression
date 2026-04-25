@@ -79,7 +79,7 @@ test("Coverage Tree Render - Basic Compact (15.28)", () => {
     ["m1", createResultGroup("m1", 2, 3, "COMPACTED_A1_T1")]
   ]);
 
-  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups, failedToolMessageIds: new Set() });
+  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups, failedToolMessageIds: new Map() });
   
   assert.equal(output.messages.length, 3);
   assert.equal(output.messages[0].contentText.includes("U1"), true);
@@ -102,7 +102,7 @@ test("Coverage Tree Render - Big Covers Small - Big Pending (15.29)", () => {
     ["m_small", createResultGroup("m_small", 2, 3, "COMPACTED_SMALL")]
   ]);
 
-  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups, failedToolMessageIds: new Set() });
+  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups, failedToolMessageIds: new Map() });
   
   // Output should fallback to U1, COMPACTED_SMALL, U2
   assert.equal(output.messages.length, 3);
@@ -126,7 +126,7 @@ test("Coverage Tree Render - Big Covers Small - Big Ready (15.30)", () => {
     ["m_big", createResultGroup("m_big", 1, 4, "COMPACTED_BIG")]
   ]);
 
-  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups, failedToolMessageIds: new Set() });
+  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups, failedToolMessageIds: new Map() });
   
   assert.equal(output.messages.length, 1);
   assert.equal(output.messages[0].source, "result-group");
@@ -159,7 +159,7 @@ test("Coverage Tree Render - Gap Merging and Fragments (15.18 & 15.33)", () => {
     }]
   ]);
 
-  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups, failedToolMessageIds: new Set() });
+  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups, failedToolMessageIds: new Map() });
   
   // Should interleave Frag 1, Original C1, Frag 2
   assert.equal(output.messages.length, 3);

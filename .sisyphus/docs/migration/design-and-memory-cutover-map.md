@@ -48,6 +48,10 @@
 - 一次性 checklist
 - 仅对单次工作流有效的状态汇报
 
+## 旧 fork 维护教程的去向
+
+旧 `dcp-code-style-refactor-guide` 描述的是 `opencode-dcp-fork` 阶段的 god-file 拆分方法：按 runtime、decision、inventory、marks、compaction、backend、errors、shared 等责任边界拆模块，并保持行为不变。当前 clean-slate docs 已经用新的 runtime model 和 migration map 承接这类结构边界；该旧教程不应再作为当前实现目录图使用，但其 durable 原则保留为迁移背景：按责任拆分，不按行数切文件，不把工具 transport、runtime policy 与 prompt projection 混在同一层。
+
 ## 删除前条件
 
 只有在以下条件全部满足时，旧资料才可以考虑删除：

@@ -117,7 +117,7 @@ test("Delete Rendering - Completely Strips Source", () => {
     ["m_delete", createDeleteResultGroup("m_delete", 2, 2, "[Message Deleted]")]
   ]);
 
-  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups, failedToolMessageIds: new Set() });
+  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups, failedToolMessageIds: new Map() });
   
   // Output should be U1, [Message Deleted], U2
   assert.equal(output.messages.length, 3);

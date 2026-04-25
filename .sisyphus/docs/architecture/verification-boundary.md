@@ -17,6 +17,7 @@
 
 - 宿主暴露的 legacy 工具已经能在真实会话里完整证明 keep 与 delete
 - 仓库已经提供默认生产 compaction executor transport
+- legacy `dcp_mark_for_compaction` / `dcp_execute_compaction` 工具可以证明当前新 sidecar pipeline 的 mark、batch、replacement 与 lock 路径
 
 ## 调试快照与常规日志分离
 
@@ -36,6 +37,8 @@
 - sidecar / lock / snapshot 等 repo-owned 路径确实在工作
 
 但完整的 keep / delete 成功路径仍以仓库自动化测试为准，不能把“看见了模型流量”误写成“真实会话已完成 keep / delete 证明”。
+
+如果真实会话只证明了 plugin load、seam logging、sidecar creation 与 host message sync，而 `marks` / `compaction_batches` / `replacements` 仍为空，应判定为入口集成缺口，不应报告为完整 live verification 成功。
 
 ## 相关文档
 

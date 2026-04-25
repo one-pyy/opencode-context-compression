@@ -54,6 +54,16 @@ sidecar 应至少持久化：
 
 并在 projection 最终出口按 `<visible-type>_<seq6>_<base62>` 拼出当前轮可见 id。
 
+## Provider 形态边界
+
+DCP 核心设计以 structured messages / Responses-style input 为主模型。Codex 风格的单字符串 prompt flattening 只是 provider-specific serializer edge case；不要把它反向提升为 visible-id 或 projection 的核心架构。
+
+visible id 是 prompt-visible reference identity，不替代宿主 tool execution identity（如 `toolCallId` / `callID`）。
+
+Cache 实验结论不支持“visible id 天然破坏缓存”的简单规则。更稳妥的判断是：保持早期 prefix 稳定、避免不必要的 prompt-visible 重写，并分别测试 assistant/tool id 插入方式与 tool output shape。Responses API 下 assistant/tool visible id 可以与 cache hit 共存，但输出结构差异会影响结果。
+
+`metadata.dcp.visibleMessageId` 应保存 bare id；`protected` / `referable` / `compressible` 这类状态前缀只在最终 renderer 组合。把状态前缀提前写入 allocator 会导致 `protected_protected_*` 这类双前缀错误。
+
 ## 相关文档
 
 - `message-classification-and-visible-state.md`

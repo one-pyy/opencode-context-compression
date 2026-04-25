@@ -1,6 +1,7 @@
 {
   "$schema": "./runtime-config.schema.json",
-  // Canonical repo-owned runtime settings file.
+  // Repo-owned template for the OpenCode config-dir runtime settings file.
+  // The live default path is ~/.config/opencode/opencode-context-compression.jsonc.
   // `schedulerMarkThreshold` is an internal/test compatibility threshold by mark count.
   // `markedTokenAutoCompactionThreshold` is the real readiness threshold by marked token total.
   // Reminder repeat cadence is token-based only; legacy counter-driven reminder fields are not part of this contract.
@@ -9,8 +10,9 @@
   "promptPath": "prompts/compaction.md",
   "leadingUserPromptPath": "prompts/projection-leading-user.md",
   "compactionModels": [
-    "google.doro/gemini-3-flash-preview",
+    "google.cctq/gemini-3-flash-preview",
     "google.right/gemini-3-flash-preview",
+    "google.doro/gemini-3-flash-preview",
   ],
   "schedulerMarkThreshold": 1,
   "runtimeLogPath": "logs/runtime-events.jsonl",

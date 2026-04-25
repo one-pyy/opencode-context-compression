@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -8,6 +8,7 @@ import {
   OpencodeContextCompressionRuntimeConfigError,
   RUNTIME_CONFIG_ENV,
   loadRuntimeConfig,
+  resolveDefaultRuntimeConfigPath,
   resolvePromptAsset,
   resolveReminderPrompt,
   resolveRuntimePathFromRepoRoot,
@@ -15,7 +16,10 @@ import {
 } from "../../../src/config/runtime-config.js";
 
 test("prompt resolution selects reminder variants by severity and allowDelete", async () => {
-  const runtimeConfig = await loadRuntimeConfig({});
+  const repoRoot = resolveRuntimeConfigRepoRoot();
+  const runtimeConfig = await loadRuntimeConfig({
+    [RUNTIME_CONFIG_ENV.configPath]: join(repoRoot, "src", "config", "runtime-config.jsonc"),
+  });
 
   const softCompactOnly = resolveReminderPrompt(runtimeConfig, {
     severity: "soft",
@@ -32,6 +36,13 @@ test("prompt resolution selects reminder variants by severity and allowDelete", 
   assert.match(hardDeleteAllowed.text, /delete-style cleanup directly/u);
   assert.match(runtimeConfig.leadingUserPromptPath, /projection-leading-user\.md$/u);
   assert.match(runtimeConfig.leadingUserPromptText, /Do not invent, rewrite, or autocomplete/u);
+});
+
+test("default runtime config path lives in the OpenCode config directory", () => {
+  assert.equal(
+    resolveDefaultRuntimeConfigPath(),
+    join(homedir(), ".config", "opencode", "opencode-context-compression.jsonc"),
+  );
 });
 
 test("repo-relative paths resolve from repo root and absolute paths stay absolute", () => {

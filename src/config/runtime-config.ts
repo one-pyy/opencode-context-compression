@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -170,9 +171,10 @@ export class OpencodeContextCompressionRuntimeConfigError extends Error {
 }
 
 const DEFAULT_RUNTIME_CONFIG_PATH = join(
-  "src",
-  "config",
-  "runtime-config.jsonc",
+  homedir(),
+  ".config",
+  "opencode",
+  "opencode-context-compression.jsonc",
 );
 
 const DEFAULTS = {
@@ -267,6 +269,10 @@ const TEMPLATE_PLACEHOLDER_PATTERN = /\{\{[^}]+\}\}/u;
 export function resolveRuntimeConfigRepoRoot(): string {
   const sourcePath = fileURLToPath(import.meta.url);
   return resolve(dirname(sourcePath), "..", "..");
+}
+
+export function resolveDefaultRuntimeConfigPath(): string {
+  return DEFAULT_RUNTIME_CONFIG_PATH;
 }
 
 export async function loadRuntimeConfig(
@@ -638,7 +644,7 @@ function resolveConfigFilePath(
   const override = readOptionalEnv(env, RUNTIME_CONFIG_ENV.configPath);
   const configPath = override
     ? (isAbsolute(override) ? resolve(override) : resolve(repoRoot, override))
-    : resolve(repoRoot, DEFAULT_RUNTIME_CONFIG_PATH);
+    : resolveDefaultRuntimeConfigPath();
 
   if (!existsSync(configPath)) {
     throw new OpencodeContextCompressionRuntimeConfigError(

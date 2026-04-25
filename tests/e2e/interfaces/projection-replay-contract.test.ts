@@ -158,6 +158,71 @@ test(
   },
 );
 
+test(
+  "projection replay renders rejected compression_mark calls as concrete failure results",
+  { concurrency: false },
+  async (t) => {
+    const fixture = await createHermeticE2EFixture(t, {
+      suite: "interfaces",
+      caseName: "projection rejected mark result",
+    });
+    const stateDirectory = resolvePluginStateDirectory(fixture.repoRoot);
+    const databasePath = resolveSessionDatabasePath(stateDirectory, fixture.sessionID);
+    await rm(databasePath, { force: true });
+    await bootstrapSessionSidecar({ databasePath });
+
+    const sidecar = await openSessionSidecarRepository({ databasePath });
+    t.after(() => sidecar.close());
+
+    const resultGroups = createResultGroupRepository(sidecar);
+    const identity = createCanonicalIdentityService({
+      visibleIds: resultGroups,
+      allocateAt: () => "2026-04-06T08:00:00.000Z",
+    });
+
+    const hostHistory = [
+      hostEntry(1, createMessage("msg-user-1", "user", "User message.")),
+      hostEntry(2, createMessage("tool-mark-rejected", "tool", "old generic failure")),
+    ] as const;
+
+    const projectionBuilder = createProjectionBuilder({
+      historyReplayReader: createHistoryReplayReaderFromSources({
+        sessionId: fixture.sessionID,
+        hostHistory,
+        toolHistory: [],
+        compressionMarkToolCalls: [
+          {
+            sequence: 2,
+            sourceMessageId: "tool-mark-rejected",
+            outcome: "rejected",
+            mode: "compact",
+            startVisibleMessageId: "compressible_999999_bad",
+            endVisibleMessageId: "compressible_000001_bad",
+            errorCode: "INVALID_RANGE",
+            message: "targets an unknown or reversed visible-id range",
+          },
+        ],
+      }),
+      policyEngine: createFlatPolicyEngine(),
+      resultGroupRepository: resultGroups,
+      canonicalIdentityService: identity,
+      reminderService: createStaticReminderService(),
+    });
+
+    const projection = await projectionBuilder.build({
+      sessionId: fixture.sessionID,
+    });
+    const failureMessage = projection.messages.find(
+      (message) => message.canonicalId === "tool-mark-rejected",
+    );
+
+    assert.ok(failureMessage);
+    assert.match(failureMessage.contentText, /"ok":false/u);
+    assert.match(failureMessage.contentText, /"errorCode":"INVALID_RANGE"/u);
+    assert.match(failureMessage.contentText, /unknown or reversed visible-id range/u);
+  },
+);
+
 function hostEntry(sequence: number, message: CanonicalHostMessage) {
   return {
     sequence,

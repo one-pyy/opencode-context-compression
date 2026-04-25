@@ -142,13 +142,13 @@ test(
           sequence: 5,
           outcome: "invalid-input",
           mode: undefined,
-          errorCode: undefined,
+          errorCode: "INVALID_RANGE",
         },
         {
           sequence: 6,
           outcome: "invalid-result",
           mode: "compact",
-          errorCode: undefined,
+          errorCode: "COMPACTION_FAILED",
         },
       ],
     );

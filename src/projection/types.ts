@@ -52,6 +52,11 @@ export interface MessageProjectionPolicySeed {
   readonly tokenCount: number;
 }
 
+export interface ToolMessageFailure {
+  readonly errorCode: string;
+  readonly message: string;
+}
+
 export interface ReminderArtifact {
   readonly kind: ReminderKind;
   readonly anchorCanonicalId: string;
@@ -68,7 +73,7 @@ export interface ProjectionState {
   readonly messagePolicies: readonly MessageProjectionPolicy[];
   readonly visibleIdAllocations: readonly VisibleIdAllocation[];
   readonly resultGroups: readonly CompleteResultGroup[];
-  readonly failedToolMessageIds: ReadonlySet<string>;
+  readonly failedToolMessageIds: ReadonlyMap<string, ToolMessageFailure>;
 }
 
 export interface ProjectionBuildInput {

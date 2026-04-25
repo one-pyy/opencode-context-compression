@@ -375,10 +375,11 @@ function summarizeProjectionDebugState(
   );
   const compressionMarkToolCalls = projection.state.history.compressionMarkToolCalls.map(call => {
     if (call.outcome === "accepted" && projection.state.failedToolMessageIds.has(call.sourceMessageId)) {
+      const failure = projection.state.failedToolMessageIds.get(call.sourceMessageId)!;
       return {
         ...call,
         outcome: "rejected" as const,
-        errorCode: "COMPACTION_FAILED",
+        errorCode: failure.errorCode,
       };
     }
     return call;
