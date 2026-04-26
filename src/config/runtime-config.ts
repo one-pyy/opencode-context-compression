@@ -494,27 +494,27 @@ export async function loadRuntimeConfig(
         "toast.enabled",
       ),
       durations: {
-        startup: readPositiveInteger(
+        startup: readNonNegativeInteger(
           parsed.toast?.durations?.startup ?? DEFAULTS.toast.durations.startup,
           "toast.durations.startup",
         ),
-        softReminder: readPositiveInteger(
+        softReminder: readNonNegativeInteger(
           parsed.toast?.durations?.softReminder ?? DEFAULTS.toast.durations.softReminder,
           "toast.durations.softReminder",
         ),
-        hardReminder: readPositiveInteger(
+        hardReminder: readNonNegativeInteger(
           parsed.toast?.durations?.hardReminder ?? DEFAULTS.toast.durations.hardReminder,
           "toast.durations.hardReminder",
         ),
-        compressionStart: readPositiveInteger(
+        compressionStart: readNonNegativeInteger(
           parsed.toast?.durations?.compressionStart ?? DEFAULTS.toast.durations.compressionStart,
           "toast.durations.compressionStart",
         ),
-        compressionComplete: readPositiveInteger(
+        compressionComplete: readNonNegativeInteger(
           parsed.toast?.durations?.compressionComplete ?? DEFAULTS.toast.durations.compressionComplete,
           "toast.durations.compressionComplete",
         ),
-        compressionFailed: readPositiveInteger(
+        compressionFailed: readNonNegativeInteger(
           parsed.toast?.durations?.compressionFailed ?? DEFAULTS.toast.durations.compressionFailed,
           "toast.durations.compressionFailed",
         ),
@@ -789,6 +789,23 @@ function readPositiveInteger(value: unknown, fieldPath: string): number {
   if (!Number.isInteger(parsed) || parsed < 1) {
     throw new OpencodeContextCompressionRuntimeConfigError(
       `${fieldPath} must be a positive integer.`,
+    );
+  }
+
+  return parsed;
+}
+
+function readNonNegativeInteger(value: unknown, fieldPath: string): number {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : Number.NaN;
+
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new OpencodeContextCompressionRuntimeConfigError(
+      `${fieldPath} must be a non-negative integer. Use 0 to disable this toast.`,
     );
   }
 

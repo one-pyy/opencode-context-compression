@@ -1,7 +1,7 @@
 import { defineInternalModuleContract } from "../internal/module-contract.js";
 import type { ReplayedHistory } from "../history/history-replay-reader.js";
 import type { TransformEnvelope } from "../seams/noop-observation.js";
-import { estimateEnvelopeTokens } from "../token-estimation.js";
+import { estimateEnvelopeTokensWithService } from "../token-estimation.js";
 import type {
   ConflictRecord,
   MarkTree,
@@ -27,7 +27,7 @@ type RangeRelation =
   | "partial";
 
 export interface PolicyEngine {
-  classifyMessages(history: ReplayedHistory): readonly MessageProjectionPolicySeed[];
+  classifyMessages(history: ReplayedHistory): Promise<readonly MessageProjectionPolicySeed[]>;
   buildMarkTree(input: BuildMarkTreeInput): MarkTree;
   detectConflicts(tree: MarkTree): readonly ConflictRecord[];
 }
@@ -59,9 +59,9 @@ export function createFlatPolicyEngine(
   const smallUserMessageThreshold = options.smallUserMessageThreshold ?? 1_024;
 
   return {
-    classifyMessages(history) {
-      return Object.freeze(
-        history.messages.map((message) =>
+    async classifyMessages(history) {
+      const policies = await Promise.all(
+        history.messages.map(async (message) =>
           Object.freeze({
             canonicalId: message.canonicalId,
             sequence: message.sequence,
@@ -76,14 +76,16 @@ export function createFlatPolicyEngine(
               message.role === "tool" ||
               (message.role === "user" &&
                 message.contentText.length > smallUserMessageThreshold)
-                ? estimateEnvelopeTokens({
+                ? (await estimateEnvelopeTokensWithService({
                     envelope: message.hostMessage as TransformEnvelope,
                     modelName: options.modelName,
-                  }).tokenCount
+                  })).tokenCount
                 : 0,
           } satisfies MessageProjectionPolicySeed),
         ),
       );
+
+      return Object.freeze(policies);
     },
     buildMarkTree(input) {
       const marks = [...input.history.marks].sort(

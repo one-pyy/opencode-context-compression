@@ -16,6 +16,7 @@ test("Messages Transform Hook - In-place Mutation Contract (12.5)", async () => 
         contentText: "Replaced Content"
       }
     ],
+    toolResultOverrides: [],
     reminders: [],
     conflicts: [],
     state: {
@@ -62,4 +63,85 @@ test("Messages Transform Hook - In-place Mutation Contract (12.5)", async () => 
   // 3. The IDs and metadata should be correctly mapped
   assert.equal(outputObject.messages[0].info.id, "m1");
   assert.equal(outputObject.messages[0].info.role, "assistant");
+});
+
+test("Messages Transform debug counts only projected compressible tokens", async () => {
+  const projection: ProjectedMessageSet = {
+    sessionId: "ses_1",
+    messages: [
+      {
+        source: "result-group",
+        role: "assistant",
+        sourceMarkId: "mark-old",
+        visibleKind: "referable",
+        visibleId: "referable_000001_abc",
+        contentText: "Compressed old prefix",
+      },
+      {
+        source: "canonical",
+        role: "assistant",
+        canonicalId: "msg-new-openai-response",
+        visibleKind: "compressible",
+        visibleId: "compressible_000002_def",
+        contentText: "Fresh large response",
+      },
+    ],
+    toolResultOverrides: [],
+    reminders: [{
+      kind: "hard-compact",
+      anchorCanonicalId: "msg-new-openai-response",
+      anchorVisibleId: "compressible_000002_def",
+      visibleId: "reminder_000002_xyz",
+      contentText: "Hard reminder.",
+    }],
+    conflicts: [],
+    state: {
+      messagePolicies: [
+        {
+          canonicalId: "msg-hidden-old-prefix",
+          sequence: 1,
+          role: "assistant",
+          visibleKind: "compressible",
+          tokenCount: 80_000,
+          visibleId: "compressible_000001_old",
+          visibleSeq: 1,
+          visibleBase62: "old",
+        },
+        {
+          canonicalId: "msg-new-openai-response",
+          sequence: 2,
+          role: "assistant",
+          visibleKind: "compressible",
+          tokenCount: 100_000,
+          visibleId: "compressible_000002_def",
+          visibleSeq: 2,
+          visibleBase62: "def",
+        },
+      ],
+      resultGroups: [],
+      history: {
+        messages: [],
+        marks: [],
+        compressionMarkToolCalls: [],
+      },
+      markTree: { marks: [], conflicts: [] },
+      conflicts: [],
+      visibleIdAllocations: [],
+      failedToolMessageIds: new Map(),
+    },
+  } as ProjectedMessageSet;
+
+  const projector = createProjectionBackedMessagesTransformProjector({
+    buildProjection: () => projection,
+  });
+
+  const input = { sessionID: "ses_1" } as Parameters<
+    typeof projector.project
+  >[0]["input"];
+  await projector.project({ input, currentMessages: [] });
+
+  assert.equal(
+    projector.getLastProjectionDebugState()?.totalCompressibleTokenCount,
+    100_000,
+  );
 });

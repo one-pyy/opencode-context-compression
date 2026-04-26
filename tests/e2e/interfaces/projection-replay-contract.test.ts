@@ -223,6 +223,74 @@ test(
   },
 );
 
+test(
+  "projection replay does not fail accepted marks that are not yet pending or committed",
+  { concurrency: false },
+  async (t) => {
+    const fixture = await createHermeticE2EFixture(t, {
+      suite: "interfaces",
+      caseName: "projection accepted suspended mark",
+    });
+    const stateDirectory = resolvePluginStateDirectory(fixture.repoRoot);
+    const databasePath = resolveSessionDatabasePath(stateDirectory, fixture.sessionID);
+    await rm(databasePath, { force: true });
+    await bootstrapSessionSidecar({ databasePath });
+
+    const sidecar = await openSessionSidecarRepository({ databasePath });
+    t.after(() => sidecar.close());
+
+    const resultGroups = createResultGroupRepository(sidecar);
+    const identity = createCanonicalIdentityService({
+      visibleIds: resultGroups,
+      allocateAt: () => "2026-04-06T08:00:00.000Z",
+    });
+    const userVisibleId = await identity.allocateVisibleId("msg-user-1", "compressible");
+    const assistantVisibleId = await identity.allocateVisibleId("msg-assistant-1", "compressible");
+
+    const projectionBuilder = createProjectionBuilder({
+      historyReplayReader: createHistoryReplayReaderFromSources({
+        sessionId: fixture.sessionID,
+        hostHistory: [
+          hostEntry(1, createMessage("msg-user-1", "user", "User message.")),
+          hostEntry(2, createMessage("msg-assistant-1", "assistant", "Assistant message.")),
+        ],
+        toolHistory: [
+          {
+            sequence: 3,
+            sourceMessageId: "tool-mark-accepted",
+            toolName: "compression_mark",
+            input: {
+              mode: "compact",
+              from: userVisibleId.assignedVisibleId,
+              to: assistantVisibleId.assignedVisibleId,
+            },
+            result: {
+              ok: true,
+              markId: "mark-suspended",
+            },
+          },
+        ],
+      }),
+      policyEngine: createFlatPolicyEngine({
+        smallUserMessageThreshold: 5,
+      }),
+      resultGroupRepository: resultGroups,
+      canonicalIdentityService: identity,
+      reminderService: createStaticReminderService(),
+    });
+
+    const projection = await projectionBuilder.build({
+      sessionId: fixture.sessionID,
+    });
+
+    assert.equal(projection.toolResultOverrides.length, 0);
+    assert.deepEqual(
+      projection.state.markTree.marks.map((mark) => mark.markId),
+      ["mark-suspended"],
+    );
+  },
+);
+
 function hostEntry(sequence: number, message: CanonicalHostMessage) {
   return {
     sequence,

@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/**/*.test.ts",
     "test:dist-entry": "npm run build && node --import tsx --test tests/e2e/runtime/build-first-entry.test.ts",
+    "token-counter": "uv run --with fastapi --with uvicorn --with tiktoken scripts/token_counter_service.py",
     "probe:seams": "npm run build && node --enable-source-maps scripts/run-seam-probe.mjs",
     "trim-json": "node --import tsx scripts/trim-json.ts"
   },

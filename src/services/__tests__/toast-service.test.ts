@@ -266,6 +266,28 @@ test("disabled config prevents all toast calls", async () => {
   expect(mockShowToast).toHaveBeenCalledTimes(0);
 });
 
+test("zero duration disables only that toast type", async () => {
+  const mockShowToast = mock(() => Promise.resolve());
+  const mockInput = createMockInput(mockShowToast);
+  const service = new ToastService(mockInput, {
+    enabled: true,
+    durations: { startup: 0, compressionStart: 3000 },
+  });
+
+  await service.showPluginStarted();
+  await service.showCompressionStarted();
+
+  expect(mockShowToast).toHaveBeenCalledTimes(1);
+  expect(mockShowToast).toHaveBeenCalledWith({
+    body: {
+      variant: "info",
+      title: "Compression Started",
+      message: "Context compression in progress...",
+      duration: 3000,
+    },
+  });
+});
+
 test("custom duration for startup toast", async () => {
   const mockShowToast = mock(() => Promise.resolve());
   const mockInput = createMockInput(mockShowToast);

@@ -14,6 +14,7 @@ import {
 import {
   deserializeCompressionMarkResult,
 } from "../../../src/tools/compression-mark.js";
+import { projectProjectionToEnvelopes } from "../../../src/runtime/messages-transform.js";
 import { createHermeticE2EFixture } from "../harness/fixture.js";
 
 test(
@@ -74,6 +75,101 @@ test(
       output.messages,
     );
     assert.match(evidencePath, /shipped-runtime-tool-replay\.json$/u);
+  },
+);
+
+test(
+  "projection materialization applies compression_mark tool result overrides to structured output",
+  () => {
+    const failureOutput = JSON.stringify({
+      ok: false,
+      errorCode: "INVALID_RANGE",
+      message: "targets an unknown or reversed visible-id range",
+      details: {
+        sourceMessageId: "msg-assistant-override#compression_mark#call_mark",
+        outcome: "rejected",
+        mode: "compact",
+        startVisibleMessageId: "compressible_999999_bad",
+        endVisibleMessageId: "compressible_000001_bad",
+      },
+    });
+
+    const envelopes = projectProjectionToEnvelopes({
+      sessionId: "ses-runtime-override",
+      messages: [
+        {
+          source: "canonical",
+          role: "assistant",
+          canonicalId: "msg-assistant-override",
+          contentText: "Calling compression mark.",
+          parts: [
+            {
+              type: "text",
+              text: "Calling compression mark.",
+              messageId: "msg-assistant-override",
+            },
+            {
+              type: "tool",
+              tool: "compression_mark",
+              callID: "call_mark",
+              state: {
+                status: "completed",
+                input: {
+                  mode: "compact",
+                  from: "compressible_000001_a1",
+                  to: "compressible_000002_b2",
+                },
+                output: '{"ok":true,"markId":"mark_failed"}',
+              },
+              messageId: "msg-assistant-override",
+            },
+          ],
+          hostMessage: {
+            info: {
+              id: "msg-assistant-override",
+              sessionID: "ses-runtime-override",
+              role: "assistant",
+            },
+            parts: [],
+          },
+        },
+      ],
+      toolResultOverrides: [
+        {
+          sourceMessageId: "msg-assistant-override#compression_mark#call_mark",
+          output: failureOutput,
+        },
+      ],
+      reminders: [],
+      conflicts: [],
+      state: {
+        sessionId: "ses-runtime-override",
+        history: {
+          sessionId: "ses-runtime-override",
+          messages: [],
+          marks: [],
+          compressionMarkToolCalls: [],
+        },
+        markTree: { marks: [], conflicts: [] },
+        conflicts: [],
+        messagePolicies: [],
+        visibleIdAllocations: [],
+        resultGroups: [],
+        failedToolMessageIds: new Map(),
+      },
+    });
+
+    const toolPart = envelopes[0]?.parts.find(
+      (part): part is Extract<Part, { type: "tool" }> => part.type === "tool",
+    );
+    assert.ok(toolPart);
+    const toolOutput = readCompletedToolOutput(toolPart);
+    assert.equal(toolOutput, failureOutput);
+
+    const parsed = deserializeCompressionMarkResult(toolOutput);
+    assert.equal(parsed.ok, false);
+    assert.equal(parsed.errorCode, "INVALID_RANGE");
+    assert.equal(parsed.details?.outcome, "rejected");
   },
 );
 
@@ -346,6 +442,13 @@ function createPluginInput(
     serverUrl: new URL("http://localhost:3900"),
     $: {} as PluginInput["$"],
   };
+}
+
+function readCompletedToolOutput(part: Extract<Part, { type: "tool" }>): string {
+  const state = part.state;
+  assert.equal(state.status, "completed");
+  assert.equal(typeof state.output, "string");
+  return state.output;
 }
 
 function createMessageEnvelope(input: {

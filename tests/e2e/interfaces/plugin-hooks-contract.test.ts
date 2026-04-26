@@ -13,6 +13,7 @@ import {
 } from "../../../src/runtime/plugin-hooks.js";
 import {
   CHAT_PARAMS_EXTERNAL_CONTRACT,
+  createInternalChatParamsScheduler,
 } from "../../../src/runtime/chat-params-scheduler.js";
 import {
   MESSAGES_TRANSFORM_EXTERNAL_CONTRACT,
@@ -143,6 +144,61 @@ test("text.complete strips a leading visible msg_id from assistant output", () =
   assert.equal(
     stripLeadingVisibleMessageId("No prefix here."),
     "No prefix here.",
+  );
+});
+
+test("chat.params scheduler metadata includes mark eligibility diagnostics", async () => {
+  const scheduler = createInternalChatParamsScheduler({
+    evaluate() {
+      return {
+        activeCompactionLock: false,
+        eligibleMarkIds: [],
+        uncompressedMarkedTokenCount: 0,
+        markedTokenAutoCompactionThreshold: 50_000,
+        diagnostics: {
+          replayedMarkCount: 1,
+          replayedMarkIds: ["mark_missing_visible_id"],
+          markTreeNodeCount: 0,
+          markTreeMarkIds: [],
+          markTreeConflicts: [
+            {
+              markId: "mark_missing_visible_id",
+              errorCode: "OVERLAP_CONFLICT",
+              message:
+                "Mark targets an unknown or reversed visible-id range and is excluded from the coverage tree.",
+            },
+          ],
+          queuedMarkIdsBeforeThreshold: [],
+          committedResultGroupMarkIds: [],
+          uncompressedMarkedTokenCount: 0,
+          markedTokenAutoCompactionThreshold: 50_000,
+          schedulerMarkThreshold: 1,
+          usedCanonicalIdentityService: false,
+          visibleIdSamples: [
+            {
+              canonicalId: "msg-user-1",
+              visibleId: "protected_000001_ab",
+            },
+          ],
+        },
+      };
+    },
+  });
+
+  const decision = await scheduler.scheduleIfNeeded("ses-diagnostics");
+
+  assert.equal(decision.metadata?.diagnostics?.replayedMarkCount, 1);
+  assert.deepEqual(decision.metadata?.diagnostics?.replayedMarkIds, [
+    "mark_missing_visible_id",
+  ]);
+  assert.equal(decision.metadata?.diagnostics?.markTreeNodeCount, 0);
+  assert.equal(
+    decision.metadata?.diagnostics?.markTreeConflicts[0]?.markId,
+    "mark_missing_visible_id",
+  );
+  assert.equal(
+    decision.metadata?.diagnostics?.usedCanonicalIdentityService,
+    false,
   );
 });
 

@@ -1,5 +1,6 @@
 import type { Hooks } from "@opencode-ai/plugin";
 
+import type { CanonicalHostMessagePart } from "../history/history-replay-reader.js";
 import type { ProjectedMessageSet } from "../projection/types.js";
 import type { CompleteResultGroup } from "../state/result-group-repository.js";
 
@@ -198,6 +199,13 @@ export function resolveMessagesTransformSessionId(input: {
 export function projectProjectionToEnvelopes(
   projection: ProjectedMessageSet,
 ): readonly MessagesTransformEnvelope[] {
+  const toolResultOverrides = new Map(
+    projection.toolResultOverrides.map((override) => [
+      override.sourceMessageId,
+      override.output,
+    ]),
+  );
+
   return Object.freeze(
     projection.messages.map((message, index) => {
       const messageId =
@@ -209,6 +217,7 @@ export function projectProjectionToEnvelopes(
       const hasRenderableContent = message.contentText.trim().length > 0;
       if (message.parts && message.parts.length > 0) {
         let hasTextPart = false;
+        let compressionMarkOrdinal = 0;
         
         for (const part of message.parts) {
           if (part.type === "text") {
@@ -235,8 +244,22 @@ export function projectProjectionToEnvelopes(
               type: "reasoning",
             } as any);
           } else if (part.type === "tool") {
+            let nextPart: CanonicalHostMessagePart = part;
+            if (isCompressionMarkToolPart(part)) {
+              compressionMarkOrdinal += 1;
+              const overrideOutput = toolResultOverrides.get(
+                buildCompressionMarkToolMessageId(
+                  messageId,
+                  part,
+                  compressionMarkOrdinal,
+                ),
+              );
+              if (overrideOutput !== undefined) {
+                nextPart = rewriteToolPartOutput(part, overrideOutput);
+              }
+            }
             parts.push({
-              ...part,
+              ...nextPart,
               id: `${messageId}:tool:${parts.length}`,
               sessionID: projection.sessionId,
               messageID: messageId,
@@ -307,10 +330,47 @@ export function projectProjectionToEnvelopes(
   );
 }
 
+function isCompressionMarkToolPart(
+  part: CanonicalHostMessagePart,
+): part is Extract<CanonicalHostMessagePart, { readonly type: "tool" }> {
+  return part.type === "tool" && part.tool === "compression_mark";
+}
+
+function buildCompressionMarkToolMessageId(
+  hostMessageId: string,
+  part: Extract<CanonicalHostMessagePart, { readonly type: "tool" }>,
+  ordinal: number,
+): string {
+  const callIdentity =
+    typeof part.callID === "string" && part.callID.trim().length > 0
+      ? part.callID.trim()
+      : `${part.tool}:${ordinal}`;
+  return `${hostMessageId}#compression_mark#${callIdentity}`;
+}
+
+function rewriteToolPartOutput(
+  part: Extract<CanonicalHostMessagePart, { readonly type: "tool" }>,
+  output: string,
+): CanonicalHostMessagePart {
+  const state = isRecord(part.state) ? part.state : {};
+  return Object.freeze({
+    ...part,
+    state: Object.freeze({
+      ...state,
+      status: "completed",
+      output,
+    }),
+  });
+}
+
 function readRecordValue(value: unknown, key: string): unknown {
   return value !== null && typeof value === "object"
     ? (value as Record<string, unknown>)[key]
     : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
 }
 
 function readNonEmptyString(value: unknown): string | undefined {
@@ -361,11 +421,7 @@ function summarizeProjectionDebugState(
     },
   );
 
-  const totalCompressibleTokenCount = projection.state.messagePolicies.reduce(
-    (total, policy) =>
-      policy.visibleKind === "compressible" ? total + policy.tokenCount : total,
-    0,
-  );
+  const totalCompressibleTokenCount = sumProjectedCompressibleTokens(projection);
 
   const resultGroupsByMarkId = new Map(
     projection.state.resultGroups.map((group) => [group.markId, group]),
@@ -476,6 +532,24 @@ function sumUncompressedMarkedTokens(
       total + countUncompressedTokens(node, resultGroupsByMarkId, tokenCountBySequence),
     0,
   );
+}
+
+function sumProjectedCompressibleTokens(projection: ProjectedMessageSet): number {
+  const policiesByCanonicalId = new Map(
+    projection.state.messagePolicies.map((policy) => [policy.canonicalId, policy]),
+  );
+
+  return projection.messages.reduce((total, message) => {
+    if (
+      message.source !== "canonical" ||
+      message.visibleKind !== "compressible" ||
+      message.canonicalId === undefined
+    ) {
+      return total;
+    }
+
+    return total + (policiesByCanonicalId.get(message.canonicalId)?.tokenCount ?? 0);
+  }, 0);
 }
 
 function countUncompressedTokens(

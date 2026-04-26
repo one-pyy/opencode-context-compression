@@ -62,6 +62,10 @@ export class ToastService {
     message: string,
     duration?: number,
   ): Promise<boolean> {
+    if (duration === 0) {
+      return false;
+    }
+
     try {
       await this.input.client.tui.showToast({
         body: {

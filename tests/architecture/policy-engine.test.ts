@@ -14,25 +14,25 @@ function createMsg(seq: number, content: string, length: number): ReplayedHistor
   };
 }
 
-test("Policy Engine - Small User Message Protection", () => {
+test("Policy Engine - Small User Message Protection", async () => {
   const engine = createFlatPolicyEngine({ smallUserMessageThreshold: 50 });
   const messages = [createMsg(1, "short", 5)];
   const history: ReplayedHistory = { sessionId: "ses_1", messages, marks: [], compressionMarkToolCalls: [] };
   
-  const policies = engine.classifyMessages(history);
+  const policies = await engine.classifyMessages(history);
   assert.equal(policies.length, 1);
   assert.equal(policies[0].visibleKind, "protected");
   assert.equal(policies[0].tokenCount, 0); // Protected messages don't count towards reminder tokens
 });
 
-test("Policy Engine - Long User Message is Compressible", () => {
+test("Policy Engine - Long User Message is Compressible", async () => {
   const engine = createFlatPolicyEngine({ smallUserMessageThreshold: 50 });
   // length > 50 chars -> tokenCount = length / 4
   const content = "A".repeat(100);
   const messages = [createMsg(1, content, 100)];
   const history: ReplayedHistory = { sessionId: "ses_1", messages, marks: [], compressionMarkToolCalls: [] };
   
-  const policies = engine.classifyMessages(history);
+  const policies = await engine.classifyMessages(history);
   assert.equal(policies.length, 1);
   assert.equal(policies[0].visibleKind, "compressible");
   assert.ok(policies[0].tokenCount > 0); // Design does not mandate tokenCount = length / 4, just that it counts.

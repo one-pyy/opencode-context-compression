@@ -23,6 +23,7 @@ import {
 import { createResultGroupRepository } from "../state/result-group-repository.js";
 import { createFileBackedRuntimeArtifactRecorder } from "./runtime-artifacts.js";
 import { createCompactionDispatcher } from "./compaction-dispatcher.js";
+import { createCanonicalIdentityService } from "../identity/canonical-identity.js";
 
 export function createDefaultRuntimePluginSeamServices(
   input: PluginInput,
@@ -73,6 +74,11 @@ export function createDefaultRuntimePluginSeamServices(
             startSeq,
             endSeq,
           }),
+        openCanonicalIdentityService: (sessionId) =>
+          openCanonicalIdentityServiceForSession({
+            pluginDirectory: input.directory,
+            sessionId,
+          }),
         dispatch: createCompactionDispatcher({
           pluginDirectory: input.directory,
         }),
@@ -84,6 +90,26 @@ export function createDefaultRuntimePluginSeamServices(
     }),
     toolExecutionGate: createDefaultToolExecutionGate(),
   } satisfies RuntimePluginSeamServices;
+}
+
+async function openCanonicalIdentityServiceForSession(input: {
+  readonly pluginDirectory: string;
+  readonly sessionId: string;
+}) {
+  const stateDirectory = resolvePluginStateDirectory(input.pluginDirectory);
+  const databasePath = resolveSessionDatabasePath(stateDirectory, input.sessionId);
+  await bootstrapSessionSidecar({ databasePath });
+
+  const sidecar = await openSessionSidecarRepository({ databasePath });
+  const resultGroups = createResultGroupRepository(sidecar);
+  return {
+    service: createCanonicalIdentityService({
+      visibleIds: resultGroups,
+    }),
+    close() {
+      sidecar.close();
+    },
+  };
 }
 
 async function readSessionMessagesFromHost(

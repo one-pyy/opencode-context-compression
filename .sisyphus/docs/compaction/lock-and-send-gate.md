@@ -55,6 +55,23 @@ send-entry waiting 不能只看 lock 文件本身。
 3. lock 消失后，按对应 frozen batch 时间查 SQLite batch status
 4. 再区分 succeeded / failed / cancelled / manual clear / inconsistent recovery
 
+## Scheduler diagnostics（已实现）
+
+`chat.params` metadata 会随 runtime events 一起记录调度诊断，避免只看到“没有待压缩 mark”而看不到原因。诊断字段包括：
+
+- replay 出来的 mark 数量与 mark id
+- mark tree 中实际进入覆盖树的 mark id 与冲突列表
+- 阈值过滤前的 queued mark id
+- 已提交 result group 的 mark id
+- 未压 marked token 数与当前 token 阈值
+- scheduler mark 数量阈值
+- 是否使用 sidecar-backed canonical identity service
+- visible id 样本
+
+`chat.params` 调度器必须使用 sidecar-backed canonical identity service 读取 `state.db.visible_sequence_allocations` 中已经分配过的 visible id。它不能按当前 replay sequence 重新生成 visible id；宿主会话可能回滚、裁剪或分支切换，当前 replay sequence 不再等价于模型发出 `compression_mark.from/to` 时看到的持久 visible sequence。
+
+这些字段用于定位为什么 mark 没进入 pending 队列；其中 sidecar-backed identity 现在属于调度正确性的输入，不是可选优化。
+
 ## 相关文档
 
 - `compaction-lifecycle.md`

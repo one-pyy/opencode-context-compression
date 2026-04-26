@@ -94,6 +94,28 @@
         }
       }
     },
+    "toast": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Global toast switch. Set an individual duration to 0 to disable only that toast type."
+        },
+        "durations": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "startup": { "$ref": "#/$defs/nonNegativeInteger" },
+            "softReminder": { "$ref": "#/$defs/nonNegativeInteger" },
+            "hardReminder": { "$ref": "#/$defs/nonNegativeInteger" },
+            "compressionStart": { "$ref": "#/$defs/nonNegativeInteger" },
+            "compressionComplete": { "$ref": "#/$defs/nonNegativeInteger" },
+            "compressionFailed": { "$ref": "#/$defs/nonNegativeInteger" }
+          }
+        }
+      }
+    },
     "reminder": {
       "type": "object",
       "additionalProperties": false,
@@ -130,6 +152,10 @@
     "positiveInteger": {
       "type": "integer",
       "minimum": 1
+    },
+    "nonNegativeInteger": {
+      "type": "integer",
+      "minimum": 0
     },
     "reminderPromptVariant": {
       "type": "object",

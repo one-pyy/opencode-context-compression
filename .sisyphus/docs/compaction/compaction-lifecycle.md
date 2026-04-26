@@ -11,6 +11,19 @@
 1. 当前 hook 重放后存在至少一个合法且仍有效的 mark 节点
 2. 当前有效覆盖树中的未压原始 token 总数达到 `markedTokenAutoCompactionThreshold`
 
+## 调度与执行时序（已实现）
+
+当前 runtime 接受一轮延迟的 opportunistic execution：
+
+1. `messages.transform` 先完成本轮投影，并产出完整 projection state
+2. `chat.params` 根据 replayed marks / mark tree / token 阈值冻结 eligible mark，并写入 pending compactions
+3. 下一轮 `messages.transform` 末尾的 background executor 扫描 pending compactions，写 lock 并开始压缩
+4. lock 存在期间，后续 `messages.transform` gate 会等待压缩完成后再继续投影
+
+因此，`chat.params` 写入 pending 的同一轮请求仍可能继续发给模型；压缩通常在下一轮处理时启动。这是当前 feature，不按“调度当轮立即阻断请求”解释。
+
+这个设计保留的原因是 executor 需要完整 projection state，而该 state 已在 `messages.transform` 中构造。若未来要改为 `chat.params` 当轮启动压缩，必须让 executor 能在 `chat.params` 侧重建或接收完整 projection state。
+
 ## Replay-first 主模型
 
 当前设计不把 mark 理解为调用时立即写入 SQLite 并长期维护的业务状态，而是理解为：

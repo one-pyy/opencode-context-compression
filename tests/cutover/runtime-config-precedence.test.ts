@@ -41,3 +41,30 @@ test("Config Precedence - Env overrides JSONC", async () => {
   assert.equal(config.promptText, "Template Content", "Should load dummy prompt text");
 });
 
+test("Runtime config accepts zero toast duration as per-toast disable", async () => {
+  const tempDir = join(tmpdir(), `opencode-config-test-${Date.now()}-toast-zero`);
+  mkdirSync(join(tempDir, "prompts"), { recursive: true });
+  writeFileSync(join(tempDir, "prompts/compaction.md"), "Template Content");
+
+  const configPath = join(tempDir, "runtime-config.jsonc");
+  writeFileSync(configPath, JSON.stringify({
+    version: 1,
+    allowDelete: false,
+    promptPath: join(tempDir, "prompts/compaction.md"),
+    compactionModels: ["model-from-json"],
+    runtimeLogPath: "logs/runtime.jsonl",
+    seamLogPath: "logs/seam.jsonl",
+    toast: {
+      enabled: true,
+      durations: {
+        startup: 0,
+      },
+    },
+  }));
+
+  const config = await loadRuntimeConfig({
+    OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH: configPath,
+  });
+
+  assert.equal(config.toast.durations.startup, 0);
+});

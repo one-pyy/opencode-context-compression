@@ -55,6 +55,12 @@ export interface MessageProjectionPolicySeed {
 export interface ToolMessageFailure {
   readonly errorCode: string;
   readonly message: string;
+  readonly details?: Readonly<Record<string, unknown>>;
+}
+
+export interface ToolResultOverride {
+  readonly sourceMessageId: string;
+  readonly output: string;
 }
 
 export interface ReminderArtifact {
@@ -95,6 +101,7 @@ export interface ProjectedPromptMessage {
 export interface ProjectedMessageSet {
   readonly sessionId: string;
   readonly messages: readonly ProjectedPromptMessage[];
+  readonly toolResultOverrides: readonly ToolResultOverride[];
   readonly reminders: readonly ReminderArtifact[];
   readonly conflicts: readonly ConflictRecord[];
   readonly state: ProjectionState;

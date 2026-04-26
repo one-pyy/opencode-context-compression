@@ -3,4 +3,5 @@ logs/
 state/
 .tmp/
 dist/
+.venv-token-counter/
 .sisyphus/evidence/task-3-hermetic-e2e/e2e-compaction--message-id-stripping/

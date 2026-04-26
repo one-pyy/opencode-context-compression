@@ -14,6 +14,8 @@ import type {
   ProjectionBuildInput,
   ReminderArtifact,
   ProjectionState,
+  ToolMessageFailure,
+  ToolResultOverride,
 } from "./types.js";
 
 export interface ProjectionBuilder {
@@ -65,7 +67,7 @@ export function createProjectionBuilder(
       const history = await dependencies.historyReplayReader.read(input.sessionId);
       const messagePolicies = await hydrateMessagePolicies(
         dependencies.canonicalIdentityService,
-        dependencies.policyEngine.classifyMessages(history),
+        await dependencies.policyEngine.classifyMessages(history),
       );
       const visibleIdAllocations = Object.freeze(
         messagePolicies.map(toVisibleIdAllocation),
@@ -87,27 +89,20 @@ export function createProjectionBuilder(
             )
           : [];
 
-      const pendingMarkIds = new Set(await dependencies.resultGroupRepository.listPendingMarkIds());
-      const resultGroupMarkIds = new Set(resultGroups.map(g => g.markId));
+      const failedToolMessageIds = new Map<string, ToolMessageFailure>();
       
-      const failedToolMessageIds = new Map<string, import("./types.js").ToolMessageFailure>();
-      
-      // Source 1: conflicts and failed execution from accepted marks
+      // Source 1: deterministic conflicts from accepted marks
       history.marks.forEach(mark => {
         const conflict = conflicts.find(c => c.markId === mark.markId);
         if (conflict) {
           failedToolMessageIds.set(mark.sourceMessageId, {
             errorCode: conflict.errorCode,
             message: conflict.message,
-          });
-          return;
-        }
-        
-        const isFailedExecution = !pendingMarkIds.has(mark.markId) && !resultGroupMarkIds.has(mark.markId);
-        if (isFailedExecution) {
-          failedToolMessageIds.set(mark.sourceMessageId, {
-            errorCode: "COMPACTION_FAILED",
-            message: `Mark '${mark.markId}' was accepted but has no committed result group and is not pending execution.`,
+            details: {
+              markId: mark.markId,
+              sourceMessageId: mark.sourceMessageId,
+              reason: "mark-tree-conflict",
+            },
           });
         }
       });
@@ -119,8 +114,21 @@ export function createProjectionBuilder(
         failedToolMessageIds.set(call.sourceMessageId, {
           errorCode: call.errorCode ?? "COMPACTION_FAILED",
           message: call.message ?? `compression_mark call was ${call.outcome}.`,
+          details: {
+            sourceMessageId: call.sourceMessageId,
+            outcome: call.outcome,
+            ...(call.mode === undefined ? {} : { mode: call.mode }),
+            ...(call.startVisibleMessageId === undefined
+              ? {}
+              : { startVisibleMessageId: call.startVisibleMessageId }),
+            ...(call.endVisibleMessageId === undefined
+              ? {}
+              : { endVisibleMessageId: call.endVisibleMessageId }),
+          },
         });
       });
+
+      const toolResultOverrides = buildToolResultOverrides(failedToolMessageIds);
 
       const renderedBaseMessages = renderProjectionMessages({
         history,
@@ -155,12 +163,35 @@ export function createProjectionBuilder(
             dependencies.leadingUserPromptText,
           ),
         ),
+        toolResultOverrides,
         reminders,
         conflicts,
         state,
       } satisfies ProjectedMessageSet;
     },
   } satisfies ProjectionBuilder;
+}
+
+function buildToolResultOverrides(
+  failedToolMessageIds: ReadonlyMap<string, ToolMessageFailure>,
+): readonly ToolResultOverride[] {
+  return Object.freeze(
+    [...failedToolMessageIds].map(([sourceMessageId, failure]) =>
+      Object.freeze({
+        sourceMessageId,
+        output: stringifyToolMessageFailure(failure),
+      } satisfies ToolResultOverride),
+    ),
+  );
+}
+
+function stringifyToolMessageFailure(failure: ToolMessageFailure): string {
+  return JSON.stringify({
+    ok: false,
+    errorCode: failure.errorCode,
+    message: failure.message,
+    ...(failure.details === undefined ? {} : { details: failure.details }),
+  });
 }
 
 async function hydrateMessagePolicies(

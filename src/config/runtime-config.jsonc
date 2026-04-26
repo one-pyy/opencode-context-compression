@@ -48,6 +48,7 @@
   "toast": {
     "enabled": true,
     "durations": {
+      // Set an individual toast duration to 0 to disable only that toast type.
       "startup": 3000,
       "softReminder": 5000,
       "hardReminder": 7000,

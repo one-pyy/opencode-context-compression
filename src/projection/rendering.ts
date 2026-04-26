@@ -241,32 +241,8 @@ function renderOriginalRange(input: {
       continue;
     }
 
-    let parts = message.parts;
-    let hostMessage = message.hostMessage;
-    
     const failure = input.failedToolMessageIds.get(message.canonicalId);
     const failureOutput = failure ? stringifyToolMessageFailure(failure) : undefined;
-    if (failure) {
-      parts = message.parts.map(part => {
-        if (part.type === "tool" && part.tool === "compression_mark") {
-          const state = part.state as any;
-          return {
-            ...part,
-            state: {
-              ...state,
-              status: "completed",
-              output: failureOutput,
-            },
-          };
-        }
-        return part;
-      });
-      
-      hostMessage = {
-        ...message.hostMessage,
-        parts,
-      };
-    }
 
     rendered.push(
       Object.freeze({
@@ -282,8 +258,8 @@ function renderOriginalRange(input: {
             : message.contentText.trim().length === 0
               ? ""
               : prependVisibleId(policy.visibleId, message.contentText),
-        parts,
-        hostMessage,
+        parts: message.parts,
+        hostMessage: message.hostMessage,
       } satisfies ProjectedPromptMessage),
     );
   }
@@ -296,6 +272,7 @@ function stringifyToolMessageFailure(failure: ToolMessageFailure): string {
     ok: false,
     errorCode: failure.errorCode,
     message: failure.message,
+    ...(failure.details === undefined ? {} : { details: failure.details }),
   });
 }
 

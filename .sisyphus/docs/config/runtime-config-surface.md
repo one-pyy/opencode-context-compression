@@ -28,6 +28,8 @@
 - `compressing.timeoutSeconds`
 - `compressing.firstTokenTimeoutSeconds`
 - `compressing.streamIdleTimeoutSeconds`
+- `toast.enabled`
+- `toast.durations.*`
 - `schedulerMarkThreshold`
 - `runtimeLogPath`
 - `seamLogPath`
@@ -50,6 +52,20 @@
 
 当前 docs 先定义配置契约与目标语义，不表示仓库运行时已经完成流式 transport 实现。
 
+## Toast 配置
+
+- `toast.enabled=false` 会关闭所有 UI toast。
+- `toast.durations.*=0` 会只关闭对应类型的 toast，其他 toast 不受影响。
+- 当前支持的 duration key：`startup`、`softReminder`、`hardReminder`、`compressionStart`、`compressionComplete`、`compressionFailed`。
+
+例如要关闭欢迎 toast，只需要设置 `toast.durations.startup=0`。
+
+## Token 计数服务
+
+当前 token 估算优先调用本地 Python `tiktoken` 服务：`http://127.0.0.1:40311/count`。可用 `npm run token-counter` 启动该服务。
+
+TypeScript 侧如果服务不可用、超时或返回异常，会自动回退到字符数 / 4 的估算口径，避免阻塞 projection / scheduler。服务地址可用 `OPENCODE_CONTEXT_COMPRESSION_TOKEN_COUNTER_URL` 覆盖；Python 服务端口可用 `OPENCODE_CONTEXT_COMPRESSION_TOKEN_COUNTER_PORT` 覆盖。
+
 ## Env 覆盖
 
 环境变量优先级高于默认 live 配置文件，包括：
@@ -63,6 +79,7 @@
 - `OPENCODE_CONTEXT_COMPRESSION_LOG_LEVEL`
 - `OPENCODE_CONTEXT_COMPRESSION_COMPRESSING_TIMEOUT_SECONDS`
 - `OPENCODE_CONTEXT_COMPRESSION_DEBUG_SNAPSHOT_PATH`
+- `OPENCODE_CONTEXT_COMPRESSION_TOKEN_COUNTER_URL`
 
 空值或纯空白值在插件启动时应被拒绝。
 

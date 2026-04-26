@@ -7,6 +7,7 @@ export type CompressionMarkErrorCode =
   | "INVALID_RANGE"
   | "DELETE_NOT_ALLOWED"
   | "OVERLAP_CONFLICT"
+  | "COMPACTION_FAILED"
   | "SESSION_NOT_READY";
 
 export interface CompressionMarkInputV1 {
@@ -25,6 +26,7 @@ export interface CompressionMarkFailure {
   readonly ok: false;
   readonly errorCode: CompressionMarkErrorCode;
   readonly message: string;
+  readonly details?: Readonly<Record<string, unknown>>;
 }
 
 export type CompressionMarkResult =
@@ -131,11 +133,13 @@ export function validateCompressionMarkInput(
 export function createCompressionMarkFailure(
   errorCode: CompressionMarkErrorCode,
   message: string,
+  details?: Readonly<Record<string, unknown>>,
 ): CompressionMarkFailure {
   return {
     ok: false,
     errorCode,
     message,
+    ...(details === undefined ? {} : { details }),
   };
 }
 
@@ -162,10 +166,12 @@ export function deserializeCompressionMarkResult(
     typeof record.errorCode === "string" &&
     typeof record.message === "string"
   ) {
+    const details = asRecord(record.details);
     return {
       ok: false,
       errorCode: record.errorCode as CompressionMarkErrorCode,
       message: record.message,
+      ...(details === undefined ? {} : { details }),
     };
   }
 

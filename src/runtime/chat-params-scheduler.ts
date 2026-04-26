@@ -7,10 +7,6 @@ import {
   type CanonicalIdentityService,
 } from "../identity/canonical-identity.js";
 import {
-  deriveStableVisibleSuffix,
-  formatVisibleId,
-} from "../identity/visible-sequence.js";
-import {
   createFlatPolicyEngine,
   type PolicyEngine,
 } from "../projection/policy-engine.js";
@@ -44,7 +40,30 @@ export interface ChatParamsSchedulingMetadata {
   readonly reason: string;
   readonly activeCompactionLock: boolean;
   readonly pendingMarkCount: number;
+  readonly diagnostics?: ChatParamsSchedulerDiagnostics;
   readonly dispatchedBatch?: FrozenCompactionBatchSnapshot;
+}
+
+export interface ChatParamsSchedulerDiagnostics {
+  readonly replayedMarkCount: number;
+  readonly replayedMarkIds: readonly string[];
+  readonly markTreeNodeCount: number;
+  readonly markTreeMarkIds: readonly string[];
+  readonly markTreeConflicts: readonly {
+    readonly markId: string;
+    readonly errorCode: string;
+    readonly message: string;
+  }[];
+  readonly queuedMarkIdsBeforeThreshold: readonly string[];
+  readonly committedResultGroupMarkIds: readonly string[];
+  readonly uncompressedMarkedTokenCount: number;
+  readonly markedTokenAutoCompactionThreshold: number;
+  readonly schedulerMarkThreshold: number;
+  readonly usedCanonicalIdentityService: boolean;
+  readonly visibleIdSamples: readonly {
+    readonly canonicalId: string;
+    readonly visibleId: string;
+  }[];
 }
 
 export interface ChatParamsSchedulerDecision {
@@ -94,6 +113,7 @@ export interface InternalSchedulerEvaluation {
   readonly eligibleMarkIds: readonly string[];
   readonly uncompressedMarkedTokenCount: number;
   readonly markedTokenAutoCompactionThreshold: number;
+  readonly diagnostics: ChatParamsSchedulerDiagnostics;
 }
 
 export interface ChatParamsSchedulerDispatchResult {
@@ -131,8 +151,17 @@ export interface HistoryBackedChatParamsSchedulerOptions {
   readonly now?: () => string;
   readonly readLockNow?: () => number;
   readonly policyEngine?: PolicyEngine;
-  readonly canonicalIdentityService?: CanonicalIdentityService;
+  readonly openCanonicalIdentityService: (
+    sessionId: string,
+  ) =>
+    | Promise<SessionCanonicalIdentityServiceHandle>
+    | SessionCanonicalIdentityServiceHandle;
   readonly dispatch?: InternalChatParamsSchedulerDependencies["dispatch"];
+}
+
+export interface SessionCanonicalIdentityServiceHandle {
+  readonly service: CanonicalIdentityService;
+  close(): Promise<void> | void;
 }
 
 export const CHAT_PARAMS_SCHEDULER_INTERNAL_CONTRACT =
@@ -234,6 +263,7 @@ export function createInternalChatParamsScheduler(
                 : "compaction is already running and there are no queued marks yet",
             activeCompactionLock: true,
             eligibleMarkIds: evaluation.eligibleMarkIds,
+            diagnostics: evaluation.diagnostics,
           }),
         };
       }
@@ -248,6 +278,7 @@ export function createInternalChatParamsScheduler(
             reason: "no unresolved replayed marks are currently queued for compaction",
             activeCompactionLock: false,
             eligibleMarkIds: evaluation.eligibleMarkIds,
+            diagnostics: evaluation.diagnostics,
           }),
         };
       }
@@ -264,6 +295,7 @@ export function createInternalChatParamsScheduler(
               "queued replayed marks have not yet reached the marked-token auto-compaction threshold",
             activeCompactionLock: false,
             eligibleMarkIds: evaluation.eligibleMarkIds,
+            diagnostics: evaluation.diagnostics,
           }),
         };
       }
@@ -294,6 +326,7 @@ export function createInternalChatParamsScheduler(
           reason: dispatched.reason,
           activeCompactionLock: false,
           eligibleMarkIds: evaluation.eligibleMarkIds,
+          diagnostics: evaluation.diagnostics,
           dispatchedBatch: dispatched.dispatchedBatch,
         }),
       };
@@ -305,7 +338,6 @@ export function createHistoryBackedChatParamsScheduler(
   options: HistoryBackedChatParamsSchedulerOptions,
 ): ChatParamsScheduler {
   const policyEngine = options.policyEngine ?? createFlatPolicyEngine();
-  const canonicalIdentityService = options.canonicalIdentityService;
 
   return createInternalChatParamsScheduler(
     {
@@ -333,15 +365,21 @@ export function createHistoryBackedChatParamsScheduler(
               ) ?? [])
             : [];
 
-        const eligibility = await collectEligibleMarkIds({
-          history,
-          policyEngine,
-          canonicalIdentityService,
-          schedulerMarkThreshold: options.schedulerMarkThreshold,
-          markedTokenAutoCompactionThreshold:
-            options.markedTokenAutoCompactionThreshold,
-          committedResultGroups,
-        });
+        const identity = await options.openCanonicalIdentityService(sessionId);
+        let eligibility: Awaited<ReturnType<typeof collectEligibleMarkIds>>;
+        try {
+          eligibility = await collectEligibleMarkIds({
+            history,
+            policyEngine,
+            canonicalIdentityService: identity.service,
+            schedulerMarkThreshold: options.schedulerMarkThreshold,
+            markedTokenAutoCompactionThreshold:
+              options.markedTokenAutoCompactionThreshold,
+            committedResultGroups,
+          });
+        } finally {
+          await identity.close();
+        }
 
         return {
           activeCompactionLock: isActiveCompactionLockState(lockState),
@@ -349,6 +387,7 @@ export function createHistoryBackedChatParamsScheduler(
           uncompressedMarkedTokenCount: eligibility.uncompressedMarkedTokenCount,
           markedTokenAutoCompactionThreshold:
             eligibility.markedTokenAutoCompactionThreshold,
+          diagnostics: eligibility.diagnostics,
         } satisfies InternalSchedulerEvaluation;
       },
       dispatch: options.dispatch,
@@ -401,7 +440,7 @@ async function buildReplayedHistory(input: {
 async function collectEligibleMarkIds(input: {
   readonly history: ReplayedHistory;
   readonly policyEngine: PolicyEngine;
-  readonly canonicalIdentityService?: CanonicalIdentityService;
+  readonly canonicalIdentityService: CanonicalIdentityService;
   readonly schedulerMarkThreshold?: number;
   readonly markedTokenAutoCompactionThreshold?: number;
   readonly committedResultGroups: readonly CompleteResultGroup[];
@@ -409,22 +448,17 @@ async function collectEligibleMarkIds(input: {
   readonly eligibleMarkIds: readonly string[];
   readonly uncompressedMarkedTokenCount: number;
   readonly markedTokenAutoCompactionThreshold: number;
+  readonly diagnostics: ChatParamsSchedulerDiagnostics;
 }> {
   const messagePolicies = await Promise.all(
-    input.policyEngine.classifyMessages(input.history).map(async (policy) => ({
+    (await input.policyEngine.classifyMessages(input.history)).map(async (policy) => ({
       ...policy,
-      visibleId: input.canonicalIdentityService
-        ? (
-            await input.canonicalIdentityService.allocateVisibleId(
-              policy.canonicalId,
-              policy.visibleKind,
-            )
-          ).assignedVisibleId
-        : formatVisibleId(
-            policy.visibleKind,
-            policy.sequence,
-            deriveStableVisibleSuffix(policy.canonicalId),
-          ),
+      visibleId: (
+        await input.canonicalIdentityService.allocateVisibleId(
+          policy.canonicalId,
+          policy.visibleKind,
+        )
+      ).assignedVisibleId,
     })),
   );
 
@@ -460,7 +494,49 @@ async function collectEligibleMarkIds(input: {
         : Object.freeze([]),
     uncompressedMarkedTokenCount,
     markedTokenAutoCompactionThreshold: markedTokenThreshold,
+    diagnostics: Object.freeze({
+      replayedMarkCount: input.history.marks.length,
+      replayedMarkIds: Object.freeze(input.history.marks.map((mark) => mark.markId)),
+      markTreeNodeCount: countMarkNodes(tree.marks),
+      markTreeMarkIds: Object.freeze(flattenMarkIds(tree.marks)),
+      markTreeConflicts: Object.freeze(
+        tree.conflicts.map((conflict) =>
+          Object.freeze({
+            markId: conflict.markId,
+            errorCode: conflict.errorCode,
+            message: conflict.message,
+          }),
+        ),
+      ),
+      queuedMarkIdsBeforeThreshold: Object.freeze(eligibleMarkIds),
+      committedResultGroupMarkIds: Object.freeze(
+        input.committedResultGroups.map((group) => group.markId),
+      ),
+      uncompressedMarkedTokenCount,
+      markedTokenAutoCompactionThreshold: markedTokenThreshold,
+      schedulerMarkThreshold: markCountThreshold,
+      usedCanonicalIdentityService: true,
+      visibleIdSamples: Object.freeze(
+        messagePolicies.slice(0, 12).map((policy) =>
+          Object.freeze({
+            canonicalId: policy.canonicalId,
+            visibleId: policy.visibleId,
+          }),
+        ),
+      ),
+    } satisfies ChatParamsSchedulerDiagnostics),
   });
+}
+
+function countMarkNodes(marks: readonly MarkTreeNode[]): number {
+  return marks.reduce(
+    (total, mark) => total + 1 + countMarkNodes(mark.children),
+    0,
+  );
+}
+
+function flattenMarkIds(marks: readonly MarkTreeNode[]): string[] {
+  return marks.flatMap((mark) => [mark.markId, ...flattenMarkIds(mark.children)]);
 }
 
 function collectQueuedMarkIds(
@@ -556,6 +632,7 @@ function buildMetadata(input: {
   readonly reason: string;
   readonly activeCompactionLock: boolean;
   readonly eligibleMarkIds: readonly string[];
+  readonly diagnostics?: ChatParamsSchedulerDiagnostics;
   readonly dispatchedBatch?: FrozenCompactionBatchSnapshot;
 }): ChatParamsSchedulingMetadata {
   return Object.freeze({
@@ -564,6 +641,7 @@ function buildMetadata(input: {
     reason: input.reason,
     activeCompactionLock: input.activeCompactionLock,
     pendingMarkCount: input.eligibleMarkIds.length,
+    ...(input.diagnostics ? { diagnostics: input.diagnostics } : {}),
     ...(input.dispatchedBatch ? { dispatchedBatch: input.dispatchedBatch } : {}),
   });
 }
