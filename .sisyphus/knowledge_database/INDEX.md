@@ -1,13 +1,13 @@
 # opencode-context-compression — Knowledge Database Index
 
 Project: /root/_/opencode/opencode-context-compression
-Purpose: 记录本子项目中旧但仍有价值的决策、问题、规律与教程。
+Purpose: 记录本子项目中具有长期价值的决策、问题、规律与教程。
 
 ---
 
 ## Summary
 
-这个知识库现在只承接“旧但仍有价值”的内容：设计决策、历史问题、运行规律与可复用教程。最新设计与当前正式实现参考应进入 `docs/`；这里保留的是能帮助未来避免重复踩坑、理解演化背景、或复用既有判断方法的 durable 信息。
+这个知识库承接具有长期价值的设计决策、历史问题、运行规律与可复用教程。最新设计与当前正式实现参考应进入 `docs/`；这里保留的是能帮助未来避免重复踩坑、理解演化背景、或复用既有判断方法的 durable 信息。
 
 ## Decisions
 
