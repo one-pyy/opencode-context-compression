@@ -54,6 +54,12 @@ sidecar 应至少持久化：
 
 并在 projection 最终出口按 `<visible-type>_<seq6>_<base62>` 拼出当前轮可见 id。
 
+## Mark 端点匹配规则
+
+`compression_mark` 的 `from` / `to` 可以使用完整渲染 id，例如 `protected_000001_q7` 或 `compressible_000001_q7`，但运行时定位端点时只使用 bare 部分：`seq6 + base62`。
+
+因此，如果同一条消息在后续 projection 中因为分类变化从 `protected` 变为 `compressible`，或反向变化，只要 `000001_q7` 仍然对应同一条消息，mark replay 仍应命中。`visible-type` 是当前可见状态，不是长期稳定身份的一部分。
+
 ## Provider 形态边界
 
 DCP 核心设计以 structured messages / Responses-style input 为主模型。Codex 风格的单字符串 prompt flattening 只是 provider-specific serializer edge case；不要把它反向提升为 visible-id 或 projection 的核心架构。

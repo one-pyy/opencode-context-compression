@@ -27,9 +27,9 @@
   - `"compact"`：压缩成信息更密集的保留块
   - `"delete"`：请求删除风格处理；是否允许取决于当前运行时 delete permission
 - `from`
-  - 起始可见消息 id，格式为 `<visible-type>_<seq6>_<base62>`
+  - 起始可见消息 id，格式为 `<visible-type>_<seq6>_<base62>`；运行时按 `seq6 + base62` 定位端点
 - `to`
-  - 结束可见消息 id，格式为 `<visible-type>_<seq6>_<base62>`
+  - 结束可见消息 id，格式为 `<visible-type>_<seq6>_<base62>`；运行时按 `seq6 + base62` 定位端点
 - `hint`
   - 可选压缩指导，例如保留文件路径、错误信息或工具参数
 
@@ -37,6 +37,7 @@
 
 - 目标 id 来自**当前 projection 可见视图**，不是宿主内部任意原始字段。
 - 当前可见 id 形如 `protected_000001_q7`、`compressible_000002_m2`、`referable_000003_w1`，不是 `msg_...`。
+- `protected` / `compressible` / `referable` 前缀只表示当前可见状态；如果前缀后来变化，只要 `seq6 + base62` 仍匹配同一条消息，mark replay 仍可命中。
 - 应优先选择已经完成、后续不太需要逐条引用的历史片段。
 - 对最近几条消息、仍在进行中的任务或尚未收敛的问题，不应过早压缩。
 

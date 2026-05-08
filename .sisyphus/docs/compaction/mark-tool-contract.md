@@ -16,6 +16,7 @@
 
 - `mode` 是 `"compact" | "delete"`
 - `from` 与 `to` 来自当前 projected visible view
+- `from` 与 `to` 的公共输入形态是 `<visible-type>_<seq6>_<base62>`；replay 定位端点时使用稳定的 `seq6 + base62`，不把 `visible-type` 当作长期身份字段
 - 成功调用时立即返回随机 `mark id`
 - `mode=delete` 且当前策略不允许 delete 时，返回错误结果
 

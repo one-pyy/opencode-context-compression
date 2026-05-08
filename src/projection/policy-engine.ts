@@ -1,4 +1,5 @@
 import { defineInternalModuleContract } from "../internal/module-contract.js";
+import { parseVisibleId } from "../identity/visible-sequence.js";
 import type { ReplayedHistory } from "../history/history-replay-reader.js";
 import type { TransformEnvelope } from "../seams/noop-observation.js";
 import { estimateEnvelopeTokensWithService } from "../token-estimation.js";
@@ -98,13 +99,17 @@ export function createFlatPolicyEngine(
       input.history.messages.forEach((message) => {
         const visibleId = input.visibleIdsByCanonicalId.get(message.canonicalId);
         if (visibleId) {
-          visibleSequences.set(visibleId, message.sequence);
+          visibleSequences.set(toVisibleIdLookupKey(visibleId), message.sequence);
         }
       });
 
       marks.forEach((mark) => {
-        const startSequence = visibleSequences.get(mark.startVisibleMessageId);
-        const endSequence = visibleSequences.get(mark.endVisibleMessageId);
+        const startSequence = visibleSequences.get(
+          toVisibleIdLookupKey(mark.startVisibleMessageId),
+        );
+        const endSequence = visibleSequences.get(
+          toVisibleIdLookupKey(mark.endVisibleMessageId),
+        );
         if (
           startSequence === undefined ||
           endSequence === undefined ||
@@ -162,6 +167,11 @@ function classifyVisibleKind(
   }
 
   return "compressible";
+}
+
+function toVisibleIdLookupKey(visibleId: string): string {
+  const parsed = parseVisibleId(visibleId);
+  return `${String(parsed.visibleSeq).padStart(6, "0")}_${parsed.suffix}`;
 }
 
 function insertMarkTreeNode(
