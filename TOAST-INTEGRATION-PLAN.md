@@ -528,7 +528,6 @@ export async function loadRuntimeConfig(): Promise<ResolvedRuntimeConfig> {
 ## 10. 参考资料
 
 - **Toast API 定义**: `/root/_/opencode/opencode-context-compression/node_modules/@opencode-ai/plugin/dist/tui.d.ts:151-156`
-- **实际使用示例**: `/root/_/projects/opencode-upstream/packages/opencode/src/cli/cmd/tui/feature-plugins/system/plugins.tsx`
-- **插件 API 封装**: `/root/_/projects/opencode-upstream/packages/opencode/src/cli/cmd/tui/plugin/api.tsx:304-311`
-- **错误处理模式**: `/root/_/projects/oh-my-openagent/src/plugin/ultrawork-model-override.ts:26-32`
-
+- **实际使用示例**: `/root/_/refs/opencode-upstream/packages/opencode/src/cli/cmd/tui/feature-plugins/system/plugins.tsx`
+- **插件 API 封装**: `/root/_/refs/opencode-upstream/packages/opencode/src/cli/cmd/tui/plugin/api.tsx:304-311`
+- **错误处理模式**: `/root/_/refs/oh-my-openagent/src/plugin/ultrawork-model-override.ts:26-32`

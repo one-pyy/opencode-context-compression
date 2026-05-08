@@ -28,6 +28,7 @@
 - `compressing.timeoutSeconds`
 - `compressing.firstTokenTimeoutSeconds`
 - `compressing.streamIdleTimeoutSeconds`
+- `compressing.maxAttemptsPerModel`
 - `toast.enabled`
 - `toast.durations.*`
 - `schedulerMarkThreshold`
@@ -49,6 +50,10 @@
 - `compressing.timeoutSeconds`
   - 总 timeout
   - 单次模型尝试从请求发出到流结束的总时长不得超过该上限
+
+- `compressing.maxAttemptsPerModel`
+  - 插件层对同一模型的最大尝试次数
+  - 默认值为 1；同渠道重试由上游模型网关承担，插件层主要负责跨模型 fallback
 
 当前 docs 先定义配置契约与目标语义，不表示仓库运行时已经完成流式 transport 实现。
 

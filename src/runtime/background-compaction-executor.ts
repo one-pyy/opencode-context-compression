@@ -126,7 +126,7 @@ export async function executeBackgroundCompactions(
           firstTokenTimeoutMs: runtimeConfig.compressing.firstTokenTimeoutMs,
           streamIdleTimeoutMs: runtimeConfig.compressing.streamIdleTimeoutMs,
           compactionModels: runtimeConfig.models.slice(1),
-          maxAttemptsPerModel: 2,
+          maxAttemptsPerModel: runtimeConfig.compressing.maxAttemptsPerModel,
           createdAt: pending.createdAt,
         });
 

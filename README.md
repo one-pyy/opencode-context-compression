@@ -52,6 +52,7 @@ Common fields:
 - `reminder.softRepeatEveryTokens` / `reminder.hardRepeatEveryTokens`: token-based reminder cadence.
 - `runtimeLogPath`, `seamLogPath`, `debugSnapshotPath`: local diagnostic output paths.
 - `compressing.timeoutSeconds`, `compressing.firstTokenTimeoutSeconds`, `compressing.streamIdleTimeoutSeconds`: compaction timeout settings.
+- `compressing.maxAttemptsPerModel`: plugin-layer attempts per model before cross-model fallback.
 - `toast.enabled` and `toast.durations.*`: UI toast behavior.
 
 Environment overrides:
