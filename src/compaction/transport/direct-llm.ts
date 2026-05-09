@@ -275,10 +275,8 @@ async function getProviderConfig(
       type = "gemini";
     } else if (providerID.startsWith("anthropic")) {
       type = "anthropic";
-    } else if (providerID.startsWith("openai")) {
-      type = "openai";
     } else {
-      throw new Error(`Unknown provider type for ${providerID}`);
+      type = "openai";
     }
 
     await runtimeArtifacts.writeDiagnostic({
@@ -381,7 +379,7 @@ async function callOpenAI(
   request: CompactionTransportRequest,
   signal?: AbortSignal,
 ): Promise<string> {
-  const url = `${provider.baseURL}/v1/chat/completions`;
+  const url = `${trimTrailingSlashes(provider.baseURL)}/chat/completions`;
 
   const response = await fetch(url, {
     method: "POST",
@@ -407,6 +405,10 @@ async function callOpenAI(
   }
 
   return readStreamingText(response, request, parseOpenAISseChunk);
+}
+
+function trimTrailingSlashes(value: string): string {
+  return value.replace(/\/+$/, "");
 }
 
 async function readStreamingText(
