@@ -1,10 +1,3 @@
-import {
-  CompactionTransportAbortedError,
-  CompactionTransportFatalError,
-  CompactionTransportMalformedPayloadError,
-  CompactionTransportRetryableError,
-  CompactionTransportTimeoutError,
-} from "../transport/errors.js";
 import { buildCompactionResultGroup } from "./result-group.js";
 import type {
   InternalCompactionRunner,
@@ -14,7 +7,6 @@ import type {
   RunCompactionInput,
   RunCompactionResult,
 } from "../types.js";
-import { InvalidCompactionOutputError } from "../errors.js";
 import type { ToastService } from "../../services/toast-service.js";
 import { TokenCounter } from "../../utils/token-counter.js";
 
@@ -44,7 +36,7 @@ export function createContractLevelCompactionRunnerImplementation(
       const maxAttemptsPerModel = normalizeMaxAttemptsPerModel(
         input.maxAttemptsPerModel,
       );
-      let lastRecoverableError: Error | undefined;
+      let lastAttemptError: unknown;
 
       for (const model of modelChain) {
         for (
@@ -96,39 +88,21 @@ export function createContractLevelCompactionRunnerImplementation(
               validatedOutput,
             } satisfies RunCompactionResult;
           } catch (error) {
-            if (isRecoverableCompactionFailure(error)) {
-              lastRecoverableError = error;
-              continue;
-            }
-
-            if (
-              error instanceof CompactionTransportTimeoutError ||
-              error instanceof CompactionTransportFatalError ||
-              error instanceof CompactionTransportAbortedError
-            ) {
-              if (toastService) {
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                toastService.showCompressionFailed(errorMessage).catch(() => {});
-              }
-              throw error;
-            }
-
-            if (toastService) {
-              const errorMessage = error instanceof Error ? error.message : String(error);
-              toastService.showCompressionFailed(errorMessage).catch(() => {});
-            }
-            throw error;
+            lastAttemptError = error;
+            continue;
           }
         }
       }
 
       if (toastService) {
-        const errorMessage = lastRecoverableError?.message ?? "All compaction models exhausted";
+        const errorMessage = lastAttemptError === undefined
+          ? "All compaction models exhausted"
+          : formatErrorMessage(lastAttemptError);
         toastService.showCompressionFailed(errorMessage).catch(() => {});
       }
 
-      if (lastRecoverableError !== undefined) {
-        throw lastRecoverableError;
+      if (lastAttemptError !== undefined) {
+        throw lastAttemptError;
       }
 
       throw new Error("Compaction runner exhausted its model chain without producing a result.");
@@ -165,10 +139,10 @@ function normalizeMaxAttemptsPerModel(value: number | undefined): number {
   return value;
 }
 
-function isRecoverableCompactionFailure(error: unknown): error is Error {
-  return (
-    error instanceof CompactionTransportRetryableError ||
-    error instanceof CompactionTransportMalformedPayloadError ||
-    error instanceof InvalidCompactionOutputError
-  );
+function formatErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
 }
