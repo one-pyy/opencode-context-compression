@@ -1,4 +1,4 @@
-import { mkdir, open, readFile, rm } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, rmdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
@@ -110,6 +110,7 @@ export interface SessionFileLockOptions {
   readonly sessionID: string;
   readonly now?: () => number;
   readonly timeoutMs?: number;
+  readonly pruneEmptyLockDirectory?: boolean;
 }
 
 export interface AcquireSessionFileLockOptions extends SessionFileLockOptions {
@@ -183,7 +184,10 @@ export async function acquireSessionFileLock(
   await mkdir(options.lockDirectory, { recursive: true });
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const current = await readSessionFileLock(options);
+    const current = await readSessionFileLock({
+      ...options,
+      pruneEmptyLockDirectory: false,
+    });
     if (current.kind === "running") {
       return {
         acquired: false,
@@ -216,7 +220,10 @@ export async function acquireSessionFileLock(
     }
   }
 
-  const finalState = await readSessionFileLock(options);
+  const finalState = await readSessionFileLock({
+    ...options,
+    pruneEmptyLockDirectory: false,
+  });
   if (finalState.kind === "running") {
     return {
       acquired: false,
@@ -248,6 +255,9 @@ export async function readSessionFileLock(
       serialized = await readFile(lockPath, "utf8");
     } catch (error) {
       if (isNotFoundError(error)) {
+        if (options.pruneEmptyLockDirectory ?? true) {
+          await removeLockDirectoryIfEmpty(options.lockDirectory);
+        }
         return {
           kind: "unlocked",
           lockPath,
@@ -336,6 +346,7 @@ export async function releaseSessionFileLock(
     options.sessionID,
   );
   await rm(lockPath, { force: true });
+  await removeLockDirectoryIfEmpty(options.lockDirectory);
 }
 
 export async function settleAndReleaseSessionFileLock(
@@ -566,6 +577,33 @@ function isAlreadyExistsError(error: unknown): boolean {
 
 function isNotFoundError(error: unknown): boolean {
   return readNodeErrorCode(error) === "ENOENT";
+}
+
+async function removeLockDirectoryIfEmpty(lockDirectory: string): Promise<void> {
+  let entries: string[];
+  try {
+    entries = await readdir(lockDirectory);
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return;
+    }
+
+    throw error;
+  }
+
+  if (entries.length > 0) {
+    return;
+  }
+
+  try {
+    await rmdir(lockDirectory);
+  } catch (error) {
+    if (isNotFoundError(error) || readNodeErrorCode(error) === "ENOTEMPTY") {
+      return;
+    }
+
+    throw error;
+  }
 }
 
 function isTransientLockReadError(error: unknown, serialized: string): boolean {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -286,6 +286,41 @@ test(
       },
     );
     assert.match(evidencePath, /restart-stale-lock-manual-unlock\.json$/u);
+  },
+);
+
+test(
+  "empty lock directories are removed after release or unlocked reads",
+  { concurrency: false },
+  async () => {
+    const lockRoot = await mkdtemp(join(tmpdir(), "restart-lock-cleanup-"));
+    const lockDirectory = join(lockRoot, "locks");
+
+    try {
+      const acquired = await acquireSessionFileLock({
+        lockDirectory,
+        sessionID: "session-cleanup-release",
+        startedAtMs: 0,
+        now: () => 0,
+      });
+      assert.equal(acquired.acquired, true);
+
+      await releaseSessionFileLock({
+        lockDirectory,
+        sessionID: "session-cleanup-release",
+      });
+      await assert.rejects(() => rm(lockDirectory), { code: "ENOENT" });
+
+      await mkdir(lockDirectory, { recursive: true });
+      const state = await readSessionFileLock({
+        lockDirectory,
+        sessionID: "session-cleanup-read",
+      });
+      assert.equal(state.kind, "unlocked");
+      await assert.rejects(() => rm(lockDirectory), { code: "ENOENT" });
+    } finally {
+      await rm(lockRoot, { force: true, recursive: true });
+    }
   },
 );
 
