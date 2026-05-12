@@ -1,4 +1,5 @@
 import type { ProjectionState, MarkTreeNode } from "../projection/types.js";
+import { renderModelVisiblePartsText } from "../model-visible-transcript.js";
 import type {
   CompactionBuildTranscriptEntry,
   RunCompactionInput,
@@ -89,14 +90,9 @@ function buildTranscriptForMarkNode(
       );
     }
 
-    let contentText = message.contentText.trim();
-    
-    if (contentText.length === 0) {
-      const toolParts = message.parts.filter((part) => part.type === "tool");
-      if (toolParts.length > 0) {
-        contentText = JSON.stringify(toolParts, null, 2);
-      }
-    }
+    const contentText = renderModelVisiblePartsText(message.parts, {
+      stripLeadingVisibleIdPrefix: true,
+    });
     
     if (contentText.length === 0) {
       continue;

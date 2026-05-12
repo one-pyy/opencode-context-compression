@@ -1,4 +1,5 @@
 import type { TransformEnvelope } from "./seams/noop-observation.js";
+import { renderModelVisiblePartsText } from "./model-visible-transcript.js";
 
 const DEFAULT_CHARS_PER_TOKEN = 4;
 const DEFAULT_TIKTOKEN_ENDPOINT = "http://127.0.0.1:40311/count";
@@ -98,72 +99,5 @@ function estimateTokenCountFromCharacters(content: string): number {
 }
 
 function readEnvelopeText(envelope: TransformEnvelope): string {
-  return envelope.parts
-    .flatMap((part) => {
-      if (part.type === "text" && typeof (part as { text?: unknown }).text === "string") {
-        return [(part as { text: string }).text];
-      }
-      if (part.type === "reasoning" && typeof (part as { text?: unknown }).text === "string") {
-        return [(part as { text: string }).text];
-      }
-      if (part.type === "tool") {
-        const toolPart = part as any;
-        const toolName = toolPart.tool || "unknown_tool";
-        const state = toolPart.state || {};
-        
-        if (state.status === "completed" && typeof state.output === "string") {
-          return [`[Tool: ${toolName}] ${state.output}`];
-        }
-        if (state.status === "running" && typeof state.title === "string") {
-          return [`[Tool: ${toolName}] Running: ${state.title}`];
-        }
-        if (state.status === "pending") {
-          return [`[Tool: ${toolName}] Pending`];
-        }
-        return [`[Tool: ${toolName}]`];
-      }
-      const partType = (part as { type?: unknown }).type;
-      if (partType === "tool_result") {
-        const content = (part as { content?: unknown }).content;
-        if (typeof content === "string") {
-          return [content];
-        }
-        if (Array.isArray(content)) {
-          return content.flatMap((entry) =>
-            typeof entry === "string"
-              ? [entry]
-              : entry && typeof entry === "object" && typeof (entry as { text?: unknown }).text === "string"
-                ? [(entry as { text: string }).text]
-                : [],
-          );
-        }
-        return [];
-      }
-      if (part.type === "patch") {
-        const files = (part as { files?: unknown }).files;
-        if (!Array.isArray(files)) {
-          return [];
-        }
-        return files.flatMap((file) => {
-          if (!file || typeof file !== "object") {
-            return [];
-          }
-          const patch = (file as { patch?: unknown }).patch;
-          const diff = (file as { diff?: unknown }).diff;
-          return typeof patch === "string"
-            ? [patch]
-            : typeof diff === "string"
-              ? [diff]
-              : [];
-        });
-      }
-      if (part.type === "file") {
-        const filePart = part as any;
-        const filename = filePart.filename || "file";
-        return [`[File: ${filename}]`];
-      }
-      return [];
-    })
-    .join("\n")
-    .trim();
+  return renderModelVisiblePartsText(envelope.parts);
 }
