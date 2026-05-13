@@ -31,6 +31,15 @@
 
 运行时生命周期状态应进入 sidecar、日志或稳定 notice；不要回写旧 tool result。原因是 provider 的 exact-prefix cache 依赖早期 transcript 字节稳定，动态改写旧前缀会打掉缓存。
 
+## 空 assistant 与 tool-only assistant shell（已实现）
+
+投影层必须区分两类空文本 assistant：
+
+- 纯空尾部 assistant placeholder：没有 `text`，也没有 `tool` part。它只是宿主占位，最终 `contentText` 保持为空，不额外暴露 visible-id-only 文本。
+- tool-only assistant：没有 `text`，但存在 `tool` part。它代表真实模型动作，最终 `contentText` 必须渲染为对应 visible id 本身，用作稳定锚点；不要追加 `Calling <tool>` 之类说明文本。
+
+这个 shell 只负责 prompt-visible anchor；工具调用本身仍由结构化 `parts` 保留给最终 materialization 层。
+
 ## Mark tool 调用删除
 
 如果 replacement 已成功接管原内容，相应的 mark tool 调用应从 prompt-visible view 中删除。

@@ -251,11 +251,12 @@ function renderOriginalRange(input: {
         canonicalId: message.canonicalId,
         visibleKind: policy.visibleKind,
         visibleId: policy.visibleId,
-        // Preserve trailing empty assistant placeholders from the host without surfacing a visible-id-only text shell.
+        // Keep pure trailing empty assistant placeholders invisible, but retain an anchor
+        // for tool-only assistant turns because they represent a real model action.
         contentText:
           failure
             ? prependVisibleId(policy.visibleId, failureOutput!)
-            : message.contentText.trim().length === 0
+            : message.contentText.trim().length === 0 && !hasToolPart(message)
               ? ""
               : prependVisibleId(policy.visibleId, message.contentText),
         parts: message.parts,
@@ -265,6 +266,10 @@ function renderOriginalRange(input: {
   }
 
   return rendered;
+}
+
+function hasToolPart(message: ReplayedHistoryMessage): boolean {
+  return message.parts.some((part) => part.type === "tool");
 }
 
 function stringifyToolMessageFailure(failure: ToolMessageFailure): string {

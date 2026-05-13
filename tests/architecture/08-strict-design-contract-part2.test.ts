@@ -6,15 +6,23 @@ import type { MarkTree, MessageProjectionPolicy } from "../../src/projection/typ
 import type { CompleteResultGroup } from "../../src/state/result-group-repository.js";
 
 // Helper to create fake messages
-function createMsg(seq: number, content: string, role: "user"|"assistant" = "user"): ReplayedHistoryMessage {
+function createMsg(
+  seq: number,
+  content: string,
+  role: "user"|"assistant" = "user",
+  parts: ReplayedHistoryMessage["parts"] = content.length > 0
+    ? [{ type: "text", text: content }]
+    : [],
+): ReplayedHistoryMessage {
   return {
     sequence: seq,
     canonicalId: `msg_${seq}`,
     role,
     contentText: content,
+    parts,
     hostMessage: {
       info: { id: `msg_${seq}`, role },
-      parts: [{ type: "text", text: content }]
+      parts,
     }
   };
 }
@@ -32,23 +40,47 @@ function createPolicy(seq: number, role: "user"|"assistant" = "user"): MessagePr
   };
 }
 
-// 契约测试 1：纯工具调用的合成壳 (DESIGN.md 2.4 & 14.13)
-// 契约：“当模型只发出 tool 调用而没有 assistant 文本时，projection 必须补一条简短的合成 assistant 消息（只含 id）。”
-test("DESIGN.md Contract 2.4 & 14.13 - Tool-only assistant MUST have a synthetic text shell", () => {
-  // Simulate an assistant message that has NO text, representing a tool-only call.
+test("DESIGN.md Contract 2.4 - trailing empty assistant placeholder stays empty", () => {
   const emptyAssistantMsg = createMsg(1, "", "assistant");
   const policies = [createPolicy(1, "assistant")];
-  
+
   const history: ReplayedHistory = { sessionId: "ses_1", messages: [emptyAssistantMsg], marks: [], compressionMarkToolCalls: [] };
   const markTree: MarkTree = { marks: [], conflicts: [] };
   const resultGroups = new Map<string, CompleteResultGroup>();
 
   const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups, failedToolMessageIds: new Map() });
-  
+
   assert.equal(output.messages.length, 1, "Should output exactly 1 message for the assistant");
-  
+  assert.equal(output.messages[0].contentText, "");
+});
+
+// 契约测试 1：纯工具调用的合成壳 (DESIGN.md 2.4 & 14.13)
+// 契约：“当模型只发出 tool 调用而没有 assistant 文本时，projection 必须补一条简短的合成 assistant 消息（只含 id）。”
+test("DESIGN.md Contract 2.4 & 14.13 - Tool-only assistant MUST have a synthetic text shell", () => {
+  const toolOnlyAssistantMsg = createMsg(1, "", "assistant", [
+    {
+      type: "tool",
+      tool: "bash",
+      callID: "call_1",
+      state: {
+        status: "completed",
+        input: { command: "pwd" },
+        output: "/repo",
+      },
+    },
+  ]);
+  const policies = [createPolicy(1, "assistant")];
+
+  const history: ReplayedHistory = { sessionId: "ses_1", messages: [toolOnlyAssistantMsg], marks: [], compressionMarkToolCalls: [] };
+  const markTree: MarkTree = { marks: [], conflicts: [] };
+  const resultGroups = new Map<string, CompleteResultGroup>();
+
+  const output = renderProjectionMessages({ history, messagePolicies: policies, markTree, resultGroupsByMarkId: resultGroups, failedToolMessageIds: new Map() });
+
+  assert.equal(output.messages.length, 1, "Should output exactly 1 message for the assistant");
+
   const renderedText = output.messages[0].contentText;
-  
+
   // Design says it must prepend the visible ID to ensure the model sees an anchor.
   // Example: "[compressible_000001_xx]"
   assert.ok(
