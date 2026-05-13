@@ -70,13 +70,47 @@
 
 ## `hint` 的用法
 
-`hint` 用于告诉压缩系统“什么信息必须保留”。
+`hint` 是传给压缩引擎的最高优先级指令，来自调用者（通常是外层 AI）对任务上下文的判断。压缩引擎会把 hint 视为比默认压缩原则更高优先级。
 
-示例：
+### 三类 hint 指令
 
-- `Preserve all file paths and error messages`
-- `Keep tool parameters and results`
-- `Focus on the final solution, summarize failed exploration`
+**1. 任务完成 / 已外化**
+
+告诉压缩引擎某段工作已完成或中间材料已经转移到别处，中间步骤可以降级为超链接。
+
+- `Task completed. Bug fixed. Compress to: root cause and fix. All investigation can be reduced to file paths only.`
+- `Search dumps externalized to .sisyphus/tmp/work/search-2026-w19.md — keep path and purpose, drop dump bodies.`
+
+**2. 必须保留**
+
+命名必须保留的实体、决策或约束。压缩引擎会把被命名的项目视为 MUST KEEP，即使它们按默认原则可以被总结。
+
+- `Preserve candidate names: Mini Shai-Hulud, NuGet malicious packages, Antel TuID, FastSim.`
+- `Keep de-prioritization rationale for each rejected option.`
+- `Preserve user-stated constraints and the final agreed scope.`
+
+**3. 丢弃授权**
+
+明确授权压缩引擎简化某类冗长内容。
+
+- `Do not preserve each search result verbatim.`
+- `Compress intermediate exploration steps.`
+- `Summarize trial-and-error, detail only the final approach.`
+
+### 如何写一个好的 hint
+
+- 从你（调用者）的任务视角出发：哪些已完成、哪些还要复用、哪些只是过程证据
+- 命名重要实体（路径、候选名、决策），不要用"保留重要内容"这种模糊措辞
+- 如果有外化文件，明确说出路径和用途
+- 可以混合三类指令于同一 hint
+
+**示例组合**：
+
+```
+Task completed. Compress three-round hidden-CTI search output. Intermediate results externalized to .sisyphus/tmp/compression/2026-05-13_cti-search.md; keep path and purpose, do not preserve full search summaries. Preserve candidate names: Mini Shai-Hulud, malicious NuGet, Antel TuID, FastSim, Vietnam investment fraud, QLNX. Also preserve duplicate/de-prioritization decisions.
+```
+
+这个例子包含：任务完成声明、外化引用、命名保留清单、丢弃授权。
 
 ## 返回行为
 

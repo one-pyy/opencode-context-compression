@@ -2,43 +2,80 @@
 
 ## 文档定位
 
-本文档承接旧 `notepads/learnings/2026-04-12_how-to-eval-compression-prompt.md` 的正式落点，说明如何评估 `prompts/compaction.md` 的压缩质量。
+本文档承接旧 `notepads/learnings/2026-04-12_how-to-eval-compression-prompt.md` 的正式落点，说明 `prompts/compaction.md` 的设计框架与评估方法。
 
 ## 核心边界
 
-- `prompts/compaction.md` 是运行时真实使用的 system prompt 资产
-- 本文档只描述其评估方法，不替代该 prompt 文件本身
+- `prompts/compaction.md` 是运行时真实使用的 system prompt 资产，使用中文撰写
+- 本文档描述其设计框架与评估方法，不替代该 prompt 文件本身
+
+## Prompt 设计框架
+
+当前 prompt 围绕四个核心概念组织：
+
+### 1. 产物定位
+
+压缩产物是给「接手会话的未来 AI」读的简报。它不会回看原文。读完应当知道：用户要什么、做过什么、当前状态、下一步在哪。
+
+这个定位替代了旧的"100 分内容 - 30 分噪声"二元过滤思路。
+
+### 2. Hint 是最高优先级指令
+
+`Compression hint` 来自外层模型——它看到了完整任务上下文，知道哪些材料已经不再需要。压缩引擎执行 hint 三类指令：
+
+- **任务完成 / 已外化** → 中间材料降级为超链接
+- **必须保留**（命名实体清单） → 视为 MUST KEEP
+- **丢弃授权** → 强制简化对应内容
+
+hint 未覆盖的部分按下面的默认判断原则处理。
+
+### 3. 信息类型分三档
+
+- **指针类**（路径、行号、函数名、错误码、命令、URL）：任何时候都只需短引用，因为它们指向可重访的位置
+- **决策依赖项**（用户原话约束、具体数值、API 签名、明确承诺）：保留原文，因为不可重访或重访成本高
+- **过程叙述**（探索过程、试错过程、读取记录）：根据任务阶段决定压缩力度
+
+### 4. 三条默认判断原则
+
+- **可恢复性**：能从外部重建的可压，不可重建的要保留
+- **注意力信号**：参与者自己表现出的重要性（追问、纠正、约束、岔路决策）直接保留
+- **新颖性**：每句话对前文要有信息增量
 
 ## 核心工具
 
-使用：
-
-- `scripts/eval-prompt.ts`
-
-它会读取真实会话数据、注入 `<opaque slot="Sx">` 标签、调用模型执行压缩，并检查标签保留率与输出质量。
+`scripts/eval-prompt.ts` 读取真实会话数据、注入 `<opaque slot="Sx">` 标签、调用模型执行压缩，并检查标签保留率与输出质量。
 
 ## 运行方式
 
 ```bash
-EVAL_CONCURRENCY=10 npx ts-node scripts/eval-prompt.ts
+EVAL_CONCURRENCY=5 npx ts-node scripts/eval-prompt.ts
 ```
+
+通过 `EVAL_MODEL` 环境变量覆盖模型，默认走本地 LiteLLM (`127.0.0.1:24009`) + `deepseek-v4-flash`。
 
 ## 两类评估维度
 
 ### 1. 机器指标
 
-- **Success Rate**
-  - 检查所有 `<opaque>` 标签是否被保留
-- **Compression Rate**
-  - 检查输出是否真正被压缩，而不是原样回吐
+- **Success Rate**：所有 `<opaque>` 标签是否被保留
+- **Compression Rate**：输出占输入的字符百分比
+
+**目标压缩率范围**（来自 prompt §输出长度参考）：
+- 短输入（< 20 条消息）：30%-50%
+- 中输入（20-50 条消息）：15%-30%
+- 长输入（> 50 条消息）：< 15%
+
+如果某个区间的压缩率系统性偏离目标，prompt 可能需要调整。
 
 ### 2. 人工抽检
 
 仅靠标签保留率不够，还要检查：
 
-- 是否保留了关键变量名、路径、阈值、命令
-- 是否避免大段 JSON regurgitation
-- 是否把原始工具调用格式转成自然语言总结
+- **指针类信息**：路径、函数名、命令是否保留
+- **决策依赖项**：用户原话约束、具体数值、API 签名是否保留
+- **推理桥接**：决策理由、否决依据、权衡命名是否保留
+- **过度展开**：tool 调用是否被无差别三段式渲染（应按结果价值分档）
+- **伪造结构**：是否生成了输入中不存在的章节标题、总结表格、推荐行动
 
 ## 重点风险
 
@@ -46,13 +83,23 @@ EVAL_CONCURRENCY=10 npx ts-node scripts/eval-prompt.ts
 
 如果输出只是大段复制原始 JSON / tool format，说明 prompt 没有实现真正压缩。
 
-### 2. 假高成功率
+### 2. 输出 ≥ 输入
 
-即使标签都在，但如果输出失去事实细节，仍然是失败压缩。
+如果压缩率接近或超过 100%，说明模型在产生内容而非压缩。常见原因：
+- 强制每个 tool call 三段式展开
+- `<analysis>` 内容被复述到最终输出
+- 自发生成 Gap Analysis 表、Verification Summary 等输入中不存在的结构
 
 ### 3. 过度压缩
 
-压缩率过高时，需要警惕丢失硬数据。
+压缩率过低（如长输入压到 < 2%）时需警惕：
+- 决策依赖项是否丢失
+- 用户明确约束是否丢失
+- 关键中间结论是否未保留
+
+### 4. 假高成功率
+
+即使标签都在，但如果输出失去事实细节，仍然是失败压缩。
 
 ## 调参方向
 
@@ -61,13 +108,24 @@ EVAL_CONCURRENCY=10 npx ts-node scripts/eval-prompt.ts
 - 调整 `<opaque>` 注入密度
 - 必要时放宽 API timeout 以适应长上下文与 `<analysis>` 输出
 
+## 当前 baseline（v2 中文版）
+
+- Success Rate: 19/20 (95%)
+- 压缩率分布：
+  - 短输入（≤ 20 msgs）：3%-34%
+  - 中输入（20-50 msgs）：6%-31%
+  - 长输入（> 50 msgs）：4.77%（n=1）
+- 输出 ≥ 输入：未观察到
+
 ## 建议的检查点
 
 - 查看 `logs/eval-successes.json`
 - 查看 `logs/eval-failures.json`
-- 搜索输出中是否仍有大段原始 JSON
+- 抽检 1-2 个长输入 case，确认指针类信息和决策依赖项保留
+- 抽检 1-2 个短输入 case，确认没有过度展开 tool call 或伪造结构
 
 ## 相关文档
 
 - `../architecture/system-overview.md`
+- `../operator/compression-mark-usage.md`
 - `../operator/json-snapshot-trimming.md`

@@ -122,7 +122,7 @@ function parseJsonc(source: string): any {
   return parse(source);
 }
 
-let apiConfigs: { url: string; key: string }[] = [];
+let apiConfigs: { url: string; key: string; model: string }[] = [];
 
 function loadApiConfigs() {
   try {
@@ -130,19 +130,12 @@ function loadApiConfigs() {
     const content = fs.readFileSync(configPath, "utf-8");
     const parsed = parseJsonc(content);
 
-    const doro = parsed.provider?.["google.doro"];
-    if (doro) {
+    const openaiLike = parsed.provider?.["deepseek"] ?? parsed.provider?.["openai"];
+    if (openaiLike?.options?.baseURL && openaiLike?.options?.apiKey) {
       apiConfigs.push({
-        url: `${doro.options.baseURL}/models/gemini-3-flash-preview:generateContent`,
-        key: doro.options.apiKey
-      });
-    }
-
-    const right = parsed.provider?.["google.right"];
-    if (right) {
-      apiConfigs.push({
-        url: `${right.options.baseURL}/models/gemini-3-flash-preview:generateContent`,
-        key: right.options.apiKey
+        url: `${openaiLike.options.baseURL}/chat/completions`,
+        key: openaiLike.options.apiKey,
+        model: process.env.EVAL_MODEL || "deepseek-v4-flash",
       });
     }
   } catch (e) {
@@ -156,27 +149,34 @@ async function callLLM(systemPrompt: string, userMessage: string, attempt = 0) {
   }
 
   if (apiConfigs.length === 0) {
-    throw new Error("No valid Gemini configs found in opencode.jsonc");
+    throw new Error("No valid OpenAI-compatible configs found in opencode.jsonc");
   }
 
   for (let i = 0; i < 3; i++) {
     const config = apiConfigs[Math.floor(Math.random() * apiConfigs.length)];
     try {
-    const res = await fetch(`${config.url}?key=${config.key}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: systemPrompt }] },
-        contents: [{ role: "user", parts: [{ text: userMessage }] }],
-        generationConfig: { 
+      const res = await fetch(config.url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${config.key}`,
+        },
+        body: JSON.stringify({
+          model: config.model,
           temperature: 0,
-          thinkingConfig: { }
-        }
-      })
-    });
-      if (!res.ok) throw new Error(`Gemini API Error: ${await res.text()}`);
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userMessage },
+          ],
+        }),
+      });
+      if (!res.ok) throw new Error(`LLM API Error: ${await res.text()}`);
       const data = await res.json();
-      return data.candidates[0].content.parts[0].text;
+      const text = data?.choices?.[0]?.message?.content;
+      if (typeof text !== "string") {
+        throw new Error(`Unexpected response shape: ${JSON.stringify(data).slice(0, 300)}`);
+      }
+      return text;
     } catch (e: any) {
       if (i === 2) throw e;
       await new Promise(r => setTimeout(r, 2000)); // wait and retry

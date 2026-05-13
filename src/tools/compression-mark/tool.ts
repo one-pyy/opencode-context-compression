@@ -111,18 +111,25 @@ export function createCompressionMarkTool(
       "## Protected messages:\n" +
       "Protected messages are preserved automatically and do not need special handling. You may still include them inside a marked range; the runtime will protect them as needed.\n\n" +
       "## Hint (optional):\n" +
-      "Guide the compression strategy with a brief instruction:\n" +
-      "- 'Preserve all file paths and error messages from this debugging session'\n" +
-      "- 'Focus on the final solution, compress intermediate exploration steps'\n" +
-      "- 'Keep tool parameters and results, summarize conversational parts'\n" +
-      "- 'This is context gathering, retain all discovered file locations'\n\n" +
+      "Guide the compression strategy by signaling task completion status and what must be preserved.\n\n" +
+      "**Three types of hints:**\n" +
+      "1. **Task completion / externalization** — Tell the compressor this work is done and intermediate steps can be reduced to links:\n" +
+      "   - 'Task completed. Bug fixed. Compress to: root cause and fix. All investigation can be reduced to file paths only.'\n" +
+      "   - 'Search results externalized to .sisyphus/tmp/work/search-2026-w19.md — keep path and purpose, drop dump bodies.'\n" +
+      "2. **Must-preserve items** — Name specific entities, decisions, or constraints that must survive:\n" +
+      "   - 'Preserve candidate names: Mini Shai-Hulud, NuGet malicious packages, Antel TuID, FastSim.'\n" +
+      "   - 'Keep de-prioritization rationale for each rejected option.'\n" +
+      "3. **Drop authorization** — Explicitly allow compression of verbose content:\n" +
+      "   - 'Do not preserve each search result verbatim.'\n" +
+      "   - 'Compress intermediate exploration steps.'\n\n" +
+      "The compressor treats named entities in hints as highest priority and will preserve them even if they would otherwise be summarized.\n\n" +
       "## Example usage:\n" +
       "```json\n" +
       "{\n" +
       '  "mode": "compact",\n' +
       '  "from": "compressible_000123_ab",\n' +
       '  "to": "referable_000130_q7",\n' +
-      '  "hint": "Preserve file paths and error messages"\n' +
+      '  "hint": "Task completed. Compress exploration to file paths. Preserve final solution and user-stated constraints."\n' +
       "}\n" +
       "```\n\n" +
       "## What happens after:\n" +
@@ -141,7 +148,7 @@ export function createCompressionMarkTool(
         "The visible message ID where the range ends (format: <visible-type>_<seq6>_<check_sum>, with a 2-character checksum suffix)"
       ),
       hint: tool.schema.string().optional().describe(
-        "Optional guidance for the compression strategy (e.g., 'Preserve all file paths')"
+        "Optional guidance: signal task completion ('Task done, compress to links'), name must-preserve items ('Keep candidates X, Y, Z'), or authorize drops ('Compress exploration verbatim'). Named entities are always preserved."
       ),
     },
     async execute(args, context) {
