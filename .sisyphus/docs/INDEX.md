@@ -5,7 +5,7 @@ Purpose: 记录本子项目当前最新设计与正式实现参考。
 
 ## Summary
 
-当前 docs 承载最新设计与当前正式实现参考，重点覆盖系统总览、消息投影、压缩与删除许可、运行时模型、配置面、验证边界，以及 operator / prompt 相关使用说明。压缩输入与 token 估算现已共享模型可见 transcript renderer，不再使用 text-only 或完整 tool object fallback 口径。涉及当前设计契约、运行时边界、工具用法或 prompt 评估时，应先读本目录。
+当前 docs 承载最新设计与当前正式实现参考，重点覆盖系统总览、消息投影、压缩与删除许可、运行时模型、配置面、验证边界，以及 operator / prompt 相关使用说明。排查真实宿主 session 时，先读 operator live artifact 入口，确认会话、runtime log 尾部、debug snapshot、sidecar database 与 lock 的真相源。压缩输入与 token 估算现已共享模型可见 transcript renderer，不再使用 text-only 或完整 tool object fallback 口径。涉及当前设计契约、运行时边界、工具用法或 prompt 评估时，应先读本目录。
 
 ---
 
@@ -38,6 +38,7 @@ Purpose: 记录本子项目当前最新设计与正式实现参考。
 
 ## Operator
 
+[operator/live-artifact-investigation.md] — 已实现：真实宿主 session、runtime log 尾部、debug snapshot、sidecar database 与 lock 的排查入口
 [operator/compression-mark-usage.md] — 已实现：`compression_mark` 工具使用说明与常见错误
 [operator/json-snapshot-trimming.md] — 已实现：调试快照 JSON 的安全读取方法
 [operator/runtime-config-live-validation-runbook.md] — 已实现：runtime config 在真实宿主中的验证 runbook
