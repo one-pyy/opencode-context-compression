@@ -105,7 +105,7 @@ export function createCompressionMarkTool(
       "- **delete**: Completely remove messages (use only for truly irrelevant content)\n\n" +
       "## How to identify message IDs:\n" +
       "Look for visible message IDs in the conversation history. They use the format `<visible-type>_<seq6>_<check_sum>`, where `<visible-type>` must be one of `protected`, `compressible`, or `referable`, and `<check_sum>` is a 2-character checksum suffix. Examples: `protected_000001_q7`, `compressible_000002_m2`, `referable_000003_w1`.\n" +
-      "Example: To compress messages from compressible_000123_ab to referable_000130_q7, use those as start/end IDs.\n\n" +
+      "The range is inclusive: both from and to messages are included. Example: To compress messages from compressible_000123_ab to referable_000130_q7, use those as start/end IDs. If from and to are the same ID, that single visible message is targeted.\n\n" +
       "## Marking multiple segments:\n" +
       "A single tool call marks one continuous range. If one reply needs to mark multiple separate segments, call this tool multiple times in the same reply.\n\n" +
       "## Protected messages:\n" +

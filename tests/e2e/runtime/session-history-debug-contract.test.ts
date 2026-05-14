@@ -103,7 +103,7 @@ test(
     });
 
     assert.deepEqual(
-      replaySources.toolHistory.map((entry) => ({
+      replaySources.toolHistory.filter((entry) => entry.toolName === "compression_mark").map((entry) => ({
         sequence: entry.sequence,
         markId: entry.result.ok ? entry.result.markId : null,
         mode: entry.input.mode,

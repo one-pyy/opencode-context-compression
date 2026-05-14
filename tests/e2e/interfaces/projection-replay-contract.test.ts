@@ -291,6 +291,129 @@ test(
   },
 );
 
+test(
+  "projection replay resolves compression_inspect from current message policies and committed coverage",
+  { concurrency: false },
+  async (t) => {
+    const fixture = await createHermeticE2EFixture(t, {
+      suite: "interfaces",
+      caseName: "projection compression inspect",
+    });
+    const stateDirectory = resolvePluginStateDirectory(fixture.repoRoot);
+    const databasePath = resolveSessionDatabasePath(stateDirectory, fixture.sessionID);
+    await rm(databasePath, { force: true });
+    await bootstrapSessionSidecar({ databasePath });
+
+    const sidecar = await openSessionSidecarRepository({ databasePath });
+    t.after(() => sidecar.close());
+
+    const resultGroups = createResultGroupRepository(sidecar);
+    const identity = createCanonicalIdentityService({
+      visibleIds: resultGroups,
+      allocateAt: () => "2026-04-06T08:00:00.000Z",
+    });
+
+    const hostHistory = [
+      hostEntry(1, createMessage("msg-user-1", "user", "User one carries enough text for compression.")),
+      hostEntry(2, createMessage("msg-assistant-1", "assistant", "Assistant body that is already summarized.")),
+      hostEntry(3, createMessage("msg-tool-1", "tool", "Tool result body remains inspectable.")),
+      hostEntry(4, createMessage("msg-user-2", "user", "User two also remains inspectable.")),
+    ] as const;
+
+    const visibleIds = {
+      user1: await identity.allocateVisibleId("msg-user-1", "compressible"),
+      assistant1: await identity.allocateVisibleId("msg-assistant-1", "compressible"),
+      tool1: await identity.allocateVisibleId("msg-tool-1", "compressible"),
+      user2: await identity.allocateVisibleId("msg-user-2", "compressible"),
+    };
+
+    await resultGroups.upsertCompleteGroup({
+      markId: "mark-covered",
+      mode: "compact",
+      sourceStartSeq: 2,
+      sourceEndSeq: 2,
+      executionMode: "compact",
+      createdAt: "2026-04-06T08:10:00.000Z",
+      committedAt: "2026-04-06T08:10:30.000Z",
+      fragments: [
+        {
+          sourceStartSeq: 2,
+          sourceEndSeq: 2,
+          replacementText: "Assistant summary.",
+        },
+      ],
+    });
+
+    const projectionBuilder = createProjectionBuilder({
+      historyReplayReader: createHistoryReplayReaderFromSources({
+        sessionId: fixture.sessionID,
+        hostHistory,
+        toolHistory: [
+          {
+            sequence: 5,
+            sourceMessageId: "tool-mark-covered",
+            toolName: "compression_mark",
+            input: {
+              mode: "compact",
+              from: visibleIds.assistant1.assignedVisibleId,
+              to: visibleIds.assistant1.assignedVisibleId,
+            },
+            result: {
+              ok: true,
+              markId: "mark-covered",
+            },
+          },
+          {
+            sequence: 6,
+            sourceMessageId: "tool-inspect-range",
+            toolName: "compression_inspect",
+            input: {
+              from: visibleIds.user1.assignedVisibleId,
+              to: visibleIds.user2.assignedVisibleId,
+            },
+            result: {
+              ok: true,
+              inspectId: "inspect-range",
+            },
+          },
+        ],
+      }),
+      policyEngine: createFlatPolicyEngine({
+        smallUserMessageThreshold: 5,
+      }),
+      resultGroupRepository: resultGroups,
+      canonicalIdentityService: identity,
+      reminderService: createStaticReminderService(),
+    });
+
+    const projection = await projectionBuilder.build({
+      sessionId: fixture.sessionID,
+    });
+    const inspectOverride = projection.toolResultOverrides.find(
+      (override) => override.toolName === "compression_inspect",
+    );
+
+    assert.ok(inspectOverride);
+    const inspected = JSON.parse(inspectOverride.output) as {
+      readonly ok: true;
+      readonly messages: readonly { readonly id: string; readonly tokens: number }[];
+    };
+    assert.equal(inspected.ok, true);
+    assert.deepEqual(
+      inspected.messages.map((message) => message.id),
+      [
+        visibleIds.user1.assignedVisibleId,
+        visibleIds.tool1.assignedVisibleId,
+        visibleIds.user2.assignedVisibleId,
+      ],
+    );
+    assert.equal(
+      inspected.messages.every((message) => Number.isInteger(message.tokens) && message.tokens > 0),
+      true,
+    );
+  },
+);
+
 function hostEntry(sequence: number, message: CanonicalHostMessage) {
   return {
     sequence,

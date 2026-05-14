@@ -1,8 +1,8 @@
-# `compression_mark` 公共契约（已实现）
+# 压缩工具公共契约（已实现）
 
 ## 文档定位
 
-本文档描述 `compression_mark` 作为当前唯一公开压缩工具的职责、输入输出与 replay 入口语义。
+本文档描述 `compression_mark` 与 `compression_inspect` 的职责、输入输出与 replay 入口语义。
 
 ## 职责边界
 
@@ -12,13 +12,28 @@
 - 不负责调度
 - 不负责 prompt projection
 
+`compression_inspect` 只负责请求查看当前可见范围内尚未被压缩结果覆盖的 compressible 消息 token 情况：
+
+- 不负责计算 token
+- 不负责读取 sidecar
+- 不负责压缩执行或调度
+
 ## 工具契约
 
 - `mode` 是 `"compact" | "delete"`
 - `from` 与 `to` 来自当前 projected visible view
+- `from` 与 `to` 是双闭区间端点，端点消息自身也包含在目标范围内
 - `from` 与 `to` 的公共输入形态是 `<visible-type>_<seq6>_<base62>`；replay 定位端点时使用稳定的 `seq6 + base62`，不把 `visible-type` 当作长期身份字段
 - 成功调用时立即返回随机 `mark id`
 - `mode=delete` 且当前策略不允许 delete 时，返回错误结果
+
+## Inspect 工具契约
+
+- `compression_inspect` 输入只有 `{ from, to }`
+- `from` 与 `to` 同样是双闭区间端点
+- 工具调用当下只返回 `inspectId` 占位结果
+- 后续 `messages.transform` 使用当前 `ProjectionState.messagePolicies` 中已经计算出的 `tokenCount` 生成真实结果
+- 真实结果只包含按消息顺序排列的 compressible 且未被已提交 result 覆盖的消息：`[{"id":"compressible_...","tokens":123}]`
 
 ## 成功结果与错误结果的区别
 

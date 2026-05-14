@@ -3,6 +3,10 @@ import type { Hooks } from "@opencode-ai/plugin";
 import type { CanonicalHostMessagePart } from "../history/history-replay-reader.js";
 import type { ProjectedMessageSet } from "../projection/types.js";
 import type { CompleteResultGroup } from "../state/result-group-repository.js";
+import {
+  buildReplayToolMessageId,
+  isReplayablePluginToolName,
+} from "../tools/tool-message-id.js";
 
 type MessagesTransformHook = NonNullable<
   Hooks["experimental.chat.messages.transform"]
@@ -201,7 +205,7 @@ export function projectProjectionToEnvelopes(
 ): readonly MessagesTransformEnvelope[] {
   const toolResultOverrides = new Map(
     projection.toolResultOverrides.map((override) => [
-      override.sourceMessageId,
+      `${override.toolName}:${override.sourceMessageId}`,
       override.output,
     ]),
   );
@@ -217,7 +221,7 @@ export function projectProjectionToEnvelopes(
       const hasRenderableContent = message.contentText.trim().length > 0;
       if (message.parts && message.parts.length > 0) {
         let hasTextPart = false;
-        let compressionMarkOrdinal = 0;
+        const toolOrdinals = new Map<string, number>();
         
         for (const part of message.parts) {
           if (part.type === "text") {
@@ -245,14 +249,16 @@ export function projectProjectionToEnvelopes(
             } as any);
           } else if (part.type === "tool") {
             let nextPart: CanonicalHostMessagePart = part;
-            if (isCompressionMarkToolPart(part)) {
-              compressionMarkOrdinal += 1;
+            if (isReplayableToolPart(part)) {
+              const nextOrdinal = (toolOrdinals.get(part.tool) ?? 0) + 1;
+              toolOrdinals.set(part.tool, nextOrdinal);
               const overrideOutput = toolResultOverrides.get(
-                buildCompressionMarkToolMessageId(
-                  messageId,
-                  part,
-                  compressionMarkOrdinal,
-                ),
+                `${part.tool}:${buildReplayToolMessageId({
+                  hostMessageId: messageId,
+                  toolName: part.tool,
+                  callID: part.callID,
+                  ordinal: nextOrdinal,
+                })}`,
               );
               if (overrideOutput !== undefined) {
                 nextPart = rewriteToolPartOutput(part, overrideOutput);
@@ -330,22 +336,16 @@ export function projectProjectionToEnvelopes(
   );
 }
 
-function isCompressionMarkToolPart(
+function isReplayableToolPart(
   part: CanonicalHostMessagePart,
-): part is Extract<CanonicalHostMessagePart, { readonly type: "tool" }> {
-  return part.type === "tool" && part.tool === "compression_mark";
-}
-
-function buildCompressionMarkToolMessageId(
-  hostMessageId: string,
-  part: Extract<CanonicalHostMessagePart, { readonly type: "tool" }>,
-  ordinal: number,
-): string {
-  const callIdentity =
-    typeof part.callID === "string" && part.callID.trim().length > 0
-      ? part.callID.trim()
-      : `${part.tool}:${ordinal}`;
-  return `${hostMessageId}#compression_mark#${callIdentity}`;
+): part is Extract<CanonicalHostMessagePart, { readonly type: "tool" }> & {
+  readonly tool: "compression_mark" | "compression_inspect";
+} {
+  return (
+    part.type === "tool" &&
+    typeof part.tool === "string" &&
+    isReplayablePluginToolName(part.tool)
+  );
 }
 
 function rewriteToolPartOutput(

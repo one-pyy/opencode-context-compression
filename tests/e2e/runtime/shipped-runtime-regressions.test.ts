@@ -14,6 +14,9 @@ import {
 import {
   deserializeCompressionMarkResult,
 } from "../../../src/tools/compression-mark.js";
+import {
+  deserializeCompressionInspectResult,
+} from "../../../src/tools/compression-inspect.js";
 import { projectProjectionToEnvelopes } from "../../../src/runtime/messages-transform.js";
 import { createHermeticE2EFixture } from "../harness/fixture.js";
 
@@ -137,6 +140,7 @@ test(
       toolResultOverrides: [
         {
           sourceMessageId: "msg-assistant-override#compression_mark#call_mark",
+          toolName: "compression_mark",
           output: failureOutput,
         },
       ],
@@ -170,6 +174,111 @@ test(
     assert.equal(parsed.ok, false);
     assert.equal(parsed.errorCode, "INVALID_RANGE");
     assert.equal(parsed.details?.outcome, "rejected");
+  },
+);
+
+test(
+  "projection materialization applies compression_inspect tool result overrides to structured output",
+  () => {
+    const inspectOutput = JSON.stringify({
+      ok: true,
+      messages: [
+        {
+          id: "compressible_000001_a1",
+          tokens: 123,
+        },
+      ],
+    });
+
+    const envelopes = projectProjectionToEnvelopes({
+      sessionId: "ses-runtime-inspect-override",
+      messages: [
+        {
+          source: "canonical",
+          role: "assistant",
+          canonicalId: "msg-assistant-inspect",
+          contentText: "Calling compression inspect.",
+          parts: [
+            {
+              type: "text",
+              text: "Calling compression inspect.",
+              messageId: "msg-assistant-inspect",
+            },
+            {
+              type: "tool",
+              tool: "compression_inspect",
+              callID: "call_inspect",
+              state: {
+                status: "completed",
+                input: {
+                  from: "compressible_000001_a1",
+                  to: "compressible_000001_a1",
+                },
+                output: '{"ok":true,"inspectId":"inspect_placeholder"}',
+              },
+              messageId: "msg-assistant-inspect",
+            },
+            {
+              type: "tool",
+              tool: "read",
+              callID: "call_read",
+              state: {
+                status: "completed",
+                input: {},
+                output: "ordinary tool output must stay untouched",
+              },
+              messageId: "msg-assistant-inspect",
+            },
+          ],
+          hostMessage: {
+            info: {
+              id: "msg-assistant-inspect",
+              sessionID: "ses-runtime-inspect-override",
+              role: "assistant",
+            },
+            parts: [],
+          },
+        },
+      ],
+      toolResultOverrides: [
+        {
+          sourceMessageId: "msg-assistant-inspect#compression_inspect#call_inspect",
+          toolName: "compression_inspect",
+          output: inspectOutput,
+        },
+      ],
+      reminders: [],
+      conflicts: [],
+      state: {
+        sessionId: "ses-runtime-inspect-override",
+        history: {
+          sessionId: "ses-runtime-inspect-override",
+          messages: [],
+          marks: [],
+          compressionMarkToolCalls: [],
+        },
+        markTree: { marks: [], conflicts: [] },
+        conflicts: [],
+        messagePolicies: [],
+        visibleIdAllocations: [],
+        resultGroups: [],
+        failedToolMessageIds: new Map(),
+      },
+    });
+
+    const toolParts = envelopes[0]?.parts.filter(
+      (part): part is Extract<Part, { type: "tool" }> => part.type === "tool",
+    );
+    assert.equal(toolParts?.length, 2);
+    assert.equal(readCompletedToolOutput(toolParts[0]!), inspectOutput);
+    assert.equal(
+      readCompletedToolOutput(toolParts[1]!),
+      "ordinary tool output must stay untouched",
+    );
+    assert.deepEqual(deserializeCompressionInspectResult(inspectOutput), {
+      ok: true,
+      messages: [{ id: "compressible_000001_a1", tokens: 123 }],
+    });
   },
 );
 

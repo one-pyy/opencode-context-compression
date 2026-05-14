@@ -26,7 +26,7 @@ import {
 import { createHermeticE2EFixture } from "../harness/fixture.js";
 
 test(
-  "plugin exposes only the locked external hooks and compression_mark tool",
+  "plugin exposes only the locked external hooks and context compression tools",
   { concurrency: false },
   async (t) => {
     const fixture = await createHermeticE2EFixture(t, {
@@ -41,7 +41,7 @@ test(
     );
     assert.deepEqual(
       Object.keys(hooks.tool ?? {}).sort(),
-      [...ALLOWED_PLUGIN_EXTERNAL_TOOLS],
+      [...ALLOWED_PLUGIN_EXTERNAL_TOOLS].sort(),
     );
 
     assert.equal(
@@ -65,7 +65,7 @@ test(
     );
     assert.deepEqual(
       Object.keys(pluginHooks.tool ?? {}).sort(),
-      [...ALLOWED_PLUGIN_EXTERNAL_TOOLS],
+      [...ALLOWED_PLUGIN_EXTERNAL_TOOLS].sort(),
     );
 
     const indexSource = await readFile(join(repoRoot, "src", "index.ts"), "utf8");

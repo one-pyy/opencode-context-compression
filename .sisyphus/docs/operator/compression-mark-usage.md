@@ -2,11 +2,13 @@
 
 ## 文档定位
 
-本文档承接旧 `.sisyphus/notepad/compression-mark-usage-guide.md` 的正式落点，描述当前 `compression_mark` 工具的公共输入、使用方法、常见错误与适用场景。
+本文档承接旧 `.sisyphus/notepad/compression-mark-usage-guide.md` 的正式落点，描述当前 `compression_mark` 与 `compression_inspect` 工具的公共输入、使用方法、常见错误与适用场景。
 
 ## 工具作用
 
 `compression_mark` 用于标记一段当前可见消息范围，要求系统在未来上下文中对这段内容执行压缩或删除风格处理，从而减少 prompt 体积，同时保留必要信息。
+
+`compression_inspect` 用于查看一段当前可见消息范围内，哪些 compressible 消息还没有被已提交压缩结果覆盖，以及每条消息当前投影阶段计算出的 token 数。
 
 ## 当前公共契约
 
@@ -33,11 +35,32 @@
 - `hint`
   - 可选压缩指导，例如保留文件路径、错误信息或工具参数
 
+### `compression_inspect` 输入
+
+```json
+{
+  "from": "compressible_000123_ab",
+  "to": "compressible_000130_q7"
+}
+```
+
+返回结果先是占位 `inspectId`，后续投影会替换为按消息顺序排列的数组：
+
+```json
+{
+  "ok": true,
+  "messages": [
+    { "id": "compressible_000123_ab", "tokens": 6489 }
+  ]
+}
+```
+
 ## 如何选择消息范围
 
 - 目标 id 来自**当前 projection 可见视图**，不是宿主内部任意原始字段。
 - 当前可见 id 形如 `protected_000001_q7`、`compressible_000002_m2`、`referable_000003_w1`，不是 `msg_...`。
 - `protected` / `compressible` / `referable` 前缀只表示当前可见状态；如果前缀后来变化，只要 `seq6 + base62` 仍匹配同一条消息，mark replay 仍可命中。
+- `from` 和 `to` 是双闭区间端点；如果两者相同，范围就是这一条 visible message。
 - 应优先选择已经完成、后续不太需要逐条引用的历史片段。
 - 对最近几条消息、仍在进行中的任务或尚未收敛的问题，不应过早压缩。
 

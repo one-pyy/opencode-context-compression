@@ -31,6 +31,10 @@ import {
   type CompressionMarkToolOptions,
 } from "../tools/compression-mark.js";
 import {
+  createCompressionInspectTool,
+  type CompressionInspectToolOptions,
+} from "../tools/compression-inspect.js";
+import {
   createNoopRuntimeArtifactRecorder,
   type RuntimeArtifactRecorder,
 } from "./runtime-artifacts.js";
@@ -51,6 +55,7 @@ export const ALLOWED_PLUGIN_EXTERNAL_HOOKS = Object.freeze([
 
 export const ALLOWED_PLUGIN_EXTERNAL_TOOLS = Object.freeze([
   "compression_mark",
+  "compression_inspect",
 ] as const);
 
 export interface ContextCompressionPluginHooksOptions {
@@ -61,6 +66,7 @@ export interface ContextCompressionPluginHooksOptions {
   readonly sendEntryGate?: SendEntryGate;
   readonly toolExecutionGate?: ToolExecutionGateService;
   readonly compressionMark?: CompressionMarkToolOptions;
+  readonly compressionInspect?: CompressionInspectToolOptions;
   readonly toastService?: ToastService;
   readonly pluginDirectory?: string;
   readonly pluginInput?: PluginInput;
@@ -100,6 +106,7 @@ export function createContextCompressionHooks(
   return {
     tool: {
       compression_mark: createCompressionMarkTool(options.compressionMark),
+      compression_inspect: createCompressionInspectTool(options.compressionInspect),
     },
     "experimental.chat.messages.transform": async (input, output) => {
       const sessionID = resolveMessagesTransformSessionId({

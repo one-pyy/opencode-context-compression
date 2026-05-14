@@ -3,6 +3,10 @@ import type {
   CompressionMarkInputV1,
   CompressionMarkResult,
 } from "../tools/compression-mark/contract.js";
+import type {
+  CompressionInspectInputV1,
+  CompressionInspectResult,
+} from "../tools/compression-inspect/contract.js";
 
 export type CanonicalHostMessageRole = "system" | "user" | "assistant" | "tool";
 
@@ -61,6 +65,7 @@ export interface ReplayedHistory {
   readonly messages: readonly ReplayedHistoryMessage[];
   readonly marks: readonly ReplayedMarkIntent[];
   readonly compressionMarkToolCalls: readonly ReplayedCompressionMarkToolCall[];
+  readonly compressionInspectToolCalls?: readonly ReplayedCompressionInspectToolCall[];
 }
 
 const LEADING_VISIBLE_ID_PREFIX_PATTERN =
@@ -83,12 +88,36 @@ export interface ReplayableCompressionMarkToolEntry {
   readonly result: CompressionMarkResult;
 }
 
+export interface ReplayableCompressionInspectToolEntry {
+  readonly sequence: number;
+  readonly sourceMessageId: string;
+  readonly toolName: "compression_inspect";
+  readonly input: CompressionInspectInputV1;
+  readonly result: CompressionInspectResult;
+}
+
+export interface ReplayedCompressionInspectToolCall {
+  readonly sequence: number;
+  readonly sourceMessageId: string;
+  readonly outcome: "accepted" | "rejected" | "invalid-input" | "invalid-result";
+  readonly inspectId?: string;
+  readonly startVisibleMessageId?: string;
+  readonly endVisibleMessageId?: string;
+  readonly errorCode?: string;
+  readonly message?: string;
+}
+
 export interface ReplayHistorySources {
   readonly sessionId: string;
   readonly hostHistory: readonly ReplayableHostHistoryEntry[];
-  readonly toolHistory: readonly ReplayableCompressionMarkToolEntry[];
+  readonly toolHistory: readonly ReplayablePluginToolEntry[];
   readonly compressionMarkToolCalls?: readonly ReplayedCompressionMarkToolCall[];
+  readonly compressionInspectToolCalls?: readonly ReplayedCompressionInspectToolCall[];
 }
+
+export type ReplayablePluginToolEntry =
+  | ReplayableCompressionMarkToolEntry
+  | ReplayableCompressionInspectToolEntry;
 
 export const HISTORY_REPLAY_READER_INTERNAL_CONTRACT =
   defineInternalModuleContract({
@@ -96,7 +125,7 @@ export const HISTORY_REPLAY_READER_INTERNAL_CONTRACT =
     inputs: ["sessionId"],
     outputs: ["ReplayedHistory"],
     mutability: "read-only",
-    reads: ["canonical host history", "replayable compression_mark tool results"],
+    reads: ["canonical host history", "replayable compression tool results"],
     writes: [],
     errorTypes: ["SESSION_NOT_READY"],
     idempotency:
@@ -162,6 +191,9 @@ export function replayHistoryFromSources(
     ),
     marks: Object.freeze(
       toolHistory.flatMap((entry) => {
+        if (entry.toolName !== "compression_mark") {
+          return [];
+        }
         if (entry.result.ok !== true) {
           return [];
         }
@@ -181,7 +213,7 @@ export function replayHistoryFromSources(
     ),
     compressionMarkToolCalls: Object.freeze(
       sources.compressionMarkToolCalls ??
-        toolHistory.map((entry) =>
+        toolHistory.filter(isReplayableCompressionMarkToolEntry).map((entry) =>
           Object.freeze({
             sequence: entry.sequence,
             sourceMessageId: entry.sourceMessageId,
@@ -195,7 +227,38 @@ export function replayHistoryFromSources(
           } satisfies ReplayedCompressionMarkToolCall),
         ),
     ),
+    compressionInspectToolCalls: Object.freeze(
+      sources.compressionInspectToolCalls ??
+        toolHistory.filter(isReplayableCompressionInspectToolEntry).map((entry) => {
+          const outcome = entry.result.ok === true ? "accepted" : "rejected";
+          return Object.freeze({
+            sequence: entry.sequence,
+            sourceMessageId: entry.sourceMessageId,
+            outcome,
+            startVisibleMessageId: entry.input.from,
+            endVisibleMessageId: entry.input.to,
+            ...(entry.result.ok === true && "inspectId" in entry.result
+              ? { inspectId: entry.result.inspectId }
+              : {}),
+            ...(entry.result.ok === false
+              ? { errorCode: entry.result.errorCode, message: entry.result.message }
+              : {}),
+          } satisfies ReplayedCompressionInspectToolCall);
+        }),
+    ),
   } satisfies ReplayedHistory);
+}
+
+function isReplayableCompressionMarkToolEntry(
+  entry: ReplayablePluginToolEntry,
+): entry is ReplayableCompressionMarkToolEntry {
+  return entry.toolName === "compression_mark";
+}
+
+function isReplayableCompressionInspectToolEntry(
+  entry: ReplayablePluginToolEntry,
+): entry is ReplayableCompressionInspectToolEntry {
+  return entry.toolName === "compression_inspect";
 }
 
 function readCanonicalMessageText(message: CanonicalHostMessage): string {

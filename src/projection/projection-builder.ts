@@ -5,6 +5,7 @@ import type { HistoryReplayReader } from "../history/history-replay-reader.js";
 import type { ResultGroupRepository } from "../state/result-group-repository.js";
 import type { PolicyEngine } from "./policy-engine.js";
 import { renderProjectionMessages } from "./rendering.js";
+import { buildCompressionInspectOverrides } from "./compression-inspect.js";
 import type { ReminderService } from "./reminder-service.js";
 import type {
   MessageProjectionPolicy,
@@ -128,8 +129,6 @@ export function createProjectionBuilder(
         });
       });
 
-      const toolResultOverrides = buildToolResultOverrides(failedToolMessageIds);
-
       const renderedBaseMessages = renderProjectionMessages({
         history,
         messagePolicies,
@@ -150,6 +149,10 @@ export function createProjectionBuilder(
         resultGroups,
         failedToolMessageIds,
       } satisfies ProjectionState;
+      const toolResultOverrides = Object.freeze([
+        ...buildToolResultOverrides(failedToolMessageIds),
+        ...buildCompressionInspectOverrides(state),
+      ]);
       const reminders = dependencies.reminderService.compute({
         state,
         messages: renderedBaseMessages,
@@ -179,6 +182,7 @@ function buildToolResultOverrides(
     [...failedToolMessageIds].map(([sourceMessageId, failure]) =>
       Object.freeze({
         sourceMessageId,
+        toolName: "compression_mark",
         output: stringifyToolMessageFailure(failure),
       } satisfies ToolResultOverride),
     ),

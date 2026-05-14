@@ -25,7 +25,7 @@ Purpose: 记录本子项目当前最新设计与正式实现参考。
 
 [compaction/reminder-system.md] — 已实现：reminder 语义、token 口径、cadence 与 prompt 选择
 [compaction/allow-delete.md] — 已实现：delete permission 的语义与准入边界
-[compaction/mark-tool-contract.md] — 已实现：`compression_mark` 公共契约与 replay 入口语义
+[compaction/mark-tool-contract.md] — 已实现：`compression_mark` / `compression_inspect` 公共契约与 replay 入口语义
 [compaction/compaction-lifecycle.md] — 半实现：压缩生命周期、replay-first 模型与 fallback 行为
 [compaction/model-visible-transcript.md] — 已实现：压缩输入、token 估算与 tool 渲染共享的模型可见 transcript 契约
 [compaction/lock-and-send-gate.md] — 已实现/半实现并列：lock、batch freeze 与普通对话等待边界
@@ -39,7 +39,7 @@ Purpose: 记录本子项目当前最新设计与正式实现参考。
 ## Operator
 
 [operator/live-artifact-investigation.md] — 已实现：真实宿主 session、runtime log 尾部、debug snapshot、sidecar database 与 lock 的排查入口
-[operator/compression-mark-usage.md] — 已实现：`compression_mark` 工具使用说明与常见错误
+[operator/compression-mark-usage.md] — 已实现：`compression_mark` / `compression_inspect` 工具使用说明与常见错误
 [operator/json-snapshot-trimming.md] — 已实现：调试快照 JSON 的安全读取方法
 [operator/runtime-config-live-validation-runbook.md] — 已实现：runtime config 在真实宿主中的验证 runbook
 
