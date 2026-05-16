@@ -35,6 +35,15 @@
 - 后续 `messages.transform` 使用当前 `ProjectionState.messagePolicies` 中已经计算出的 `tokenCount` 生成真实结果
 - 真实结果只包含按消息顺序排列的 compressible 且未被已提交 result 覆盖的消息：`[{"id":"compressible_...","tokens":123}]`
 
+`compression_inspect` 返回的是消息级明细，不是 mark tree 本身：
+
+1. `messagePolicies` 持有每条消息的 `tokenCount`。
+2. mark tree 只决定哪些 sequence range 被 mark 覆盖、哪些 result group 已覆盖。
+3. `compression_inspect` 按输入 visible-id 范围列出未被 result group 覆盖的 compressible 消息及其 token。
+4. scheduler 则用同一批 message token，按 mark tree range 汇总为 `uncompressedMarkedTokenCount` 后再和自动压缩阈值比较。
+
+因此 inspect 明细之和只有在 inspect 范围与当前待压 mark range 完全一致时，才应等于 scheduler 的 `uncompressedMarkedTokenCount`。
+
 ## 成功结果与错误结果的区别
 
 - 成功结果：返回合法 `mark id`，表示创建了可重放的 mark intent

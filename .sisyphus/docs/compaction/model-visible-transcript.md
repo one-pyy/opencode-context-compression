@@ -6,10 +6,11 @@
 
 ## 已修复问题
 
-旧实现曾存在两种相反错误：
+旧实现曾存在三类容易混淆的问题：
 
 1. 有 `text` part 的消息只读取文本，忽略同条消息里的 tool call / tool result，导致压缩模型没看到被主模型实际看到的工具内容。
 2. 没有 `text` part 但有 `tool` part 的消息会 fallback 到完整 `JSON.stringify(toolParts, null, 2)`，导致宿主内部 `metadata`、`diagnostics`、重复 diff、runtime id 等被塞进压缩请求。
+3. `reasoning`、`patch`、`file` 曾被当成额外文本入口特殊展开，造成与真实 tool input/output 口径混杂。
 
 因此会出现两类异常：压缩模型输入明显小于被替换的主请求内容，或者单个压缩请求被内部 metadata 撑到百万 token 级别。
 
@@ -19,13 +20,15 @@
 
 renderer 的目标不是复原宿主内部对象，而是模拟上游模型在正常会话中能看到的语义层内容。
 
-每条 canonical message 的渲染顺序为：
+每条 canonical message 的压缩可见渲染顺序为：
 
 1. 原始 `text` 内容
 2. 每个 tool part 的 tool call
 3. 同一 tool part 的 tool result
 
 如果某段不存在，则跳过该段；不能因为存在文本就跳过 tool，也不能因为没有文本就序列化完整 tool object。
+
+当前实现只把 `text` 和 `tool.state.input` / `tool.state.output` 作为文本来源。`patch` / `file` 内容若来自工具调用，会通过 tool input/output 计入；renderer 不再为 `patch` / `file` 设计额外展开入口。`reasoning` 不计入。
 
 ## 通用 tool 渲染格式（已实现）
 
@@ -78,17 +81,18 @@ input 和 output 各自应用 head-tail 上限：
 - `uncompressedMarkedTokenCount` 与相关 debug 统计
 - 用于判断压缩收益或上下文压力的任何 marked-range 体积统计
 
-最终 `messages.transform` 可以继续保留结构化 `parts` 供上游宿主序列化，但压缩输入与 token 估算不得再使用 text-only 口径或完整 tool object 口径。
+最终 `messages.transform` 可以继续保留结构化 `parts` 供上游宿主序列化，但压缩输入与 token 估算不得再使用 text-only 口径或完整 tool object 口径；它们只共享“text + tool input/output”这条文本口径。
 
 ## 必要回归用例（已实现）
 
 实现时至少覆盖：
 
 1. 同一 assistant message 同时包含 text 和 tool part：渲染结果必须同时包含文本、tool input、tool output。
-2. tool-only assistant message：渲染结果不得包含 `metadata` / diagnostics / runtime id。
-3. 大型 `state.metadata.diagnostics`：即使 metadata 达到 1MB，渲染结果也必须保持在 input/output 上限内。
-4. 大型 `state.input` 或 `state.output`：保留前 10,000 字符与后 10,000 字符，并包含省略标记。
-5. 非字符串 input / output：使用紧凑 JSON，不能因 pretty JSON 产生额外体积膨胀。
+2. `reasoning` 不计入；`patch` / `file` 不再通过额外入口计入，只能随 tool input/output 计入。
+3. tool-only assistant message：渲染结果不得包含 `metadata` / diagnostics / runtime id。
+4. 大型 `state.metadata.diagnostics`：即使 metadata 达到 1MB，渲染结果也必须保持在 input/output 上限内。
+5. 大型 `state.input` 或 `state.output`：保留前 10,000 字符与后 10,000 字符，并包含省略标记。
+6. 非字符串 input / output：使用紧凑 JSON，不能因 pretty JSON 产生额外体积膨胀。
 
 ## 相关文档
 

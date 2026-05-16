@@ -17,6 +17,9 @@ test("model-visible transcript keeps text plus generic tool input and output", (
       input: { patchText: "*** Begin Patch\n-old\n+new\n*** End Patch" },
       output: "Success. Updated the following files:\nM src/example.ts",
     }),
+    { type: "reasoning", text: "hidden reasoning" },
+    { type: "patch", files: [{ patch: "diff text" }] },
+    { type: "file", filename: "example.ts", mime: "text/plain", url: "file:///example.ts" },
   ]);
 
   assert.match(rendered, /assistant text/u);
@@ -24,6 +27,9 @@ test("model-visible transcript keeps text plus generic tool input and output", (
   assert.match(rendered, /input: \{"patchText":"\*\*\* Begin Patch/u);
   assert.match(rendered, /\[tool result\]\nstatus: completed/u);
   assert.match(rendered, /output: Success\. Updated/u);
+  assert.doesNotMatch(rendered, /hidden reasoning/u);
+  assert.doesNotMatch(rendered, /diff text/u);
+  assert.doesNotMatch(rendered, /\[File: example\.ts\]/u);
 });
 
 test("model-visible transcript drops host metadata and keeps generic tool fields", () => {
@@ -116,6 +122,16 @@ test("token estimation shares the model-visible renderer with compaction input",
   });
 
   assert.equal(estimate.tokenCount, Math.ceil(rendered.length / 4));
+});
+
+test("model-visible transcript ignores reasoning patch and file parts", () => {
+  const rendered = renderModelVisiblePartsText([
+    { type: "reasoning", text: "hidden reasoning" },
+    { type: "patch", files: [{ patch: "diff text" }] },
+    { type: "file", filename: "example.ts", mime: "text/plain", url: "file:///example.ts" },
+  ]);
+
+  assert.equal(rendered, "");
 });
 
 test("policy token counts use the model-visible renderer while projection text stays text-only", async () => {

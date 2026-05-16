@@ -28,24 +28,12 @@ function renderModelVisiblePart(part: unknown): readonly string[] {
   }
 
   const type = part.type;
-  if (type === "text" || type === "reasoning") {
+  if (type === "text") {
     return typeof part.text === "string" ? [part.text] : [];
   }
 
   if (type === "tool") {
     return [renderToolPart(part)];
-  }
-
-  if (type === "tool_result") {
-    return renderToolResultContent(part.content);
-  }
-
-  if (type === "patch") {
-    return renderPatchPart(part);
-  }
-
-  if (type === "file") {
-    return [renderFilePart(part)];
   }
 
   return [];
@@ -79,54 +67,6 @@ function renderToolPart(part: Readonly<Record<string, unknown>>): string {
 
   blocks.push(resultLines.join("\n"));
   return blocks.join("\n");
-}
-
-function renderToolResultContent(content: unknown): readonly string[] {
-  if (typeof content === "string") {
-    return [content];
-  }
-
-  if (!Array.isArray(content)) {
-    return [];
-  }
-
-  return content.flatMap((entry) => {
-    if (typeof entry === "string") {
-      return [entry];
-    }
-    if (isRecord(entry) && typeof entry.text === "string") {
-      return [entry.text];
-    }
-    return [];
-  });
-}
-
-function renderPatchPart(part: Readonly<Record<string, unknown>>): readonly string[] {
-  const files = part.files;
-  if (!Array.isArray(files)) {
-    return [];
-  }
-
-  return files.flatMap((file) => {
-    if (!isRecord(file)) {
-      return [];
-    }
-
-    if (typeof file.patch === "string") {
-      return [file.patch];
-    }
-    if (typeof file.diff === "string") {
-      return [file.diff];
-    }
-    return [];
-  });
-}
-
-function renderFilePart(part: Readonly<Record<string, unknown>>): string {
-  const filename = typeof part.filename === "string" && part.filename.trim().length > 0
-    ? part.filename
-    : "file";
-  return `[File: ${filename}]`;
 }
 
 function serializeModelVisibleField(value: unknown): string {
