@@ -86,6 +86,7 @@ export function createCompressionInspectTool(
     description:
       "Inspect token counts for a visible message range before deciding whether to call compression_mark. " +
       "Use this when you need to choose an exact range for compression. Provide inclusive from/to visible message IDs. " +
+      "Choose from as the first visible message ID in the candidate range and to as the current newest visible message ID, so inspection covers the full span from that start through the latest message. " +
       "The result lists uncompressed compressible messages in that range with their current token counts. " +
       "After inspecting a range, either call compression_mark or leave the range unchanged. " +
       "Do not repeatedly inspect the same range unless new visible messages were added or the range boundaries changed. " +

@@ -24,6 +24,13 @@
 
 这个设计保留的原因是 executor 需要完整 projection state，而该 state 已在 `messages.transform` 中构造。若未来要改为 `chat.params` 当轮启动压缩，必须让 executor 能在 `chat.params` 侧重建或接收完整 projection state。
 
+同一个 batch 内的多个 pending mark 当前分两阶段执行：
+
+1. **compute 阶段并行**：每个 mark 独立构造 compaction input、调用模型 transport、执行 retry / fallback / output validation。
+2. **commit 阶段串行**：已验证结果按 pending 顺序写入 result group，并批量标记 processed pending rows。
+
+并行边界只覆盖模型计算与校验；SQLite result group 写入、pending row 更新、lock settle 仍保持单线程顺序。失败的 mark 不写 result group，也不标记 processed；成功或已有 result group 的 mark 才进入 processed 集合。
+
 ## Replay-first 主模型
 
 当前设计不把 mark 理解为调用时立即写入 SQLite 并长期维护的业务状态，而是理解为：

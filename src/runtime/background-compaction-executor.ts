@@ -12,7 +12,10 @@ import { bootstrapSessionSidecar, openSessionSidecarRepository } from "../state/
 import { readPendingCompactions, markCompactionsProcessed } from "../state/sidecar-store/pending-compactions.js";
 import { createResultGroupRepository } from "../state/result-group-repository.js";
 import { buildCompactionRunInputForMark } from "../compaction/replay-run-input.js";
-import { createContractLevelCompactionRunner } from "../compaction/runner.js";
+import {
+  computeCompactionAttempt,
+  commitCompactionAttempt,
+} from "../compaction/runner/internal-runner.js";
 import { createCompactionInputBuilder } from "../compaction/input-builder.js";
 import { createOutputValidator } from "../compaction/output-validation.js";
 import { createDirectLLMCompactionTransport } from "../compaction/transport/direct-llm.js";
@@ -82,64 +85,117 @@ export async function executeBackgroundCompactions(
       },
     };
     
-    const runner = createContractLevelCompactionRunner({
-      inputBuilder,
-      transport: safeTransport,
-      outputValidator,
-      resultGroupRepository: resultGroupRepo,
-    });
-
     const processedIds: number[] = [];
     let didFail = false;
     let firstFailureMessage: string | undefined;
 
-    for (const pending of pendingCompactions) {
-      try {
-        const existing = await resultGroupRepo.getCompleteGroup(pending.markId);
-        if (existing !== null) {
-          await runtimeArtifacts.writeDiagnostic({
-            sessionID: sessionId,
-            scope: "background-compaction",
-            severity: "debug",
-            message: "Skipping mark because a committed result group already exists.",
-            payload: { markId: pending.markId },
-          });
-          processedIds.push(pending.id);
-          continue;
-        }
+    const computeTasks = pendingCompactions.map(async (pending) => {
+      const existing = await resultGroupRepo.getCompleteGroup(pending.markId);
+      if (existing !== null) {
+        return {
+          pending,
+          kind: "existing" as const,
+        };
+      }
 
+      await runtimeArtifacts.writeDiagnostic({
+        sessionID: sessionId,
+        scope: "background-compaction",
+        severity: "info",
+        message: "Executing background compaction for mark.",
+        payload: { markId: pending.markId },
+      });
+
+      const runInput = buildCompactionRunInputForMark({
+        sessionId,
+        state: projectionState.state,
+        markId: pending.markId,
+        model: runtimeConfig.models[0],
+        promptText: runtimeConfig.promptText,
+        timeoutMs: runtimeConfig.compressing.timeoutMs,
+        firstTokenTimeoutMs: runtimeConfig.compressing.firstTokenTimeoutMs,
+        streamIdleTimeoutMs: runtimeConfig.compressing.streamIdleTimeoutMs,
+        compactionModels: runtimeConfig.models.slice(1),
+        maxAttemptsPerModel: runtimeConfig.compressing.maxAttemptsPerModel,
+        createdAt: pending.createdAt,
+      });
+
+      try {
+        const computation = await computeCompactionAttempt(
+          {
+            inputBuilder,
+            transport: safeTransport,
+            outputValidator,
+            resultGroupRepository: resultGroupRepo,
+          },
+          runInput,
+        );
+
+        return {
+          pending,
+          kind: "computed" as const,
+          runInput,
+          computation,
+        };
+      } catch (error) {
+        return {
+          pending,
+          kind: "failed" as const,
+          error,
+        };
+      }
+    });
+
+    const computedResults = await Promise.all(computeTasks);
+
+    for (const item of computedResults) {
+      if (item.kind === "existing") {
         await runtimeArtifacts.writeDiagnostic({
           sessionID: sessionId,
           scope: "background-compaction",
-          severity: "info",
-          message: "Executing background compaction for mark.",
-          payload: { markId: pending.markId },
+          severity: "debug",
+          message: "Skipping mark because a committed result group already exists.",
+          payload: { markId: item.pending.markId },
         });
+        processedIds.push(item.pending.id);
+        continue;
+      }
 
-        const runInput = buildCompactionRunInputForMark({
-          sessionId,
-          state: projectionState.state,
-          markId: pending.markId,
-          model: runtimeConfig.models[0],
-          promptText: runtimeConfig.promptText,
-          timeoutMs: runtimeConfig.compressing.timeoutMs,
-          firstTokenTimeoutMs: runtimeConfig.compressing.firstTokenTimeoutMs,
-          streamIdleTimeoutMs: runtimeConfig.compressing.streamIdleTimeoutMs,
-          compactionModels: runtimeConfig.models.slice(1),
-          maxAttemptsPerModel: runtimeConfig.compressing.maxAttemptsPerModel,
-          createdAt: pending.createdAt,
+      if (item.kind === "failed") {
+        didFail = true;
+        firstFailureMessage ??= formatError(item.error);
+        await runtimeArtifacts.writeDiagnostic({
+          sessionID: sessionId,
+          scope: "background-compaction",
+          severity: "error",
+          message: "Background compaction failed for mark.",
+          payload: {
+            markId: item.pending.markId,
+            error: formatError(item.error),
+          },
         });
+        continue;
+      }
 
-        await runner.run(runInput);
-        
+      try {
+        await commitCompactionAttempt(
+          { computation: item.computation, runInput: item.runInput },
+          {
+            inputBuilder,
+            transport: safeTransport,
+            outputValidator,
+            resultGroupRepository: resultGroupRepo,
+          },
+        );
+
         await runtimeArtifacts.writeDiagnostic({
           sessionID: sessionId,
           scope: "background-compaction",
           severity: "info",
           message: "Background compaction completed successfully.",
-          payload: { markId: pending.markId },
+          payload: { markId: item.pending.markId },
         });
-        processedIds.push(pending.id);
+        processedIds.push(item.pending.id);
       } catch (error) {
         didFail = true;
         firstFailureMessage ??= formatError(error);
@@ -149,7 +205,7 @@ export async function executeBackgroundCompactions(
           severity: "error",
           message: "Background compaction failed for mark.",
           payload: {
-            markId: pending.markId,
+            markId: item.pending.markId,
             error: formatError(error),
           },
         });
