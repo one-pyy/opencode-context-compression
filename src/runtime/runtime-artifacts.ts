@@ -2,7 +2,10 @@ import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import type { RuntimeLogLevel } from "../config/runtime-config.js";
-import { resolveSessionSidecarLayout } from "./sidecar-layout.js";
+import {
+  resolveCompactionRecordPath,
+  resolveSessionSidecarLayout,
+} from "./sidecar-layout.js";
 
 export interface RuntimeEventRecord {
   readonly createdAt: string;
@@ -45,6 +48,16 @@ export interface RuntimeArtifactRecorder {
     readonly message: string;
     readonly payload?: unknown;
   }): Promise<void>;
+  writeCompactionRecord(input: {
+    readonly sessionID: string;
+    readonly sourceStartSeq?: number;
+    readonly sourceEndSeq?: number;
+    readonly createdAt?: string;
+    readonly suffix: "in" | "out";
+    readonly payload: unknown;
+    readonly model?: string;
+    readonly attemptIndex?: number;
+  }): Promise<void>;
 }
 
 export function createNoopRuntimeArtifactRecorder(): RuntimeArtifactRecorder {
@@ -56,6 +69,9 @@ export function createNoopRuntimeArtifactRecorder(): RuntimeArtifactRecorder {
       return;
     },
     async writeDiagnostic() {
+      return;
+    },
+    async writeCompactionRecord() {
       return;
     },
   } satisfies RuntimeArtifactRecorder;
@@ -140,6 +156,21 @@ export function createFileBackedRuntimeArtifactRecorder(options: {
 
       await ensureParentDirectory(layout.runtimeLogPath);
       await appendFile(layout.runtimeLogPath, `${JSON.stringify(event)}\n`, "utf8");
+    },
+    async writeCompactionRecord(input) {
+      const filePath = resolveCompactionRecordPath({
+        pluginDirectory: options.pluginDirectory,
+        sessionID: input.sessionID,
+        sourceStartSeq: input.sourceStartSeq,
+        sourceEndSeq: input.sourceEndSeq,
+        createdAt: input.createdAt ?? now(),
+        suffix: input.suffix,
+        model: input.model,
+        attemptIndex: input.attemptIndex,
+      });
+
+      await ensureParentDirectory(filePath);
+      await writeFile(filePath, `${JSON.stringify(input.payload, null, 2)}\n`, "utf8");
     },
   } satisfies RuntimeArtifactRecorder;
 }

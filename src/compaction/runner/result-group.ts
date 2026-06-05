@@ -154,13 +154,23 @@ function appendFragmentForWindow(input: {
   readonly replacementText: string;
   readonly request: CompactionRequest;
 }): void {
-  if (input.replacementText.length === 0) {
-    return;
-  }
-
   const sourceEntries = input.transcriptWindow.filter(
     (entry) => entry.opaquePlaceholderSlot === undefined,
   );
+
+  if (input.replacementText.length === 0) {
+    if (sourceEntries.length === 0) {
+      return;
+    }
+
+    throw new InvalidCompactionOutputError({
+      markId: input.request.markID,
+      model: input.request.model,
+      executionMode: input.request.executionMode,
+      detail:
+        "compact output produced no replacement text for a compressible window.",
+    });
+  }
 
   if (sourceEntries.length === 0) {
     throw new InvalidCompactionOutputError({

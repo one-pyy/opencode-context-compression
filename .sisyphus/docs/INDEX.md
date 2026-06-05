@@ -39,6 +39,7 @@ Purpose: 记录本子项目当前最新设计与正式实现参考。
 ## Operator
 
 [operator/live-artifact-investigation.md] — 已实现：真实宿主 session、runtime log 尾部、debug snapshot、sidecar database 与 lock 的排查入口
+[operator/compaction-records.md] — 已实现：每次压缩模型请求的输入 / 原始输出记录目录与文件命名契约
 [operator/compression-mark-usage.md] — 已实现：`compression_mark` / `compression_inspect` 工具使用说明与常见错误
 [operator/json-snapshot-trimming.md] — 已实现：调试快照 JSON 的安全读取方法
 [operator/runtime-config-live-validation-runbook.md] — 已实现：runtime config 在真实宿主中的验证 runbook

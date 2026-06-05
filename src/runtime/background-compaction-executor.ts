@@ -127,6 +127,7 @@ export async function executeBackgroundCompactions(
             transport: safeTransport,
             outputValidator,
             resultGroupRepository: resultGroupRepo,
+            runtimeArtifacts,
           },
           runInput,
         );
@@ -185,6 +186,7 @@ export async function executeBackgroundCompactions(
             transport: safeTransport,
             outputValidator,
             resultGroupRepository: resultGroupRepo,
+            runtimeArtifacts,
           },
         );
 

@@ -6,6 +6,7 @@ export {
 } from "./runner/compaction-runner.js";
 import { defineInternalModuleContract } from "../internal/module-contract.js";
 import type { SafeTransportAdapter } from "../runtime/compaction-transport.js";
+import type { RuntimeArtifactRecorder } from "../runtime/runtime-artifacts.js";
 import type { ResultGroupRepository } from "../state/result-group-repository.js";
 import type { CompactionInputBuilder } from "./input-builder.js";
 import type { OutputValidator } from "./output-validation.js";
@@ -24,6 +25,7 @@ export interface InternalCompactionRunnerDependencies {
   readonly transport: SafeTransportAdapter;
   readonly outputValidator: OutputValidator;
   readonly resultGroupRepository: ResultGroupRepository;
+  readonly runtimeArtifacts?: RuntimeArtifactRecorder;
 }
 
 export interface ContractLevelCompactionRunnerOptions {

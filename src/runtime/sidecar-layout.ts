@@ -13,6 +13,7 @@ import {
 } from "./path-safety.js";
 
 export const DEFAULT_STATE_DIRECTORY_NAME = "state";
+export const DEFAULT_COMPACTION_RECORD_DIRECTORY = "logs/compaction-records";
 export const DEFAULT_DEBUG_SNAPSHOT_HOOK_INPUT_SUFFIX = ".hook-in.json";
 export const DEFAULT_DEBUG_SNAPSHOT_PROJECTION_INPUT_SUFFIX = ".projection-in.json";
 export const DEFAULT_DEBUG_SNAPSHOT_OUTPUT_SUFFIX = ".out.json";
@@ -38,6 +39,17 @@ export interface SessionSidecarLayout {
   readonly debugSnapshotHookInputPath?: string;
   readonly debugSnapshotProjectionInputPath?: string;
   readonly debugSnapshotOutputPath?: string;
+}
+
+export interface CompactionRecordPathInput {
+  readonly pluginDirectory: string;
+  readonly sessionID: string;
+  readonly sourceStartSeq?: number;
+  readonly sourceEndSeq?: number;
+  readonly createdAt: string;
+  readonly suffix: "in" | "out";
+  readonly model?: string;
+  readonly attemptIndex?: number;
 }
 
 export function resolveSessionSidecarLayout(
@@ -155,4 +167,39 @@ export function resolveSessionDebugSnapshotPath(
     `${safeSessionID}${suffix}`,
     `debug snapshot ${phase}`,
   );
+}
+
+export function resolveCompactionRecordPath(
+  input: CompactionRecordPathInput,
+): string {
+  const directory = resolveRepoOwnedArtifactPath(
+    input.pluginDirectory,
+    DEFAULT_COMPACTION_RECORD_DIRECTORY,
+  );
+  const safeSessionID = assertSafeSessionIDSegment(input.sessionID);
+  const startSeq = formatOptionalSequence(input.sourceStartSeq);
+  const endSeq = formatOptionalSequence(input.sourceEndSeq);
+  const modelSegment = input.model
+    ? `-${sanitizeFileNameSegment(input.model)}`
+    : "";
+  const attemptSegment = input.attemptIndex === undefined
+    ? ""
+    : `-attempt${input.attemptIndex + 1}`;
+  return resolvePathWithinDirectory(
+    directory,
+    `${formatTimestampForFileName(input.createdAt)}-${safeSessionID}-${startSeq}-${endSeq}${modelSegment}${attemptSegment}.${input.suffix}.json`,
+    "compaction record",
+  );
+}
+
+function formatOptionalSequence(value: number | undefined): string {
+  return value === undefined ? "unknown" : String(value);
+}
+
+function formatTimestampForFileName(value: string): string {
+  return sanitizeFileNameSegment(value);
+}
+
+function sanitizeFileNameSegment(value: string): string {
+  return value.replace(/[^A-Za-z0-9._-]/g, "_");
 }

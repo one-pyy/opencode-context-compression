@@ -21,8 +21,10 @@ export function runInTransaction<Result>(
     database.exec("COMMIT");
     return result;
   } catch (error) {
-    if (database.isTransaction) {
+    try {
       database.exec("ROLLBACK");
+    } catch {
+      // Preserve the original failure; rollback can fail if SQLite already closed the transaction.
     }
 
     throw error;

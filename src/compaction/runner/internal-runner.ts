@@ -9,6 +9,7 @@ import type {
 } from "../types.js";
 import type { ToastService } from "../../services/toast-service.js";
 import { TokenCounter } from "../../utils/token-counter.js";
+import type { CompactionRequest, TransportResponse } from "../types.js";
 
 const DEFAULT_MAX_ATTEMPTS_PER_MODEL = 2;
 
@@ -90,9 +91,22 @@ export async function computeCompactionAttempt(
         ...input.build,
         model,
       });
+      const recordCreatedAt = new Date().toISOString();
 
       try {
+        await writeCompactionRecordSafely(dependencies, input, request, {
+          createdAt: recordCreatedAt,
+          suffix: "in",
+          payload: request,
+          attemptIndex,
+        });
         const response = await dependencies.transport.execute(request);
+        await writeCompactionRecordSafely(dependencies, input, request, {
+          createdAt: recordCreatedAt,
+          suffix: "out",
+          payload: response.rawPayload,
+          attemptIndex,
+        });
         const validatedOutput = await dependencies.outputValidator.validate({
           request,
           response,
@@ -149,6 +163,48 @@ export async function commitCompactionAttempt(
     } catch {
       toastService.showCompressionCompleted().catch(() => {});
     }
+  }
+}
+
+async function writeCompactionRecordSafely(
+  dependencies: InternalCompactionRunnerDependencies,
+  input: RunCompactionInput,
+  request: CompactionRequest,
+  record: {
+    readonly createdAt: string;
+    readonly suffix: "in" | "out";
+    readonly payload: CompactionRequest | TransportResponse["rawPayload"];
+    readonly attemptIndex: number;
+  },
+): Promise<void> {
+  const runtimeArtifacts = dependencies.runtimeArtifacts;
+  if (runtimeArtifacts === undefined) {
+    return;
+  }
+
+  try {
+    await runtimeArtifacts.writeCompactionRecord({
+      sessionID: request.sessionID,
+      sourceStartSeq: input.resultGroup?.sourceStartSeq,
+      sourceEndSeq: input.resultGroup?.sourceEndSeq,
+      createdAt: record.createdAt,
+      suffix: record.suffix,
+      payload: record.payload,
+      model: request.model,
+      attemptIndex: record.attemptIndex,
+    });
+  } catch (error) {
+    await runtimeArtifacts.writeDiagnostic({
+      sessionID: request.sessionID,
+      scope: "compaction-records",
+      severity: "error",
+      message: "Failed to write compaction model exchange record.",
+      payload: {
+        markId: request.markID,
+        suffix: record.suffix,
+        error: formatErrorMessage(error),
+      },
+    });
   }
 }
 
