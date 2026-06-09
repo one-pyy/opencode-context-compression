@@ -101,7 +101,12 @@ test(
     });
     assert.equal(beforeReplacement.reminders.length, 1);
     assert.equal(beforeReplacement.messages[2]?.source, "reminder");
+    assert.equal(beforeReplacement.messages[2]?.role, "assistant");
     assert.equal(beforeReplacement.messages[2]?.contentText, "Compress soon.");
+    assert.equal(
+      beforeReplacement.messages[2]?.reminderToolName,
+      "opencode_context_compression_notice",
+    );
 
     await resultGroups.upsertCompleteGroup({
       markId: "mark-window",

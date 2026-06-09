@@ -5,7 +5,7 @@ Purpose: 记录本子项目当前最新设计与正式实现参考。
 
 ## Summary
 
-当前 docs 承载最新设计与当前正式实现参考，重点覆盖系统总览、消息投影、压缩与删除许可、运行时模型、配置面、验证边界，以及 operator / prompt 相关使用说明。排查真实宿主 session 时，先读 operator live artifact 入口，确认会话、runtime log 尾部、debug snapshot、sidecar database 与 lock 的真相源。压缩输入与 token 估算现已共享同一条文本口径：只保留 `text + tool input/output`，不再把 `reasoning`、`patch`、`file` 当成独立文本来源。涉及当前设计契约、运行时边界、工具用法或 prompt 评估时，应先读本目录。
+当前 docs 承载最新设计与当前正式实现参考，重点覆盖系统总览、消息投影、压缩与删除许可、运行时模型、配置面、验证边界，以及 operator / prompt 相关使用说明。排查真实宿主 session 时，先读 operator live artifact 入口，确认会话、runtime log 尾部、debug snapshot、sidecar database 与 lock 的真相源。压缩输入与 token 估算现已共享同一条文本口径：只保留 `text + tool input/output`，不再把 `reasoning`、`patch`、`file` 当成独立文本来源。Reminder 已通过 no-op 工具调用 / 工具结果对承载，正文进入工具结果，不再作为独立 user 消息注入。涉及当前设计契约、运行时边界、工具用法或 prompt 评估时，应先读本目录。
 
 ---
 
@@ -23,7 +23,7 @@ Purpose: 记录本子项目当前最新设计与正式实现参考。
 
 ## Compaction
 
-[compaction/reminder-system.md] — 已实现：reminder 语义、token 口径、cadence 与 prompt 选择
+[compaction/reminder-system.md] — 已实现：reminder 语义、token 口径、cadence、prompt 选择与 no-op 工具载体
 [compaction/allow-delete.md] — 已实现：delete permission 的语义与准入边界
 [compaction/mark-tool-contract.md] — 已实现：`compression_mark` / `compression_inspect` 公共契约与 replay 入口语义
 [compaction/compaction-lifecycle.md] — 半实现：压缩生命周期、replay-first 模型与 fallback 行为

@@ -357,6 +357,33 @@ test(
 );
 
 test(
+  "default plugin exposes context compression notice as a no-op tool",
+  { concurrency: false },
+  async (t) => {
+    const fixture = await createHermeticE2EFixture(t, {
+      suite: "runtime",
+      caseName: "shipped runtime notice tool",
+    });
+
+    const hooks = await pluginModule.server(
+      createPluginInput(fixture.repoRoot, {
+        readSessionMessages: async () => ({ data: [] }),
+      }),
+    );
+
+    const noticeTool = hooks.tool?.opencode_context_compression_notice;
+    assert.ok(noticeTool);
+    assert.equal(Object.keys(noticeTool.args).length, 0);
+    assert.match(noticeTool.description, /Never call this tool/u);
+    assert.match(noticeTool.description, /pay attention to its returned content/u);
+    assert.equal(
+      await noticeTool.execute({}, createToolContext(fixture.sessionID)),
+      "",
+    );
+  },
+);
+
+test(
   "default plugin emits runtime events and overwrite-style debug snapshots when configured",
   { concurrency: false },
   async (t) => {

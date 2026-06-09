@@ -6,6 +6,7 @@ import type { ResultGroupRepository } from "../state/result-group-repository.js"
 import type { PolicyEngine } from "./policy-engine.js";
 import { renderProjectionMessages } from "./rendering.js";
 import { buildCompressionInspectOverrides } from "./compression-inspect.js";
+import { CONTEXT_COMPRESSION_NOTICE_TOOL_NAME } from "../tools/context-compression-notice.js";
 import type { ReminderService } from "./reminder-service.js";
 import type {
   MessageProjectionPolicy,
@@ -257,9 +258,10 @@ function injectReminderArtifacts(
       projected.push(
         Object.freeze({
           source: "reminder",
-          role: "user",
+          role: "assistant",
           visibleId: reminder.visibleId,
           contentText: reminder.contentText,
+          reminderToolName: CONTEXT_COMPRESSION_NOTICE_TOOL_NAME,
         } satisfies ProjectedPromptMessage),
       );
     });

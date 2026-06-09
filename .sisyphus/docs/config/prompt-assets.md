@@ -24,9 +24,9 @@
 - `prompts/reminder-hard-compact-only.md`
 - `prompts/reminder-hard-delete-allowed.md`
 
-这些 reminder prompt 是纯文本提醒消息，不是模板。
+这些 reminder prompt 是纯文本正文资产，不是模板。其模型可见承载形态由 `compaction/reminder-system.md` 定义；目标态下正文进入 no-op tool result，而不是独立 user 消息。
 
-早期“三 prompt”结论中的 durable 部分是：soft/hard reminder 只应是纯文本提醒，模板变量只属于 compaction prompt。后续 `allowDelete` 设计把 reminder 文件扩展为 `severity × allowDelete` 四个变体；不要回退到旧的两个 reminder 文件。
+早期“三 prompt”结论中的 durable 部分是：soft/hard reminder prompt 不使用模板变量，模板变量只属于 compaction prompt。后续 `allowDelete` 设计把 reminder 文件扩展为 `severity × allowDelete` 四个变体；不要回退到旧的两个 reminder 文件。
 
 ## 当前状态
 

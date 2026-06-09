@@ -25,7 +25,7 @@ import {
 import { createHermeticE2EFixture } from "../harness/fixture.js";
 
 test(
-  "visible ids stay stable for assistant and tool output while reminders remain plain text artifacts",
+  "visible ids stay stable for assistant and tool output while reminders render as no-op tool results",
   { concurrency: false },
   async (t) => {
     const fixture = await createHermeticE2EFixture(t, {
@@ -99,8 +99,8 @@ test(
     await hook({} as never, output as never);
 
     const projectedTexts = output.messages.map((message) => {
-      const parts = message.parts as Array<{ text?: string }>;
-      return parts[0]?.text ?? "";
+      const parts = message.parts as Array<{ text?: string; state?: { output?: string } }>;
+      return parts[0]?.text ?? parts[0]?.state?.output ?? "";
     });
     assert.deepEqual(projectedTexts, [
       "Do not invent, rewrite, or autocomplete visible message IDs. Copy only the IDs that already appear verbatim in this prompt.",
@@ -111,6 +111,19 @@ test(
     ]);
     assert.match(expectedIds.assistant.assignedVisibleId, /^compressible_000002_[0-9A-Za-z]{2}$/u);
     assert.match(expectedIds.tool.assignedVisibleId, /^compressible_000003_[0-9A-Za-z]{2}$/u);
+    const reminderEnvelope = output.messages[3] as {
+      readonly info?: { readonly role?: string };
+      readonly parts?: readonly [{
+        readonly type?: string;
+        readonly tool?: string;
+        readonly state?: { readonly input?: unknown; readonly output?: string };
+      }];
+    };
+    assert.equal(reminderEnvelope.info?.role, "assistant");
+    assert.equal(reminderEnvelope.parts?.[0]?.type, "tool");
+    assert.equal(reminderEnvelope.parts?.[0]?.tool, "opencode_context_compression_notice");
+    assert.deepEqual(reminderEnvelope.parts?.[0]?.state?.input, {});
+    assert.equal(reminderEnvelope.parts?.[0]?.state?.output, "Soft compact reminder.");
 
     const secondProjection = await projectionBuilder.build({
       sessionId: fixture.sessionID,

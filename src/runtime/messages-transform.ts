@@ -1,4 +1,5 @@
 import type { Hooks } from "@opencode-ai/plugin";
+import type { Part } from "@opencode-ai/sdk";
 
 import type { CanonicalHostMessagePart } from "../history/history-replay-reader.js";
 import type { ProjectedMessageSet } from "../projection/types.js";
@@ -219,7 +220,28 @@ export function projectProjectionToEnvelopes(
 
       const parts: MessagesTransformEnvelope["parts"] = [];
       const hasRenderableContent = message.contentText.trim().length > 0;
-      if (message.parts && message.parts.length > 0) {
+      if (message.reminderToolName !== undefined) {
+        const reminderToolPart = {
+          id: `${messageId}:tool:0`,
+          sessionID: projection.sessionId,
+          messageID: messageId,
+          type: "tool",
+          tool: message.reminderToolName,
+          callID: `${messageId}:notice`,
+          state: {
+            status: "completed",
+            input: {},
+            output: message.contentText,
+            title: message.reminderToolName,
+            metadata: {},
+            time: {
+              start: index + 1,
+              end: index + 1,
+            },
+          },
+        } satisfies Extract<Part, { type: "tool" }>;
+        parts.push(reminderToolPart);
+      } else if (message.parts && message.parts.length > 0) {
         let hasTextPart = false;
         const toolOrdinals = new Map<string, number>();
         

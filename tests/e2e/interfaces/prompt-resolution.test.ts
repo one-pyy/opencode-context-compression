@@ -31,11 +31,11 @@ test("prompt resolution selects reminder variants by severity and allowDelete", 
   });
 
   assert.match(softCompactOnly.path, /reminder-soft-compact-only\.md$/u);
-  assert.match(softCompactOnly.text, /Compress material/u);
+  assert.match(softCompactOnly.text, /Do not call `compression_inspect`/u);
   assert.match(hardDeleteAllowed.path, /reminder-hard-delete-allowed\.md$/u);
-  assert.match(hardDeleteAllowed.text, /delete-style cleanup directly/u);
+  assert.match(hardDeleteAllowed.text, /You must first call `compression_inspect`/u);
   assert.match(runtimeConfig.leadingUserPromptPath, /projection-leading-user\.md$/u);
-  assert.match(runtimeConfig.leadingUserPromptText, /Do not invent, rewrite, or autocomplete/u);
+  assert.match(runtimeConfig.leadingUserPromptText, /NEVER\*\* include them in your responses/u);
 });
 
 test("default runtime config path lives in the OpenCode config directory", () => {

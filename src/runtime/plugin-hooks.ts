@@ -34,6 +34,7 @@ import {
   createCompressionInspectTool,
   type CompressionInspectToolOptions,
 } from "../tools/compression-inspect.js";
+import { createContextCompressionNoticeTool } from "../tools/context-compression-notice.js";
 import {
   createNoopRuntimeArtifactRecorder,
   type RuntimeArtifactRecorder,
@@ -56,6 +57,7 @@ export const ALLOWED_PLUGIN_EXTERNAL_HOOKS = Object.freeze([
 export const ALLOWED_PLUGIN_EXTERNAL_TOOLS = Object.freeze([
   "compression_mark",
   "compression_inspect",
+  "opencode_context_compression_notice",
 ] as const);
 
 export interface ContextCompressionPluginHooksOptions {
@@ -107,6 +109,7 @@ export function createContextCompressionHooks(
     tool: {
       compression_mark: createCompressionMarkTool(options.compressionMark),
       compression_inspect: createCompressionInspectTool(options.compressionInspect),
+      opencode_context_compression_notice: createContextCompressionNoticeTool(),
     },
     "experimental.chat.messages.transform": async (input, output) => {
       const sessionID = resolveMessagesTransformSessionId({

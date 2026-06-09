@@ -95,6 +95,7 @@ export interface ProjectedPromptMessage {
   readonly visibleKind?: VisibleKind;
   readonly visibleId?: string;
   readonly contentText: string;
+  readonly reminderToolName?: string;
   readonly parts?: readonly import("../history/history-replay-reader.js").CanonicalHostMessagePart[];
   readonly hostMessage?: import("../history/history-replay-reader.js").CanonicalHostMessage;
 }
