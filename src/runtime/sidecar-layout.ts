@@ -187,7 +187,7 @@ export function resolveCompactionRecordPath(
     : `-attempt${input.attemptIndex + 1}`;
   return resolvePathWithinDirectory(
     directory,
-    `${formatTimestampForFileName(input.createdAt)}-${safeSessionID}-${startSeq}-${endSeq}${modelSegment}${attemptSegment}.${input.suffix}.json`,
+    `${formatTimestampForFileName(input.createdAt)}-${safeSessionID}-${startSeq}-${endSeq}${modelSegment}${attemptSegment}.${input.suffix}.yaml`,
     "compaction record",
   );
 }

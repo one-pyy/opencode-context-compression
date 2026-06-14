@@ -3,6 +3,7 @@ import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { parse as parseYaml } from "yaml";
 
 import { createContractLevelCompactionRunnerImplementation, computeCompactionAttempt, commitCompactionAttempt } from "../../src/compaction/runner/internal-runner.js";
 import { InvalidCompactionOutputError } from "../../src/compaction/errors.js";
@@ -354,15 +355,15 @@ test("file-backed recorder writes paired compaction records with shared time pre
     const directory = join(pluginDirectory, "logs", "compaction-records");
     const files = (await readdir(directory)).sort();
     assert.deepEqual(files, [
-      "2026-05-28T10_11_12.123Z-ses_record_test-2-20-openai_gpt-5.5-attempt1.in.json",
-      "2026-05-28T10_11_12.123Z-ses_record_test-2-20-openai_gpt-5.5-attempt1.out.json",
+      "2026-05-28T10_11_12.123Z-ses_record_test-2-20-openai_gpt-5.5-attempt1.in.yaml",
+      "2026-05-28T10_11_12.123Z-ses_record_test-2-20-openai_gpt-5.5-attempt1.out.yaml",
     ]);
     assert.deepEqual(
-      JSON.parse(await readFile(join(directory, files[0]), "utf8")),
+      parseYaml(await readFile(join(directory, files[0]), "utf8")),
       { request: true },
     );
     assert.deepEqual(
-      JSON.parse(await readFile(join(directory, files[1]), "utf8")),
+      parseYaml(await readFile(join(directory, files[1]), "utf8")),
       { response: true },
     );
   } finally {
