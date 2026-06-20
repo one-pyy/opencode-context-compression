@@ -357,7 +357,7 @@ test(
 );
 
 test(
-  "default plugin exposes context compression notice as a no-op tool",
+  "default plugin rejects direct context compression notice calls",
   { concurrency: false },
   async (t) => {
     const fixture = await createHermeticE2EFixture(t, {
@@ -376,10 +376,12 @@ test(
     assert.equal(Object.keys(noticeTool.args).length, 0);
     assert.match(noticeTool.description, /Never call this tool/u);
     assert.match(noticeTool.description, /pay attention to its returned content/u);
-    assert.equal(
-      await noticeTool.execute({}, createToolContext(fixture.sessionID)),
-      "",
+    const directCallResult = await noticeTool.execute(
+      {},
+      createToolContext(fixture.sessionID),
     );
+    assert.match(directCallResult, /reserved for projected context-compression reminders/u);
+    assert.match(directCallResult, /must not be called directly by the model/u);
   },
 );
 

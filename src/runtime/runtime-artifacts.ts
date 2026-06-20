@@ -1,8 +1,6 @@
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import { stringify as stringifyYaml } from "yaml";
-
 import type { RuntimeLogLevel } from "../config/runtime-config.js";
 import {
   resolveCompactionRecordPath,
@@ -133,7 +131,7 @@ export function createFileBackedRuntimeArtifactRecorder(options: {
       }
 
       await ensureParentDirectory(filePath);
-      await writeFile(filePath, stringifyYaml(input.payload), "utf8");
+      await writeFile(filePath, `${JSON.stringify(input.payload, null, 2)}\n`, "utf8");
     },
     async writeDiagnostic(input) {
       if (!shouldWriteDiagnostic(options.loggingLevel, input.severity)) {

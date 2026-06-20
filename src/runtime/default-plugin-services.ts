@@ -33,7 +33,7 @@ export function createDefaultRuntimePluginSeamServices(
 
   return {
     runtimeArtifacts: createFileBackedRuntimeArtifactRecorder({
-      pluginDirectory: input.directory,
+      pluginDirectory: runtimeConfig.repoRoot,
       runtimeLogPath: runtimeConfig.runtimeLogPath,
       seamLogPath: runtimeConfig.seamLogPath,
       debugSnapshotPath: runtimeConfig.debugSnapshotPath,
@@ -46,7 +46,7 @@ export function createDefaultRuntimePluginSeamServices(
         readSessionMessagesFromHost(input, sessionId),
       onProjectionInputRead: async ({ sessionId, messages }) => {
         await createFileBackedRuntimeArtifactRecorder({
-          pluginDirectory: input.directory,
+          pluginDirectory: runtimeConfig.repoRoot,
           runtimeLogPath: runtimeConfig.runtimeLogPath,
           seamLogPath: runtimeConfig.seamLogPath,
           debugSnapshotPath: runtimeConfig.debugSnapshotPath,

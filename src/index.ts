@@ -14,7 +14,7 @@ const plugin: Plugin = async (input) => {
     runtimeConfig,
   );
   const startupArtifacts = createFileBackedRuntimeArtifactRecorder({
-    pluginDirectory: input.directory,
+    pluginDirectory: runtimeConfig.repoRoot,
     runtimeLogPath: runtimeConfig.runtimeLogPath,
     seamLogPath: runtimeConfig.seamLogPath,
     debugSnapshotPath: runtimeConfig.debugSnapshotPath,

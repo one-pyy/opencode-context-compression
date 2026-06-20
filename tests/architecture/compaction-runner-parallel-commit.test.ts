@@ -4,14 +4,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { parse as parseYaml } from "yaml";
+import type { PluginInput } from "@opencode-ai/plugin";
 
 import { createContractLevelCompactionRunnerImplementation, computeCompactionAttempt, commitCompactionAttempt } from "../../src/compaction/runner/internal-runner.js";
 import { InvalidCompactionOutputError } from "../../src/compaction/errors.js";
+import type { LoadedRuntimeConfig } from "../../src/config/runtime-config.js";
 import type { InternalCompactionRunnerDependencies } from "../../src/compaction/runner.js";
 import type { RunCompactionInput } from "../../src/compaction/types.js";
 import type { CompactionInputBuilder } from "../../src/compaction/input-builder.js";
 import type { OutputValidator } from "../../src/compaction/output-validation.js";
 import type { SafeTransportAdapter } from "../../src/runtime/compaction-transport.js";
+import { createDefaultRuntimePluginSeamServices } from "../../src/runtime/default-plugin-services.js";
 import type { RuntimeArtifactRecorder } from "../../src/runtime/runtime-artifacts.js";
 import { createFileBackedRuntimeArtifactRecorder } from "../../src/runtime/runtime-artifacts.js";
 import type { ResultGroupRepository } from "../../src/state/result-group-repository.js";
@@ -371,6 +374,43 @@ test("file-backed recorder writes paired compaction records with shared time pre
   }
 });
 
+test("default runtime services write repo-owned artifacts under runtime config repo root", async () => {
+  const hostDirectory = await mkdtemp(
+    join(tmpdir(), "opencode-context-compression-host-"),
+  );
+  const repoRoot = await mkdtemp(
+    join(tmpdir(), "opencode-context-compression-repo-root-"),
+  );
+  try {
+    const runtimeConfig = createRuntimeConfig({ repoRoot });
+    const services = createDefaultRuntimePluginSeamServices(
+      createPluginInput(hostDirectory),
+      runtimeConfig,
+    );
+
+    await services.runtimeArtifacts.writeCompactionRecord({
+      sessionID: "ses_repo_artifact_root",
+      sourceStartSeq: 2,
+      sourceEndSeq: 20,
+      createdAt: "2026-05-28T10:11:12.123Z",
+      suffix: "in",
+      model: "openai/gpt-5.5",
+      attemptIndex: 0,
+      payload: { request: true },
+    });
+
+    const directory = join(repoRoot, "logs", "compaction-records");
+    const files = await readdir(directory);
+    assert.deepEqual(files, [
+      "2026-05-28T10_11_12.123Z-ses_repo_artifact_root-2-20-openai_gpt-5.5-attempt1.in.yaml",
+    ]);
+    await assert.rejects(readdir(join(hostDirectory, "logs", "compaction-records")));
+  } finally {
+    await rm(hostDirectory, { recursive: true, force: true });
+    await rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
 function createRunInput(markId: string): RunCompactionInput {
   return {
     build: {
@@ -383,6 +423,85 @@ function createRunInput(markId: string): RunCompactionInput {
       timeoutMs: 1_000,
     },
   };
+}
+
+function createRuntimeConfig(input: { readonly repoRoot: string }): LoadedRuntimeConfig {
+  return {
+    repoRoot: input.repoRoot,
+    configPath: join(input.repoRoot, "runtime-config.jsonc"),
+    allowDelete: false,
+    promptPath: join(input.repoRoot, "prompts", "compaction.md"),
+    promptText: "compress",
+    leadingUserPromptPath: join(input.repoRoot, "prompts", "leading-user.md"),
+    leadingUserPromptText: "",
+    models: ["model-a"],
+    markedTokenAutoCompactionThreshold: 1,
+    smallUserMessageThreshold: 1,
+    schedulerMarkThreshold: 1,
+    runtimeLogPath: "logs/runtime-events.jsonl",
+    seamLogPath: "logs/seams.jsonl",
+    logging: { level: "debug" },
+    compressing: {
+      timeoutSeconds: 1,
+      timeoutMs: 1_000,
+      firstTokenTimeoutSeconds: 1,
+      firstTokenTimeoutMs: 1_000,
+      streamIdleTimeoutSeconds: 1,
+      streamIdleTimeoutMs: 1_000,
+      maxAttemptsPerModel: 1,
+    },
+    reminder: {
+      hsoft: 1,
+      hhard: 2,
+      softRepeatEveryTokens: 1,
+      hardRepeatEveryTokens: 1,
+      promptPaths: {
+        compactOnly: {
+          soft: join(input.repoRoot, "prompts", "soft.md"),
+          hard: join(input.repoRoot, "prompts", "hard.md"),
+        },
+        deleteAllowed: {
+          soft: join(input.repoRoot, "prompts", "delete-soft.md"),
+          hard: join(input.repoRoot, "prompts", "delete-hard.md"),
+        },
+      },
+      prompts: {
+        compactOnly: {
+          soft: { path: join(input.repoRoot, "prompts", "soft.md"), text: "soft" },
+          hard: { path: join(input.repoRoot, "prompts", "hard.md"), text: "hard" },
+        },
+        deleteAllowed: {
+          soft: { path: join(input.repoRoot, "prompts", "delete-soft.md"), text: "soft" },
+          hard: { path: join(input.repoRoot, "prompts", "delete-hard.md"), text: "hard" },
+        },
+      },
+    },
+    toast: {
+      enabled: false,
+      durations: {
+        startup: 0,
+        softReminder: 0,
+        hardReminder: 0,
+        compressionStart: 0,
+        compressionComplete: 0,
+        compressionFailed: 0,
+      },
+    },
+  } satisfies LoadedRuntimeConfig;
+}
+
+function createPluginInput(directory: string): PluginInput {
+  return {
+    directory,
+    worktree: directory,
+    client: {
+      session: {
+        async messages() {
+          return { data: [] };
+        },
+      },
+    },
+  } as unknown as PluginInput;
 }
 
 function createUnusedResultGroupRepository(): ResultGroupRepository {
