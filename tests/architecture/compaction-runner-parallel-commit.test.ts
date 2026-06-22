@@ -365,9 +365,17 @@ test("file-backed recorder writes paired compaction records with shared time pre
       parseYaml(await readFile(join(directory, files[0]), "utf8")),
       { request: true },
     );
+    assert.match(
+      await readFile(join(directory, files[0]), "utf8"),
+      /^request: true\n$/,
+    );
     assert.deepEqual(
       parseYaml(await readFile(join(directory, files[1]), "utf8")),
       { response: true },
+    );
+    assert.match(
+      await readFile(join(directory, files[1]), "utf8"),
+      /^response: true\n$/,
     );
   } finally {
     await rm(pluginDirectory, { recursive: true, force: true });
