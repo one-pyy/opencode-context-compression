@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 
-import type { PluginInput } from "@opencode-ai/plugin";
+import type { Hooks, PluginInput } from "@opencode-ai/plugin";
 
 import pluginModule from "../../../src/index.js";
 import {
@@ -147,6 +147,55 @@ test("text.complete strips a leading visible msg_id from assistant output", () =
   );
 });
 
+test("chat.params keeps scheduler metadata out of provider options", async () => {
+  const events: unknown[] = [];
+  const hooks = createContextCompressionHooks({
+    chatParamsScheduler: {
+      schedule() {
+        return {
+          metadata: {
+            schedulerState: "eligible",
+            scheduled: false,
+            reason: "test metadata must stay internal",
+            activeCompactionLock: false,
+            pendingMarkCount: 1,
+          },
+        };
+      },
+    },
+    runtimeArtifacts: {
+      async recordEvent(input) {
+        events.push(input.payload);
+      },
+      async writeMessagesTransformSnapshot() {},
+      async writeDiagnostic() {},
+      async writeCompactionRecord() {},
+    },
+  });
+
+  const output = {
+    temperature: 1,
+    topP: 1,
+    topK: 0,
+    maxOutputTokens: undefined,
+    options: {},
+  };
+
+  await hooks["chat.params"]?.(
+    {
+      sessionID: "session-chat-params-metadata",
+      agent: "build",
+      model: createChatParamsModel(),
+      provider: createChatParamsProvider(),
+      message: createUserMessage({ id: "msg-user-chat-params" }),
+    },
+    output,
+  );
+
+  assert.deepEqual(output.options, {});
+  assert.equal((events[0] as { reason?: string } | undefined)?.reason, "test metadata must stay internal");
+});
+
 test("chat.params scheduler metadata includes mark eligibility diagnostics", async () => {
   const scheduler = createInternalChatParamsScheduler({
     evaluate() {
@@ -225,6 +274,51 @@ function createUserMessage(overrides: { readonly id: string }) {
       modelID: "gpt-5.4-mini",
     },
   };
+}
+
+type ChatParamsInput = Parameters<NonNullable<Hooks["chat.params"]>>[0];
+
+function createChatParamsModel(): ChatParamsInput["model"] {
+  return {
+    id: "gpt-5.4-mini",
+    providerID: "openai.right",
+    api: { id: "openai", name: "OpenAI", url: "https://api.openai.com", npm: "@ai-sdk/openai" },
+    name: "GPT 5.4 Mini",
+    mode: "chat",
+    options: {},
+    headers: {},
+    capabilities: {
+      temperature: true,
+      reasoning: false,
+      attachment: false,
+      toolcall: true,
+      input: {
+        text: true,
+        audio: false,
+        image: false,
+        video: false,
+        pdf: false,
+      },
+      output: {
+        text: true,
+        audio: false,
+        image: false,
+        video: false,
+        pdf: false,
+      },
+    },
+    cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+    limit: { context: 200_000, output: 16_000 },
+    status: "active",
+  } as ChatParamsInput["model"];
+}
+
+function createChatParamsProvider(): ChatParamsInput["provider"] {
+  return {
+    source: "custom",
+    info: { id: "openai.right", name: "OpenAI Right" },
+    options: {},
+  } as ChatParamsInput["provider"];
 }
 
 function createTextPart(input: {

@@ -26,8 +26,6 @@ type ChatParamsHook = NonNullable<Hooks["chat.params"]>;
 export type ChatParamsInput = Parameters<ChatParamsHook>[0];
 export type ChatParamsOutput = Parameters<ChatParamsHook>[1];
 
-export const CHAT_PARAMS_METADATA_KEY = "opencodeContextCompression";
-
 export interface FrozenCompactionBatchSnapshot {
   readonly markIds: readonly string[];
   readonly markCount: number;
@@ -77,6 +75,11 @@ export interface ChatParamsSchedulerService {
     | Promise<ChatParamsSchedulerDecision>
     | ChatParamsSchedulerDecision;
 }
+
+export type ChatParamsSchedulerHook = (
+  input: ChatParamsInput,
+  output: ChatParamsOutput,
+) => Promise<ChatParamsSchedulingMetadata>;
 
 export interface ChatParamsExternalContract {
   readonly seam: "chat.params";
@@ -421,12 +424,12 @@ export function createRuntimeChatParamsSchedulerService(options: {
 
 export function createChatParamsSchedulerHook(options: {
   readonly scheduler?: ChatParamsSchedulerService;
-} = {}): ChatParamsHook {
+} = {}): ChatParamsSchedulerHook {
   const scheduler = options.scheduler ?? createStaticChatParamsScheduler();
 
-  return async (input, output) => {
+  return async (input, _output) => {
     const decision = await scheduler.schedule(input);
-    output.options[CHAT_PARAMS_METADATA_KEY] = decision.metadata;
+    return decision.metadata;
   };
 }
 

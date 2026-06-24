@@ -9,7 +9,6 @@ import {
   type SeamObservationJournal,
 } from "../seams/noop-observation.js";
 import {
-  CHAT_PARAMS_METADATA_KEY,
   createChatParamsSchedulerHook,
   type ChatParamsSchedulerService,
 } from "./chat-params-scheduler.js";
@@ -230,13 +229,13 @@ export function createContextCompressionHooks(
       }
     },
     "chat.params": async (input, output) => {
-      await chatParams(input, output);
+      const metadata = await chatParams(input, output);
       journal.record(observeChatParams(input, output));
       await runtimeArtifacts.recordEvent({
         sessionID: input.sessionID,
         seam: "chat.params",
         stage: "completed",
-        payload: output.options[CHAT_PARAMS_METADATA_KEY] ?? null,
+        payload: metadata,
       });
     },
     "experimental.text.complete": async (input, output) => {
