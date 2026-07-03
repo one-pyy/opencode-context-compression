@@ -15,11 +15,11 @@
    - SQLite 只保存结果组、visible-id 映射、schema 元信息等 sidecar 状态
    - mark 的真值来自 host history / tool history replay，不单独持久化 marks/source snapshots 真值表
 
-3. **文件锁是实时压缩门控**（当前实现，目标设计中保留 lock、移除 gate）
+3. **文件锁是实时压缩门控**（当前实现，目标设计中缩小 gate 触发范围）
    - 活跃 batch 写入 `locks/<session-id>.lock`
-   - 普通 chat 等待该锁（当前实现；目标设计中 send-entry-gate 移除，替换由门槛控制）
+   - 普通 chat 等待该锁（当前实现；目标设计中仅在"该替换但压缩未完成"时阻塞，复用 lock 超时）
    - `compression_mark` 保持在已冻结 batch 之外
-   - 目标设计保留 lock 防并发压缩，移除 send-entry-gate
+   - 目标设计保留 lock 防并发压缩，send-entry-gate 缩小到最小必要范围
 
 4. **投影是确定性的**
    - 已提交 replacement 通过 `experimental.chat.messages.transform` 渲染
@@ -70,7 +70,7 @@ SQLite 不应承担：
 - `chat.params`：窄调度缝，不负责 prompt authoring 或普通对话等待入口
 - `compaction-input-builder`：构造压缩输入，不复用 projected prompt 再清洗
 - `compaction-runner`：后台压缩任务、retry/fallback、lock 生命周期（当前实现；目标设计中触发时机从 N+2 提前到 N+1，lock 保留）
-- `send-entry-gate`：普通对话等待入口（当前实现，目标设计中移除）
+- `send-entry-gate`：普通对话等待入口（当前实现，目标设计中缩小到仅在"该替换但压缩未完成"时阻塞）
 
 ## Host seam 输入边界（已实现 / 半实现）
 
@@ -89,7 +89,7 @@ marked-token accounting 可以使用 tokenizer-backed estimator；live-context r
 目标设计（异步压缩 + 替换门槛解耦）：
 
 - `messages.transform` 末尾直接启动后台压缩，无需 pending 中转和 `chat.params` 调度
-- lock 仍保留防并发压缩，但 send-entry-gate 移除，普通对话不阻塞
+- lock 仍保留防并发压缩，send-entry-gate 缩小到仅在"该替换但压缩未完成"时阻塞，复用 lock 超时
 - 替换由门槛触发（token 达标或 idle 超阈值），result group 入库后不立即替换
 - 新增 mark 在下一次 `messages.transform` 时自然进入评估
 

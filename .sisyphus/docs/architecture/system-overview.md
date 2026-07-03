@@ -6,7 +6,7 @@
 
 ## 一句话定义
 
-本插件通过“宿主历史 + SQLite sidecar + deterministic projection”的结构，在不改写宿主 canonical history 的前提下，收缩模型实际可见的上下文窗口。当前实现使用异步 compaction gating（pending 中转 + send-entry-gate），目标设计改为异步压缩 + 替换门槛解耦（N+1 直接启动压缩，替换由 token 阈值或 idle 时间触发）。
+本插件通过“宿主历史 + SQLite sidecar + deterministic projection”的结构，在不改写宿主 canonical history 的前提下，收缩模型实际可见的上下文窗口。当前实现使用异步 compaction gating（pending 中转 + send-entry-gate 阻塞所有普通对话），目标设计改为异步压缩 + 替换门槛解耦（N+1 直接启动压缩，替换由 token 阈值或 idle 时间触发，send-entry-gate 缩小到仅在"该替换但压缩未完成"时阻塞）。
 
 ## 核心设计原则
 
@@ -23,7 +23,7 @@
 | Sidecar State | 派生状态、运行时状态、结果组 | 已实现 |
 | Policy | 分类、token accounting、命中条件 | 半实现 |
 | Projection | prompt-visible 视图构造 | 已实现 |
-| Scheduling / Execution | 冻结 batch、runner、gate、lock（当前异步实现）；目标设计保留 lock、移除 gate，压缩提前到 N+1，替换由门槛触发 | 半实现，待替换 |
+| Scheduling / Execution | 冻结 batch、runner、gate、lock（当前异步实现）；目标设计保留 lock、缩小 gate 触发范围，压缩提前到 N+1，替换由门槛触发 | 半实现，待替换 |
 
 ## 生命周期主线
 

@@ -7,7 +7,7 @@ Date: 2026-07-03
 
 1. 压缩执行提前到 N+1：`messages.transform` 末尾直接启动后台压缩，去掉 pending 中转和 `chat.params` 调度职责
 2. 替换应用解耦：result group 入库后不立即替换，替换由门槛触发（token 达标 **或** idle 超阈值）
-3. send-entry-gate 移除：普通对话不阻塞，lock 保留防并发压缩
+3. send-entry-gate 缩小触发范围：仅在"替换门槛已满足但压缩仍在进行中"时阻塞等待，复用当前 lock 超时机制（`compressing.timeoutSeconds`，默认 600 秒）；正常对话（门槛未满足）不阻塞
 
 ### Rationale
 
@@ -25,9 +25,9 @@ Date: 2026-07-03
 
 - 压缩从 N+2 提前到 N+1，result group 在 N+2 已入库
 - `chat.params` 调度职责合并回 `messages.transform`，pending 中转去掉
-- send-entry-gate 移除，lock 保留
+- send-entry-gate 缩小到仅在"该替换但压缩未完成"时阻塞，lock 保留防并发压缩 + gate 等待
 - 替换逻辑从"result group 存在即替换"改为"result group 存在 **且** 门槛满足"
-- 开放问题：`time.end` 是否包含 tool 执行耗时需验证；门槛满足但压缩仍在进行中时的行为待定
+- 开放问题：`time.end` 是否包含 tool 执行耗时需验证
 - docs 中 `compaction-lifecycle.md`、`lock-and-send-gate.md`、`runtime-model.md`、`system-overview.md` 已标注当前实现与目标设计的差异
 
 Tags: #compaction #architecture #runtime #scheduling #async #replacement-gate

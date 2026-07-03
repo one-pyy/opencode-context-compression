@@ -7,7 +7,7 @@ Purpose: 记录本子项目中具有长期价值的决策、问题、规律与�
 
 ## Summary
 
-这个知识库承接具有长期价值的设计决策、历史问题、运行规律与可复用教程。最新设计与当前正式实现参考应进入 `docs/`；这里保留的是能帮助未来避免重复踩坑、理解演化背景、或复用既有判断方法的 durable 信息。最新高风险陷阱包括：压缩输入使用 text-only 与完整 tool object fallback 两套错误口径；repo-owned runtime artifacts 误用 live `PluginInput.directory` 导致记录写到宿主目录而不是插件仓库。最新架构决策：压缩调度改为异步压缩 + 替换门槛解耦——N+1 在 `messages.transform` 末尾直接启动后台压缩（去掉 pending 中转和 `chat.params` 调度），result group 入库后不立即替换，替换由 token 达标或 idle 超阈值触发，send-entry-gate 移除，lock 保留防并发。
+这个知识库承接具有长期价值的设计决策、历史问题、运行规律与可复用教程。最新设计与当前正式实现参考应进入 `docs/`；这里保留的是能帮助未来避免重复踩坑、理解演化背景、或复用既有判断方法的 durable 信息。最新高风险陷阱包括：压缩输入使用 text-only 与完整 tool object fallback 两套错误口径；repo-owned runtime artifacts 误用 live `PluginInput.directory` 导致记录写到宿主目录而不是插件仓库。最新架构决策：压缩调度改为异步压缩 + 替换门槛解耦——N+1 在 `messages.transform` 末尾直接启动后台压缩（去掉 pending 中转和 `chat.params` 调度），result group 入库后不立即替换，替换由 token 达标或 idle 超阈值触发，send-entry-gate 缩小到仅在"该替换但压缩未完成"时阻塞（复用 lock 超时），lock 保留防并发。
 
 ## Decisions
 
@@ -16,7 +16,7 @@ Purpose: 记录本子项目中具有长期价值的决策、问题、规律与�
 [decisions/2026-04-22_design-contract-keeps-token-cadence-and-delete-permission.md] — 设计契约继续采用 token cadence reminder 与真实 delete permission 语义 #design #reminder #delete-permission #contract
 [decisions/2026-04-22_assistant-visible-id-rendering-rule.md] — assistant 与 tool result 的 visible id 渲染规则收敛为稳定前置模式 #visible-id #rendering #projection #design
 [decisions/2026-04-26_accept-one-turn-delayed-opportunistic-compaction-execution.md] — 当前接受一轮延迟的 opportunistic compaction execution，不把它当作启动慢 bug #compaction #scheduler #runtime #lifecycle #architecture
-[decisions/2026-07-03_async-compaction-with-decoupled-replacement-gate.md] — 压缩提前到 N+1 启动，替换由 token 阈值或 idle 时间触发，去掉 pending 中转和 send-entry-gate #compaction #architecture #runtime #scheduling #async #replacement-gate
+[decisions/2026-07-03_async-compaction-with-decoupled-replacement-gate.md] — 压缩提前到 N+1 启动，替换由 token 阈值或 idle 时间触发，send-entry-gate 缩小到仅在"该替换但压缩未完成"时阻塞 #compaction #architecture #runtime #scheduling #async #replacement-gate
 
 ## Issues
 

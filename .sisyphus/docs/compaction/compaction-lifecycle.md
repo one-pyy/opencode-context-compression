@@ -24,7 +24,7 @@
 
 ## 目标设计：异步压缩 + 替换门槛解耦（未实现）
 
-目标设计保留异步后台压缩，但将**压缩执行**与**替换应用**解耦，并去掉 pending 中转和 send-entry-gate：
+目标设计保留异步后台压缩，但将**压缩执行**与**替换应用**解耦，去掉 pending 中转，并将 send-entry-gate 缩小到仅在"该替换但压缩未完成"时触发：
 
 ### 压缩执行（N+1 启动）
 
@@ -43,19 +43,28 @@ result group 入库后**不立即替换**。替换在以下条件之一满足时
 
 投影逻辑变为：result group 存在 **且** 替换门槛满足 → 用 result group 替换；否则保留原内容。
 
+### send-entry-gate 缩小触发范围
+
+send-entry-gate 不完全移除，而是缩小到仅在"替换门槛已满足但压缩仍在进行中"时阻塞等待：
+
+- **门槛未满足**：不阻塞，正常发请求（即使有 result group 也不替换）
+- **门槛满足且 result group 已就绪**：不阻塞，直接替换
+- **门槛满足但压缩还在进行中**：阻塞等待压缩完成，复用当前 lock 超时机制（`compressing.timeoutSeconds`，默认 600 秒），超时后 lock 自动失效，请求继续
+
+这样正常对话完全不阻塞；只有"该替换了但压缩没做完"才等几十秒，且有 10 分钟上限兜底。
+
 ### 收益
 
 - 压缩提前一轮：N+1 即开始，N+2 result group 已入库
 - 去掉 pending 中转和 `chat.params` 调度职责，单一路径
-- 去掉 send-entry-gate：替换由门槛控制，不需要阻塞普通对话等待压缩完成
+- send-entry-gate 缩小到最小必要范围，正常对话不阻塞
 - idle 时间吸收等待：用户休息后再发消息时，result group 已就绪，直接替换，无感知
 
 ### 代价与开放问题
 
 - 压缩仍异步，N+1 的请求不阻塞，但 result group 要到 N+2 才可用
-- 若 N+2 替换门槛满足但压缩仍在进行中，需要决定：等待还是跳过本轮替换（待定）
 - `time.end` 是否包含 tool 执行耗时需从实际 host history 验证；若不含，idle 计时起点偏早，门槛偏松
-- lock 仍需保留（防止并发压缩），但 send-entry-gate 可移除
+- lock 仍需保留（防止并发压缩）
 
 ### 与当前实现的差异
 
@@ -65,8 +74,8 @@ result group 入库后**不立即替换**。替换在以下条件之一满足时
 | pending 中转 | 需要（chat.params 写，executor 读） | 不需要（state 在手边） |
 | chat.params 调度 | 冻结 batch、写 pending | 合并回 messages.transform |
 | 替换时机 | result group 存在即替换 | result group 存在 **且** 门槛满足 |
-| send-entry-gate | 阻塞普通对话 | 移除 |
-| lock | 保留 | 保留（防并发压缩） |
+| send-entry-gate | 阻塞所有普通对话 | 仅在"该替换但压缩未完成"时阻塞，复用 lock 超时 |
+| lock | 保留 | 保留（防并发压缩 + gate 等待） |
 
 同一个 batch 内的多个 pending mark 当前分两阶段执行：
 
