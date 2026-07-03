@@ -1,4 +1,8 @@
-# Lock 与 Send Gate（已实现 / 半实现）
+# Lock 与 Send Gate（当前实现，目标设计中移除）
+
+## 状态
+
+本文档描述的 lock、send gate、background executor 机制属于当前异步实现。目标设计改为同步压缩后，这些机制将被移除。详见 `compaction-lifecycle.md` 的"目标设计：同步压缩"章节。
 
 ## 文档定位
 

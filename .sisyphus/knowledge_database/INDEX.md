@@ -7,7 +7,7 @@ Purpose: 记录本子项目中具有长期价值的决策、问题、规律与�
 
 ## Summary
 
-这个知识库承接具有长期价值的设计决策、历史问题、运行规律与可复用教程。最新设计与当前正式实现参考应进入 `docs/`；这里保留的是能帮助未来避免重复踩坑、理解演化背景、或复用既有判断方法的 durable 信息。最新高风险陷阱包括：压缩输入使用 text-only 与完整 tool object fallback 两套错误口径；repo-owned runtime artifacts 误用 live `PluginInput.directory` 导致记录写到宿主目录而不是插件仓库。
+这个知识库承接具有长期价值的设计决策、历史问题、运行规律与可复用教程。最新设计与当前正式实现参考应进入 `docs/`；这里保留的是能帮助未来避免重复踩坑、理解演化背景、或复用既有判断方法的 durable 信息。最新高风险陷阱包括：压缩输入使用 text-only 与完整 tool object fallback 两套错误口径；repo-owned runtime artifacts 误用 live `PluginInput.directory` 导致记录写到宿主目录而不是插件仓库。最新架构决策：压缩调度从异步 background executor 改为同步执行，去掉 lock/gate/send-entry-gate，idle-time 触发作为后续优化。
 
 ## Decisions
 
@@ -16,6 +16,7 @@ Purpose: 记录本子项目中具有长期价值的决策、问题、规律与�
 [decisions/2026-04-22_design-contract-keeps-token-cadence-and-delete-permission.md] — 设计契约继续采用 token cadence reminder 与真实 delete permission 语义 #design #reminder #delete-permission #contract
 [decisions/2026-04-22_assistant-visible-id-rendering-rule.md] — assistant 与 tool result 的 visible id 渲染规则收敛为稳定前置模式 #visible-id #rendering #projection #design
 [decisions/2026-04-26_accept-one-turn-delayed-opportunistic-compaction-execution.md] — 当前接受一轮延迟的 opportunistic compaction execution，不把它当作启动慢 bug #compaction #scheduler #runtime #lifecycle #architecture
+[decisions/2026-07-03_sync-compaction-replaces-async-executor.md] — 压缩从异步 background executor 改为同步执行，去掉 lock/gate/send-entry-gate #compaction #architecture #runtime #scheduling #sync-vs-async
 
 ## Issues
 

@@ -15,10 +15,11 @@
    - SQLite 只保存结果组、visible-id 映射、schema 元信息等 sidecar 状态
    - mark 的真值来自 host history / tool history replay，不单独持久化 marks/source snapshots 真值表
 
-3. **文件锁是实时压缩门控**
+3. **文件锁是实时压缩门控**（当前实现，目标设计中移除）
    - 活跃 batch 写入 `locks/<session-id>.lock`
    - 普通 chat 等待该锁
    - `compression_mark` 保持在已冻结 batch 之外
+   - 目标设计改为同步压缩后，lock、gate、send-entry-gate 不再需要
 
 4. **投影是确定性的**
    - 已提交 replacement 通过 `experimental.chat.messages.transform` 渲染
@@ -68,8 +69,8 @@ SQLite 不应承担：
 - `messages.transform`：唯一 prompt projection seam
 - `chat.params`：窄调度缝，不负责 prompt authoring 或普通对话等待入口
 - `compaction-input-builder`：构造压缩输入，不复用 projected prompt 再清洗
-- `compaction-runner`：后台压缩任务、retry/fallback、lock 生命周期
-- `send-entry-gate`：普通对话等待入口
+- `compaction-runner`：后台压缩任务、retry/fallback、lock 生命周期（当前实现，目标设计中合并入 `messages.transform` 同步路径）
+- `send-entry-gate`：普通对话等待入口（当前实现，目标设计中移除）
 
 ## Host seam 输入边界（已实现 / 半实现）
 
@@ -77,11 +78,18 @@ SQLite 不应承担：
 
 marked-token accounting 可以使用 tokenizer-backed estimator；live-context reminder input 必须来自 authoritative telemetry。若 decision 前没有 authoritative source，应暴露缺失状态，而不是用 transcript estimate 伪造 live-context total。
 
-### 关于“下一轮”的消歧
+### 关于“下一轮”的消歧（当前实现，目标设计中简化）
+
+当前异步实现：
 
 - `chat.params` / dispatcher 只负责根据当前 replay 结果冻结“这一轮待压缩 batch”并写入 pending queue
 - `compaction-runner` 持有当前 batch 的 live lock；同一 session 在 lock 存活期间不应并发再启动第二个压缩 batch
 - lock 期间新增的 mark 仍会出现在宿主历史里，但它们不会属于当前 batch；它们要等当前 lock 结束后，下一次真正穿过 send gate 并重新 replay 时，才会进入新的 batch 评估
+
+目标同步设计：
+
+- `messages.transform` 同步处理 pending，无需跨轮 batch 冻结与 lock 协调
+- 新增 mark 在下一次 `messages.transform` 时自然进入评估，无需 gate 等待
 
 ## Metadata 边界
 

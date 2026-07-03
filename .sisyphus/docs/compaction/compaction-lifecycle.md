@@ -11,18 +11,40 @@
 1. 当前 hook 重放后存在至少一个合法且仍有效的 mark 节点
 2. 当前有效覆盖树中的未压原始 token 总数达到 `markedTokenAutoCompactionThreshold`
 
-## 调度与执行时序（已实现）
+## 调度与执行时序（当前实现，待替换）
 
-当前 runtime 接受一轮延迟的 opportunistic execution：
+当前 runtime 采用异步 background executor 模式，接受一轮延迟的 opportunistic execution：
 
 1. `messages.transform` 先完成本轮投影，并产出完整 projection state
 2. `chat.params` 根据 replayed marks / mark tree / token 阈值冻结 eligible mark，并写入 pending compactions
 3. 下一轮 `messages.transform` 末尾的 background executor 扫描 pending compactions，写 lock 并开始压缩
 4. lock 存在期间，后续 `messages.transform` gate 会等待压缩完成后再继续投影
 
-因此，`chat.params` 写入 pending 的同一轮请求仍可能继续发给模型；压缩通常在下一轮处理时启动。这是当前 feature，不按“调度当轮立即阻断请求”解释。
+因此，`chat.params` 写入 pending 的同一轮请求仍可能继续发给模型；压缩通常在下一轮处理时启动。
 
-这个设计保留的原因是 executor 需要完整 projection state，而该 state 已在 `messages.transform` 中构造。若未来要改为 `chat.params` 当轮启动压缩，必须让 executor 能在 `chat.params` 侧重建或接收完整 projection state。
+## 目标设计：同步压缩（未实现）
+
+目标设计将压缩改为同步执行，去掉 background executor、lock、gate：
+
+1. `messages.transform` 构造完 projection state 后，若存在 pending 且 token 达标，同步调用小模型压缩
+2. 压缩完成（或失败）后写 result group，再继续投影
+3. 投影直接使用本轮写入的 result group 替换被标记范围
+
+收益：
+
+- 少一轮延迟：N+2 即可用压缩结果，不需要 N+3
+- 去掉异步基础设施（background executor、lock、send-entry-gate），单一路径
+- projection state 已在手边，不需要跨 hook 传递
+
+代价：
+
+- 有 pending 时用户发消息后要等压缩完成（几秒到几十秒）才发出请求
+- 正常对话（无 pending）不受影响
+
+后续优化（未实现）：
+
+- idle-time 触发：利用消息 `time.end` 字段，若距上次请求结束超过阈值则同步压缩，用 idle 时间吸收等待
+- 兜底阈值：pending token 超过某阈值时不管 idle 时间都压
 
 同一个 batch 内的多个 pending mark 当前分两阶段执行：
 

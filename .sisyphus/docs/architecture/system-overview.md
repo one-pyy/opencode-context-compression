@@ -6,7 +6,7 @@
 
 ## 一句话定义
 
-本插件通过“宿主历史 + SQLite sidecar + deterministic projection + 异步 compaction gating”的结构，在不改写宿主 canonical history 的前提下，收缩模型实际可见的上下文窗口。
+本插件通过“宿主历史 + SQLite sidecar + deterministic projection”的结构，在不改写宿主 canonical history 的前提下，收缩模型实际可见的上下文窗口。当前实现使用异步 compaction gating，目标设计改为同步压缩。
 
 ## 核心设计原则
 
@@ -23,7 +23,7 @@
 | Sidecar State | 派生状态、运行时状态、结果组 | 已实现 |
 | Policy | 分类、token accounting、命中条件 | 半实现 |
 | Projection | prompt-visible 视图构造 | 已实现 |
-| Scheduling / Execution | 冻结 batch、runner、gate、lock | 半实现 |
+| Scheduling / Execution | 冻结 batch、runner、gate、lock（当前异步实现）；目标设计改为同步压缩，去掉 runner/gate/lock | 半实现，待替换 |
 
 ## 生命周期主线
 
@@ -31,8 +31,8 @@
 2. 同步 sidecar 状态
 3. 计算 reminder、mark 命中、replacement 命中与 visible id
 4. 在 `messages.transform` 中生成最终 prompt-visible 视图
-5. 满足条件时冻结当前 batch 并触发后台 compaction
-6. 后续 transform 消费已提交结果
+5. 满足条件时触发 compaction（当前异步：冻结 batch 并后台执行；目标设计：同步执行）
+6. 后续 transform 消费已提交结果（当前异步需等下一轮；目标设计当轮即可用）
 
 ## 当前最重要的约束
 
