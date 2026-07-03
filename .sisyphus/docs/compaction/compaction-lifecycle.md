@@ -39,9 +39,11 @@
 result group 入库后**不立即替换**。替换在以下条件之一满足时启用：
 
 1. 待替换内容的未压 token 达到 `markedTokenAutoCompactionThreshold`
-2. 本次发送距离上一轮 `time.end` 超过 idle 阈值（如 5 分钟）
+2. 本次发送距离上一轮模型返回超过 idle 阈值（如 5 分钟）
 
 投影逻辑变为：result group 存在 **且** 替换门槛满足 → 用 result group 替换；否则保留原内容。
+
+idle 计时起点用上一轮 assistant message 中最后一个 reasoning/text part 的 `time.end`。该字段在 `messages.transform` hook 输入的 part 级别暴露，只覆盖模型生成时间，不含 tool 执行耗时。不使用 message 级别的 `time.completed`，因为它包含 tool 执行时间。
 
 ### send-entry-gate 缩小触发范围
 
