@@ -61,10 +61,10 @@ test("Output Validator - Missing Placeholder Throws Error (15.34 & 15.35)", asyn
   const request = {
     markID: "m1",
     model: "test-model",
-    executionMode: "auto", mode: "compact" as const, allowDelete: true, sessionID: "mock-session", promptText: "", timeoutMs: 1000, transcript: [
-      { role: "user" as const, contentText: "U1", sequence: 1 },
-      { role: "assistant" as const, contentText: "<opaque slot=\"S1\">C1</opaque>", sequence: 2, opaquePlaceholderSlot: "S1" },
-      { role: "user" as const, contentText: "U2", sequence: 3 }
+    executionMode: "compact" as const, mode: "compact" as const, allowDelete: true, sessionID: "mock-session", promptText: "", timeoutMs: 1000, transcript: [
+      { sequenceNumber: 1, role: "user" as const, hostMessageID: "h1", sourceStartSeq: 1, sourceEndSeq: 1, contentText: "U1" },
+      { sequenceNumber: 2, role: "assistant" as const, hostMessageID: "h2", sourceStartSeq: 2, sourceEndSeq: 2, contentText: "<opaque slot=\"S1\">C1</opaque>", opaquePlaceholderSlot: "S1" },
+      { sequenceNumber: 3, role: "user" as const, hostMessageID: "h3", sourceStartSeq: 3, sourceEndSeq: 3, contentText: "U2" }
     ]
   };
 
@@ -91,12 +91,15 @@ test("Output Validator - Delete Mode Skips Placeholder Check (15.19)", async () 
   const request = {
     markID: "m1",
     model: "test-model",
-    executionMode: "delete" as const, // <--- Here is the fix
-    mode: "delete" as const, // delete mode!
+    executionMode: "delete" as const,
+    mode: "delete" as const,
     allowDelete: true,
+    sessionID: "mock-session",
+    promptText: "",
+    timeoutMs: 1000,
     transcript: [
-      { role: "user" as const, contentText: "U1", sequence: 1 },
-      { role: "assistant" as const, contentText: "C1", sequence: 2, opaquePlaceholderSlot: "S1" }
+      { sequenceNumber: 1, role: "user" as const, hostMessageID: "h1", sourceStartSeq: 1, sourceEndSeq: 1, contentText: "U1" },
+      { sequenceNumber: 2, role: "assistant" as const, hostMessageID: "h2", sourceStartSeq: 2, sourceEndSeq: 2, contentText: "C1", opaquePlaceholderSlot: "S1" }
     ]
   };
 

@@ -56,7 +56,6 @@ function createResultGroup(markId: string, startSeq: number, endSeq: number, rep
     payloadSha256: "hash",
     fragments: [
       {
-        markId,
         fragmentIndex: 0,
         sourceStartSeq: startSeq,
         sourceEndSeq: endSeq,

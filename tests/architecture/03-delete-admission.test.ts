@@ -95,7 +95,6 @@ function createDeleteResultGroup(markId: string, startSeq: number, endSeq: numbe
     payloadSha256: "hash",
     fragments: [
       {
-        markId,
         fragmentIndex: 0,
         sourceStartSeq: startSeq,
         sourceEndSeq: endSeq,
