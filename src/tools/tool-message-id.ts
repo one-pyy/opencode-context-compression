@@ -1,9 +1,16 @@
-export type ReplayablePluginToolName = "compression_mark" | "compression_inspect";
+export type ReplayablePluginToolName =
+  | "compression_mark"
+  | "compression_inspect"
+  | "compression_recall";
 
 export function isReplayablePluginToolName(
   toolName: string,
 ): toolName is ReplayablePluginToolName {
-  return toolName === "compression_mark" || toolName === "compression_inspect";
+  return (
+    toolName === "compression_mark" ||
+    toolName === "compression_inspect" ||
+    toolName === "compression_recall"
+  );
 }
 
 export function buildReplayToolMessageId(input: {

@@ -361,7 +361,7 @@ export function projectProjectionToEnvelopes(
 function isReplayableToolPart(
   part: CanonicalHostMessagePart,
 ): part is Extract<CanonicalHostMessagePart, { readonly type: "tool" }> & {
-  readonly tool: "compression_mark" | "compression_inspect";
+  readonly tool: "compression_mark" | "compression_inspect" | "compression_recall";
 } {
   return (
     part.type === "tool" &&

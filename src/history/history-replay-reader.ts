@@ -7,6 +7,10 @@ import type {
   CompressionInspectInputV1,
   CompressionInspectResult,
 } from "../tools/compression-inspect/contract.js";
+import type {
+  CompressionRecallInputV1,
+  CompressionRecallResult,
+} from "../tools/compression-recall/contract.js";
 
 export type CanonicalHostMessageRole = "system" | "user" | "assistant" | "tool";
 
@@ -66,6 +70,7 @@ export interface ReplayedHistory {
   readonly marks: readonly ReplayedMarkIntent[];
   readonly compressionMarkToolCalls: readonly ReplayedCompressionMarkToolCall[];
   readonly compressionInspectToolCalls?: readonly ReplayedCompressionInspectToolCall[];
+  readonly compressionRecallToolCalls?: readonly ReplayedCompressionRecallToolCall[];
 }
 
 const LEADING_VISIBLE_ID_PREFIX_PATTERN =
@@ -107,17 +112,38 @@ export interface ReplayedCompressionInspectToolCall {
   readonly message?: string;
 }
 
+export interface ReplayableCompressionRecallToolEntry {
+  readonly sequence: number;
+  readonly sourceMessageId: string;
+  readonly toolName: "compression_recall";
+  readonly input: CompressionRecallInputV1;
+  readonly result: CompressionRecallResult;
+}
+
+export interface ReplayedCompressionRecallToolCall {
+  readonly sequence: number;
+  readonly sourceMessageId: string;
+  readonly outcome: "accepted" | "rejected" | "invalid-input" | "invalid-result";
+  readonly recallId?: string;
+  readonly startVisibleMessageId?: string;
+  readonly endVisibleMessageId?: string;
+  readonly errorCode?: string;
+  readonly message?: string;
+}
+
 export interface ReplayHistorySources {
   readonly sessionId: string;
   readonly hostHistory: readonly ReplayableHostHistoryEntry[];
   readonly toolHistory: readonly ReplayablePluginToolEntry[];
   readonly compressionMarkToolCalls?: readonly ReplayedCompressionMarkToolCall[];
   readonly compressionInspectToolCalls?: readonly ReplayedCompressionInspectToolCall[];
+  readonly compressionRecallToolCalls?: readonly ReplayedCompressionRecallToolCall[];
 }
 
 export type ReplayablePluginToolEntry =
   | ReplayableCompressionMarkToolEntry
-  | ReplayableCompressionInspectToolEntry;
+  | ReplayableCompressionInspectToolEntry
+  | ReplayableCompressionRecallToolEntry;
 
 export const HISTORY_REPLAY_READER_INTERNAL_CONTRACT =
   defineInternalModuleContract({
@@ -246,6 +272,25 @@ export function replayHistoryFromSources(
           } satisfies ReplayedCompressionInspectToolCall);
         }),
     ),
+    compressionRecallToolCalls: Object.freeze(
+      sources.compressionRecallToolCalls ??
+        toolHistory.filter(isReplayableCompressionRecallToolEntry).map((entry) => {
+          const outcome = entry.result.ok === true ? "accepted" : "rejected";
+          return Object.freeze({
+            sequence: entry.sequence,
+            sourceMessageId: entry.sourceMessageId,
+            outcome,
+            startVisibleMessageId: entry.input.from,
+            endVisibleMessageId: entry.input.to,
+            ...(entry.result.ok === true && "recallId" in entry.result
+              ? { recallId: entry.result.recallId }
+              : {}),
+            ...(entry.result.ok === false
+              ? { errorCode: entry.result.errorCode, message: entry.result.message }
+              : {}),
+          } satisfies ReplayedCompressionRecallToolCall);
+        }),
+    ),
   } satisfies ReplayedHistory);
 }
 
@@ -259,6 +304,12 @@ function isReplayableCompressionInspectToolEntry(
   entry: ReplayablePluginToolEntry,
 ): entry is ReplayableCompressionInspectToolEntry {
   return entry.toolName === "compression_inspect";
+}
+
+function isReplayableCompressionRecallToolEntry(
+  entry: ReplayablePluginToolEntry,
+): entry is ReplayableCompressionRecallToolEntry {
+  return entry.toolName === "compression_recall";
 }
 
 function readCanonicalMessageText(message: CanonicalHostMessage): string {

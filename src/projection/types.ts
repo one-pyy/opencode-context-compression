@@ -60,7 +60,10 @@ export interface ToolMessageFailure {
 
 export interface ToolResultOverride {
   readonly sourceMessageId: string;
-  readonly toolName: "compression_mark" | "compression_inspect";
+  readonly toolName:
+    | "compression_mark"
+    | "compression_inspect"
+    | "compression_recall";
   readonly output: string;
 }
 

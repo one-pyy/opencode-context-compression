@@ -6,8 +6,10 @@ import {
   type CanonicalHostMessagePart,
   type ReplayedCompressionInspectToolCall,
   type ReplayedCompressionMarkToolCall,
+  type ReplayedCompressionRecallToolCall,
   type ReplayHistorySources,
   type ReplayableCompressionMarkToolEntry,
+  type ReplayableCompressionRecallToolEntry,
   type ReplayablePluginToolEntry,
   type ReplayableHostHistoryEntry,
   type ReplayedHistory,
@@ -20,6 +22,10 @@ import {
   deserializeCompressionInspectResult,
   validateCompressionInspectInput,
 } from "../tools/compression-inspect.js";
+import {
+  deserializeCompressionRecallResult,
+  validateCompressionRecallInput,
+} from "../tools/compression-recall.js";
 import {
   buildReplayToolMessageId,
   isReplayablePluginToolName,
@@ -71,6 +77,7 @@ export async function buildReplayHistorySourcesFromSessionMessages(input: {
     toolHistory: replayEntries.toolHistory,
     compressionMarkToolCalls: replayEntries.compressionMarkToolCalls,
     compressionInspectToolCalls: replayEntries.compressionInspectToolCalls,
+    compressionRecallToolCalls: replayEntries.compressionRecallToolCalls,
   } satisfies ReplayHistorySources;
 }
 
@@ -96,11 +103,13 @@ function collectReplayableEntries(
   readonly toolHistory: readonly ReplayablePluginToolEntry[];
   readonly compressionMarkToolCalls: readonly ReplayedCompressionMarkToolCall[];
   readonly compressionInspectToolCalls: readonly ReplayedCompressionInspectToolCall[];
+  readonly compressionRecallToolCalls: readonly ReplayedCompressionRecallToolCall[];
 } {
   const hostHistory: ReplayableHostHistoryEntry[] = [];
   const toolHistory: ReplayablePluginToolEntry[] = [];
   const compressionMarkToolCalls: ReplayedCompressionMarkToolCall[] = [];
   const compressionInspectToolCalls: ReplayedCompressionInspectToolCall[] = [];
+  const compressionRecallToolCalls: ReplayedCompressionRecallToolCall[] = [];
   let nextSequence = 1;
 
   for (const envelope of envelopes) {
@@ -200,6 +209,17 @@ function collectReplayableEntries(
         continue;
       }
 
+      if (part.tool === "compression_recall") {
+        collectReplayableCompressionRecallEntry({
+          completedState,
+          syntheticMessageId,
+          syntheticSequence,
+          toolHistory,
+          compressionRecallToolCalls,
+        });
+        continue;
+      }
+
       const parsedInput = validateCompressionMarkInput(completedState.input);
       if (!parsedInput.ok) {
         compressionMarkToolCalls.push(
@@ -268,6 +288,7 @@ function collectReplayableEntries(
     toolHistory: Object.freeze(toolHistory),
     compressionMarkToolCalls: Object.freeze(compressionMarkToolCalls),
     compressionInspectToolCalls: Object.freeze(compressionInspectToolCalls),
+    compressionRecallToolCalls: Object.freeze(compressionRecallToolCalls),
   });
 }
 
@@ -341,6 +362,76 @@ function collectReplayableCompressionInspectEntry(input: {
   );
 }
 
+function collectReplayableCompressionRecallEntry(input: {
+  readonly completedState: Extract<ToolPart["state"], { readonly status: "completed" }>;
+  readonly syntheticMessageId: string;
+  readonly syntheticSequence: number;
+  readonly toolHistory: ReplayablePluginToolEntry[];
+  readonly compressionRecallToolCalls: ReplayedCompressionRecallToolCall[];
+}): void {
+  const parsedInput = validateCompressionRecallInput(input.completedState.input);
+  if (!parsedInput.ok) {
+    input.compressionRecallToolCalls.push(
+      Object.freeze({
+        sequence: input.syntheticSequence,
+        sourceMessageId: input.syntheticMessageId,
+        outcome: "invalid-input",
+        errorCode: parsedInput.result.errorCode,
+        message: parsedInput.result.message,
+      } satisfies ReplayedCompressionRecallToolCall),
+    );
+    return;
+  }
+
+  let parsedResult: ReturnType<typeof deserializeCompressionRecallResult>;
+  try {
+    parsedResult = deserializeCompressionRecallResult(input.completedState.output);
+  } catch {
+    input.compressionRecallToolCalls.push(
+      Object.freeze({
+        sequence: input.syntheticSequence,
+        sourceMessageId: input.syntheticMessageId,
+        outcome: "invalid-result",
+        startVisibleMessageId: parsedInput.value.from,
+        endVisibleMessageId: parsedInput.value.to,
+        errorCode: "INVALID_RANGE",
+        message: "compression_recall returned an invalid result payload.",
+      } satisfies ReplayedCompressionRecallToolCall),
+    );
+    return;
+  }
+
+  input.compressionRecallToolCalls.push(
+    Object.freeze({
+      sequence: input.syntheticSequence,
+      sourceMessageId: input.syntheticMessageId,
+      outcome: parsedResult.ok === true ? "accepted" : "rejected",
+      startVisibleMessageId: parsedInput.value.from,
+      endVisibleMessageId: parsedInput.value.to,
+      ...(parsedResult.ok === true && "recallId" in parsedResult
+        ? { recallId: parsedResult.recallId }
+        : {}),
+      ...(parsedResult.ok === false
+        ? { errorCode: parsedResult.errorCode, message: parsedResult.message }
+        : {}),
+    } satisfies ReplayedCompressionRecallToolCall),
+  );
+
+  if (parsedResult.ok !== true || !("recallId" in parsedResult)) {
+    return;
+  }
+
+  input.toolHistory.push(
+    Object.freeze({
+      sequence: input.syntheticSequence,
+      sourceMessageId: input.syntheticMessageId,
+      toolName: "compression_recall",
+      input: parsedInput.value,
+      result: parsedResult,
+    } satisfies ReplayableCompressionRecallToolEntry),
+  );
+}
+
 function isCanonicalHostMessageRole(
   role: unknown,
 ): role is CanonicalHostMessage["info"]["role"] {
@@ -358,7 +449,9 @@ function isCanonicalHostMessageRole(
 
 function isReplayableToolPart(
   part: Part,
-): part is ToolPart & { readonly tool: "compression_mark" | "compression_inspect" } {
+): part is ToolPart & {
+  readonly tool: "compression_mark" | "compression_inspect" | "compression_recall";
+} {
   return (
     part.type === "tool" &&
     typeof part.tool === "string" &&

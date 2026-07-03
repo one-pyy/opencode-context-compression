@@ -6,6 +6,7 @@ import type { ResultGroupRepository } from "../state/result-group-repository.js"
 import type { PolicyEngine } from "./policy-engine.js";
 import { renderProjectionMessages } from "./rendering.js";
 import { buildCompressionInspectOverrides } from "./compression-inspect.js";
+import { buildCompressionRecallOverrides } from "./compression-recall.js";
 import { CONTEXT_COMPRESSION_NOTICE_TOOL_NAME } from "../tools/context-compression-notice.js";
 import type { ReminderService } from "./reminder-service.js";
 import type {
@@ -153,6 +154,7 @@ export function createProjectionBuilder(
       const toolResultOverrides = Object.freeze([
         ...buildToolResultOverrides(failedToolMessageIds),
         ...buildCompressionInspectOverrides(state),
+        ...buildCompressionRecallOverrides(state),
       ]);
       const reminders = dependencies.reminderService.compute({
         state,
