@@ -60,10 +60,9 @@ send-entry-gate 不完全移除，而是缩小到仅在"替换门槛已满足但
 - send-entry-gate 缩小到最小必要范围，正常对话不阻塞
 - idle 时间吸收等待：用户休息后再发消息时，result group 已就绪，直接替换，无感知
 
-### 代价与开放问题
+### 代价
 
 - 压缩仍异步，N+1 的请求不阻塞，但 result group 要到 N+2 才可用
-- `time.end` 是否包含 tool 执行耗时需从实际 host history 验证；若不含，idle 计时起点偏早，门槛偏松
 - lock 仍需保留（防止并发压缩）
 
 ### 与当前实现的差异

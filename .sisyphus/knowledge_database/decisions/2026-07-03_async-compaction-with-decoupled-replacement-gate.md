@@ -27,7 +27,6 @@ Date: 2026-07-03
 - `chat.params` 调度职责合并回 `messages.transform`，pending 中转去掉
 - send-entry-gate 缩小到仅在"该替换但压缩未完成"时阻塞，lock 保留防并发压缩 + gate 等待
 - 替换逻辑从"result group 存在即替换"改为"result group 存在 **且** 门槛满足"
-- 开放问题：`time.end` 是否包含 tool 执行耗时需验证
 - docs 中 `compaction-lifecycle.md`、`lock-and-send-gate.md`、`runtime-model.md`、`system-overview.md` 已标注当前实现与目标设计的差异
 
 Tags: #compaction #architecture #runtime #scheduling #async #replacement-gate
