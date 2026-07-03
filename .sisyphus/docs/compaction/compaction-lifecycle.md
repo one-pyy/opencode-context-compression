@@ -22,29 +22,51 @@
 
 因此，`chat.params` 写入 pending 的同一轮请求仍可能继续发给模型；压缩通常在下一轮处理时启动。
 
-## 目标设计：同步压缩（未实现）
+## 目标设计：异步压缩 + 替换门槛解耦（未实现）
 
-目标设计将压缩改为同步执行，去掉 background executor、lock、gate：
+目标设计保留异步后台压缩，但将**压缩执行**与**替换应用**解耦，并去掉 pending 中转和 send-entry-gate：
 
-1. `messages.transform` 构造完 projection state 后，若存在 pending 且 token 达标，同步调用小模型压缩
-2. 压缩完成（或失败）后写 result group，再继续投影
-3. 投影直接使用本轮写入的 result group 替换被标记范围
+### 压缩执行（N+1 启动）
 
-收益：
+1. N+0：模型在 `chat.params` 之后调用 `compression_mark`，mark 进入 host history
+2. N+1：`messages.transform` replay 历史，第一次看到 mark。构造完 projection state 后，若存在 eligible mark，**直接在末尾启动后台压缩**（state 已在手边，不需要 pending 中转，不需要等 `chat.params`）
+3. 后台压缩写 lock、调小模型、写 result group、清 lock
 
-- 少一轮延迟：N+2 即可用压缩结果，不需要 N+3
-- 去掉异步基础设施（background executor、lock、send-entry-gate），单一路径
-- projection state 已在手边，不需要跨 hook 传递
+关键变化：压缩从 N+2 提前到 N+1，因为 `messages.transform` 已经有 projection state，不需要跨 seam 传递。`chat.params` 的调度评估逻辑合并回 `messages.transform`，pending 中转去掉。
 
-代价：
+### 替换应用（门槛触发）
 
-- 有 pending 时用户发消息后要等压缩完成（几秒到几十秒）才发出请求
-- 正常对话（无 pending）不受影响
+result group 入库后**不立即替换**。替换在以下条件之一满足时启用：
 
-后续优化（未实现）：
+1. 待替换内容的未压 token 达到 `markedTokenAutoCompactionThreshold`
+2. 本次发送距离上一轮 `time.end` 超过 idle 阈值（如 5 分钟）
 
-- idle-time 触发：利用消息 `time.end` 字段，若距上次请求结束超过阈值则同步压缩，用 idle 时间吸收等待
-- 兜底阈值：pending token 超过某阈值时不管 idle 时间都压
+投影逻辑变为：result group 存在 **且** 替换门槛满足 → 用 result group 替换；否则保留原内容。
+
+### 收益
+
+- 压缩提前一轮：N+1 即开始，N+2 result group 已入库
+- 去掉 pending 中转和 `chat.params` 调度职责，单一路径
+- 去掉 send-entry-gate：替换由门槛控制，不需要阻塞普通对话等待压缩完成
+- idle 时间吸收等待：用户休息后再发消息时，result group 已就绪，直接替换，无感知
+
+### 代价与开放问题
+
+- 压缩仍异步，N+1 的请求不阻塞，但 result group 要到 N+2 才可用
+- 若 N+2 替换门槛满足但压缩仍在进行中，需要决定：等待还是跳过本轮替换（待定）
+- `time.end` 是否包含 tool 执行耗时需从实际 host history 验证；若不含，idle 计时起点偏早，门槛偏松
+- lock 仍需保留（防止并发压缩），但 send-entry-gate 可移除
+
+### 与当前实现的差异
+
+| 维度 | 当前实现 | 目标设计 |
+|---|---|---|
+| 压缩启动 | N+2（executor 扫 pending） | N+1（messages.transform 末尾直接启动） |
+| pending 中转 | 需要（chat.params 写，executor 读） | 不需要（state 在手边） |
+| chat.params 调度 | 冻结 batch、写 pending | 合并回 messages.transform |
+| 替换时机 | result group 存在即替换 | result group 存在 **且** 门槛满足 |
+| send-entry-gate | 阻塞普通对话 | 移除 |
+| lock | 保留 | 保留（防并发压缩） |
 
 同一个 batch 内的多个 pending mark 当前分两阶段执行：
 

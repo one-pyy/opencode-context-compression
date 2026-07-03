@@ -15,11 +15,11 @@
    - SQLite 只保存结果组、visible-id 映射、schema 元信息等 sidecar 状态
    - mark 的真值来自 host history / tool history replay，不单独持久化 marks/source snapshots 真值表
 
-3. **文件锁是实时压缩门控**（当前实现，目标设计中移除）
+3. **文件锁是实时压缩门控**（当前实现，目标设计中保留 lock、移除 gate）
    - 活跃 batch 写入 `locks/<session-id>.lock`
-   - 普通 chat 等待该锁
+   - 普通 chat 等待该锁（当前实现；目标设计中 send-entry-gate 移除，替换由门槛控制）
    - `compression_mark` 保持在已冻结 batch 之外
-   - 目标设计改为同步压缩后，lock、gate、send-entry-gate 不再需要
+   - 目标设计保留 lock 防并发压缩，移除 send-entry-gate
 
 4. **投影是确定性的**
    - 已提交 replacement 通过 `experimental.chat.messages.transform` 渲染
@@ -69,7 +69,7 @@ SQLite 不应承担：
 - `messages.transform`：唯一 prompt projection seam
 - `chat.params`：窄调度缝，不负责 prompt authoring 或普通对话等待入口
 - `compaction-input-builder`：构造压缩输入，不复用 projected prompt 再清洗
-- `compaction-runner`：后台压缩任务、retry/fallback、lock 生命周期（当前实现，目标设计中合并入 `messages.transform` 同步路径）
+- `compaction-runner`：后台压缩任务、retry/fallback、lock 生命周期（当前实现；目标设计中触发时机从 N+2 提前到 N+1，lock 保留）
 - `send-entry-gate`：普通对话等待入口（当前实现，目标设计中移除）
 
 ## Host seam 输入边界（已实现 / 半实现）
@@ -86,10 +86,12 @@ marked-token accounting 可以使用 tokenizer-backed estimator；live-context r
 - `compaction-runner` 持有当前 batch 的 live lock；同一 session 在 lock 存活期间不应并发再启动第二个压缩 batch
 - lock 期间新增的 mark 仍会出现在宿主历史里，但它们不会属于当前 batch；它们要等当前 lock 结束后，下一次真正穿过 send gate 并重新 replay 时，才会进入新的 batch 评估
 
-目标同步设计：
+目标设计（异步压缩 + 替换门槛解耦）：
 
-- `messages.transform` 同步处理 pending，无需跨轮 batch 冻结与 lock 协调
-- 新增 mark 在下一次 `messages.transform` 时自然进入评估，无需 gate 等待
+- `messages.transform` 末尾直接启动后台压缩，无需 pending 中转和 `chat.params` 调度
+- lock 仍保留防并发压缩，但 send-entry-gate 移除，普通对话不阻塞
+- 替换由门槛触发（token 达标或 idle 超阈值），result group 入库后不立即替换
+- 新增 mark 在下一次 `messages.transform` 时自然进入评估
 
 ## Metadata 边界
 

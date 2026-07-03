@@ -1,8 +1,8 @@
-# Lock 与 Send Gate（当前实现，目标设计中移除）
+# Lock 与 Send Gate（当前实现，部分待移除）
 
 ## 状态
 
-本文档描述的 lock、send gate、background executor 机制属于当前异步实现。目标设计改为同步压缩后，这些机制将被移除。详见 `compaction-lifecycle.md` 的"目标设计：同步压缩"章节。
+本文档描述的 lock、send gate、batch freeze 机制属于当前异步实现。目标设计保留 lock（防并发压缩）但移除 send-entry-gate（替换由门槛控制，不再阻塞普通对话）。详见 `compaction-lifecycle.md` 的"目标设计：异步压缩 + 替换门槛解耦"章节。
 
 ## 文档定位
 
