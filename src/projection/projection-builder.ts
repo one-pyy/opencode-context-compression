@@ -139,6 +139,7 @@ export function createProjectionBuilder(
           resultGroups.map((resultGroup) => [resultGroup.markId, resultGroup]),
         ),
         failedToolMessageIds,
+        replacementGateOpen: input.replacementGateOpen,
       }).messages;
 
       const state = {

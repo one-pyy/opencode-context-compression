@@ -1,6 +1,6 @@
 import type { PluginInput } from "@opencode-ai/plugin";
 import type { LoadedRuntimeConfig } from "../config/runtime-config.js";
-import type { ProjectedMessageSet } from "../projection/types.js";
+import type { ProjectedMessageSet, MarkTreeNode } from "../projection/types.js";
 import type { RuntimeArtifactRecorder } from "./runtime-artifacts.js";
 import {
   acquireSessionFileLock,
@@ -9,7 +9,6 @@ import {
 } from "./file-lock.js";
 import { resolvePluginStateDirectory, resolveSessionDatabasePath } from "./sidecar-layout.js";
 import { bootstrapSessionSidecar, openSessionSidecarRepository } from "../state/sidecar-store.js";
-import { readPendingCompactions, markCompactionsProcessed } from "../state/sidecar-store/pending-compactions.js";
 import { createResultGroupRepository } from "../state/result-group-repository.js";
 import { buildCompactionRunInputForMark } from "../compaction/replay-run-input.js";
 import {
@@ -28,6 +27,36 @@ export interface BackgroundCompactionExecutorOptions {
   readonly projectionState: ProjectedMessageSet;
 }
 
+interface EligibleMark {
+  readonly markId: string;
+  readonly sourceMessageId: string;
+  readonly createdAt: string;
+}
+
+function collectEligibleMarks(projectionState: ProjectedMessageSet): EligibleMark[] {
+  const resultGroupMarkIds = new Set(
+    projectionState.state.resultGroups.map((group) => group.markId),
+  );
+  const eligible: EligibleMark[] = [];
+  const now = new Date().toISOString();
+
+  function walk(nodes: readonly MarkTreeNode[]): void {
+    for (const node of nodes) {
+      if (!resultGroupMarkIds.has(node.markId)) {
+        eligible.push({
+          markId: node.markId,
+          sourceMessageId: node.sourceMessageId,
+          createdAt: now,
+        });
+      }
+      walk(node.children);
+    }
+  }
+
+  walk(projectionState.state.markTree.marks);
+  return eligible;
+}
+
 export async function executeBackgroundCompactions(
   options: BackgroundCompactionExecutorOptions,
 ): Promise<void> {
@@ -36,21 +65,21 @@ export async function executeBackgroundCompactions(
 
   const stateDirectory = resolvePluginStateDirectory(pluginInput.directory);
   const databasePath = resolveSessionDatabasePath(stateDirectory, sessionId);
-  
+
   await bootstrapSessionSidecar({ databasePath });
   const sidecar = await openSessionSidecarRepository({ databasePath });
 
   try {
-    const pendingCompactions = readPendingCompactions(sidecar.database);
+    const eligibleMarks = collectEligibleMarks(projectionState);
 
-    if (pendingCompactions.length === 0) {
+    if (eligibleMarks.length === 0) {
       return;
     }
 
     const lockResult = await acquireSessionFileLock({
       lockDirectory,
       sessionID: sessionId,
-      note: `background compaction batch (${pendingCompactions.length} pending marks)`,
+      note: `background compaction batch (${eligibleMarks.length} eligible marks)`,
     });
     if (!lockResult.acquired) {
       throw new Error(
@@ -62,21 +91,21 @@ export async function executeBackgroundCompactions(
       sessionID: sessionId,
       scope: "background-compaction",
       severity: "info",
-      message: "Found pending compactions for session.",
+      message: "Found eligible marks for background compaction.",
       payload: {
-        pendingCompactionCount: pendingCompactions.length,
+        eligibleMarkCount: eligibleMarks.length,
         projectionMarkCount: projectionState.state.markTree.marks.length,
       },
     });
 
     const resultGroupRepo = createResultGroupRepository(sidecar);
-    
+
     const transport = runtimeConfig.transport ?? createDirectLLMCompactionTransport(pluginInput, {
       runtimeArtifacts,
     });
     const inputBuilder = createCompactionInputBuilder();
     const outputValidator = createOutputValidator();
-    
+
     const safeTransport: import("./compaction-transport.js").SafeTransportAdapter = {
       async execute(request) {
         return Object.freeze({
@@ -84,16 +113,15 @@ export async function executeBackgroundCompactions(
         });
       },
     };
-    
-    const processedIds: number[] = [];
+
     let didFail = false;
     let firstFailureMessage: string | undefined;
 
-    const computeTasks = pendingCompactions.map(async (pending) => {
-      const existing = await resultGroupRepo.getCompleteGroup(pending.markId);
+    const computeTasks = eligibleMarks.map(async (eligible) => {
+      const existing = await resultGroupRepo.getCompleteGroup(eligible.markId);
       if (existing !== null) {
         return {
-          pending,
+          eligible,
           kind: "existing" as const,
         };
       }
@@ -103,13 +131,13 @@ export async function executeBackgroundCompactions(
         scope: "background-compaction",
         severity: "info",
         message: "Executing background compaction for mark.",
-        payload: { markId: pending.markId },
+        payload: { markId: eligible.markId },
       });
 
       const runInput = buildCompactionRunInputForMark({
         sessionId,
         state: projectionState.state,
-        markId: pending.markId,
+        markId: eligible.markId,
         model: runtimeConfig.models[0],
         promptText: runtimeConfig.promptText,
         timeoutMs: runtimeConfig.compressing.timeoutMs,
@@ -117,7 +145,7 @@ export async function executeBackgroundCompactions(
         streamIdleTimeoutMs: runtimeConfig.compressing.streamIdleTimeoutMs,
         compactionModels: runtimeConfig.models.slice(1),
         maxAttemptsPerModel: runtimeConfig.compressing.maxAttemptsPerModel,
-        createdAt: pending.createdAt,
+        createdAt: eligible.createdAt,
       });
 
       try {
@@ -133,14 +161,14 @@ export async function executeBackgroundCompactions(
         );
 
         return {
-          pending,
+          eligible,
           kind: "computed" as const,
           runInput,
           computation,
         };
       } catch (error) {
         return {
-          pending,
+          eligible,
           kind: "failed" as const,
           error,
         };
@@ -156,9 +184,8 @@ export async function executeBackgroundCompactions(
           scope: "background-compaction",
           severity: "debug",
           message: "Skipping mark because a committed result group already exists.",
-          payload: { markId: item.pending.markId },
+          payload: { markId: item.eligible.markId },
         });
-        processedIds.push(item.pending.id);
         continue;
       }
 
@@ -171,7 +198,7 @@ export async function executeBackgroundCompactions(
           severity: "error",
           message: "Background compaction failed for mark.",
           payload: {
-            markId: item.pending.markId,
+            markId: item.eligible.markId,
             error: formatError(item.error),
           },
         });
@@ -195,9 +222,8 @@ export async function executeBackgroundCompactions(
           scope: "background-compaction",
           severity: "info",
           message: "Background compaction completed successfully.",
-          payload: { markId: item.pending.markId },
+          payload: { markId: item.eligible.markId },
         });
-        processedIds.push(item.pending.id);
       } catch (error) {
         didFail = true;
         firstFailureMessage ??= formatError(error);
@@ -207,15 +233,11 @@ export async function executeBackgroundCompactions(
           severity: "error",
           message: "Background compaction failed for mark.",
           payload: {
-            markId: item.pending.markId,
+            markId: item.eligible.markId,
             error: formatError(error),
           },
         });
       }
-    }
-
-    if (processedIds.length > 0) {
-      markCompactionsProcessed(sidecar.database, processedIds);
     }
 
     await settleAndReleaseSessionFileLock({
@@ -224,7 +246,7 @@ export async function executeBackgroundCompactions(
       status: didFail ? "failed" : "succeeded",
       note: didFail
         ? `background compaction completed with failure: ${firstFailureMessage ?? "unknown error"}`
-        : `background compaction completed successfully (${processedIds.length} marks processed)`,
+        : `background compaction completed successfully (${eligibleMarks.length} marks processed)`,
     });
   } finally {
     sidecar.close();

@@ -97,7 +97,7 @@ test(
     });
 
     const beforeReplacement = await projectionBuilder.build({
-      sessionId: fixture.sessionID,
+      sessionId: fixture.sessionID, replacementGateOpen: true,
     });
     assert.equal(beforeReplacement.reminders.length, 1);
     assert.equal(beforeReplacement.messages[2]?.source, "reminder");
@@ -126,7 +126,7 @@ test(
     });
 
     const afterReplacement = await projectionBuilder.build({
-      sessionId: fixture.sessionID,
+      sessionId: fixture.sessionID, replacementGateOpen: true,
     });
     assert.equal(afterReplacement.reminders.length, 0);
     assert.deepEqual(

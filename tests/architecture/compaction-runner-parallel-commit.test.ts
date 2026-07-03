@@ -444,6 +444,7 @@ function createRuntimeConfig(input: { readonly repoRoot: string }): LoadedRuntim
     leadingUserPromptText: "",
     models: ["model-a"],
     markedTokenAutoCompactionThreshold: 1,
+    idleThresholdMs: 300_000,
     smallUserMessageThreshold: 1,
     schedulerMarkThreshold: 1,
     runtimeLogPath: "logs/runtime-events.jsonl",

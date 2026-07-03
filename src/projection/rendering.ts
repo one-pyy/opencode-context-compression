@@ -15,6 +15,7 @@ export interface RenderProjectionInput {
   readonly markTree: MarkTree;
   readonly resultGroupsByMarkId: ReadonlyMap<string, CompleteResultGroup>;
   readonly failedToolMessageIds: ReadonlyMap<string, ToolMessageFailure>;
+  readonly replacementGateOpen: boolean;
 }
 
 export interface RenderProjectionOutput {
@@ -41,6 +42,7 @@ export function renderProjectionMessages(
     resultGroupsByMarkId: input.resultGroupsByMarkId,
     suppressedCanonicalIds,
     failedToolMessageIds: input.failedToolMessageIds,
+    replacementGateOpen: input.replacementGateOpen,
   }).filter(
     (message) =>
       message.source !== "canonical" ||
@@ -63,6 +65,7 @@ interface RenderSequenceRangeInput {
   readonly resultGroupsByMarkId: ReadonlyMap<string, CompleteResultGroup>;
   readonly suppressedCanonicalIds: Set<string>;
   readonly failedToolMessageIds: ReadonlyMap<string, ToolMessageFailure>;
+  readonly replacementGateOpen: boolean;
 }
 
 function renderSequenceRange(
@@ -95,6 +98,7 @@ function renderSequenceRange(
           resultGroupsByMarkId: input.resultGroupsByMarkId,
           suppressedCanonicalIds: input.suppressedCanonicalIds,
           failedToolMessageIds: input.failedToolMessageIds,
+          replacementGateOpen: input.replacementGateOpen,
         }),
       );
       cursor = child.endSequence + 1;
@@ -120,9 +124,10 @@ function renderMarkNode(input: {
   readonly resultGroupsByMarkId: ReadonlyMap<string, CompleteResultGroup>;
   readonly suppressedCanonicalIds: Set<string>;
   readonly failedToolMessageIds: ReadonlyMap<string, ToolMessageFailure>;
+  readonly replacementGateOpen: boolean;
 }): ProjectedPromptMessage[] {
   const resultGroup = input.resultGroupsByMarkId.get(input.node.markId);
-  if (!resultGroup) {
+  if (!resultGroup || !input.replacementGateOpen) {
     return renderSequenceRange({
       startSequence: input.node.startSequence,
       endSequence: input.node.endSequence,
@@ -132,7 +137,8 @@ function renderMarkNode(input: {
       resultGroupsByMarkId: input.resultGroupsByMarkId,
       suppressedCanonicalIds: input.suppressedCanonicalIds,
       failedToolMessageIds: input.failedToolMessageIds,
-      });
+      replacementGateOpen: input.replacementGateOpen,
+    });
   }
 
   collectSuppressedCanonicalIds({
@@ -156,6 +162,7 @@ function renderMarkNode(input: {
         resultGroupsByMarkId: input.resultGroupsByMarkId,
         suppressedCanonicalIds: input.suppressedCanonicalIds,
         failedToolMessageIds: input.failedToolMessageIds,
+        replacementGateOpen: input.replacementGateOpen,
       }),
     );
     rendered.push(renderResultGroupFragment(resultGroup, fragment));
@@ -172,6 +179,7 @@ function renderMarkNode(input: {
       resultGroupsByMarkId: input.resultGroupsByMarkId,
       suppressedCanonicalIds: input.suppressedCanonicalIds,
       failedToolMessageIds: input.failedToolMessageIds,
+      replacementGateOpen: input.replacementGateOpen,
     }),
   );
 
@@ -322,6 +330,7 @@ function renderGapRange(input: {
   readonly resultGroupsByMarkId: ReadonlyMap<string, CompleteResultGroup>;
   readonly suppressedCanonicalIds: Set<string>;
   readonly failedToolMessageIds: ReadonlyMap<string, ToolMessageFailure>;
+  readonly replacementGateOpen: boolean;
 }): ProjectedPromptMessage[] {
   if (input.endSequence < input.startSequence) {
     return [];
@@ -340,5 +349,6 @@ function renderGapRange(input: {
     resultGroupsByMarkId: input.resultGroupsByMarkId,
     suppressedCanonicalIds: input.suppressedCanonicalIds,
     failedToolMessageIds: input.failedToolMessageIds,
+    replacementGateOpen: input.replacementGateOpen,
   });
 }

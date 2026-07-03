@@ -15,6 +15,7 @@ import {
 import {
   createMessagesTransformHook,
   type MessagesTransformProjector,
+  type MessagesTransformEnvelope,
   resolveMessagesTransformSessionId,
 } from "./messages-transform.js";
 import {
@@ -22,6 +23,7 @@ import {
   createDefaultToolExecutionGate,
   createStaticSendEntryGate,
   type SendEntryGate,
+  type GateResult,
   type ToolExecutionGateService,
 } from "./send-entry-gate.js";
 import { createTextCompleteHook } from "./text-complete.js";
@@ -49,6 +51,11 @@ import { readPendingToastEvents, markToastEventsProcessed } from "../state/sidec
 import { executeBackgroundCompactions } from "./background-compaction-executor.js";
 import type { LoadedRuntimeConfig } from "../config/runtime-config.js";
 import type { PluginInput } from "@opencode-ai/plugin";
+import {
+  evaluateReplacementGate,
+  extractLastModelResponseTime,
+} from "./replacement-gate.js";
+import { readSessionFileLock } from "./file-lock.js";
 
 export const ALLOWED_PLUGIN_EXTERNAL_HOOKS = Object.freeze([
   "experimental.chat.messages.transform",
@@ -78,6 +85,8 @@ export interface ContextCompressionPluginHooksOptions {
   readonly pluginDirectory?: string;
   readonly pluginInput?: PluginInput;
   readonly runtimeConfig?: LoadedRuntimeConfig;
+  readonly lockDirectory?: string;
+  readonly idleThresholdMs?: number;
 }
 
 export interface RuntimePluginSeamServices {
@@ -101,6 +110,14 @@ export function createContextCompressionHooks(
     options.toolExecutionGate ?? createDefaultToolExecutionGate();
   const messagesTransform = createMessagesTransformHook({
     projector: messagesTransformProjector,
+    resolveReplacementGateOpen: ({ currentMessages }) => {
+      return computeReplacementGateOpen({
+        messagesTransformProjector,
+        currentMessages,
+        runtimeConfig: options.runtimeConfig,
+        idleThresholdMs: options.idleThresholdMs,
+      });
+    },
   });
   const chatParams = createChatParamsSchedulerHook({
     scheduler: options.chatParamsScheduler,
@@ -122,7 +139,17 @@ export function createContextCompressionHooks(
         hookInput: input,
         currentMessages: output.messages,
       });
-      const gateResult = await sendEntryGate.waitIfNeeded(sessionID);
+
+      const gateResult = await conditionalSendEntryGate({
+        sessionID,
+        sendEntryGate,
+        messagesTransformProjector,
+        currentMessages: output.messages,
+        runtimeConfig: options.runtimeConfig,
+        lockDirectory: options.lockDirectory,
+        idleThresholdMs: options.idleThresholdMs,
+      });
+
       await runtimeArtifacts.recordEvent({
         sessionID,
         seam: "experimental.chat.messages.transform",
@@ -288,4 +315,99 @@ function serializeError(error: unknown): {
     name: "Error",
     message: String(error),
   };
+}
+
+function computeReplacementGateOpen(options: {
+  readonly messagesTransformProjector?: MessagesTransformProjector;
+  readonly currentMessages: readonly MessagesTransformEnvelope[];
+  readonly runtimeConfig?: LoadedRuntimeConfig;
+  readonly idleThresholdMs?: number;
+}): boolean {
+  const lastState = options.messagesTransformProjector?.getLastProjectionState?.();
+  const runtimeConfig = options.runtimeConfig;
+  if (!lastState || !runtimeConfig) {
+    return true;
+  }
+
+  const resultGroupMarkIds = new Set(
+    lastState.state.resultGroups.map((group) => group.markId),
+  );
+
+  let uncompressedMarkedTokenCount = 0;
+  const tokenCountBySequence = new Map(
+    lastState.state.messagePolicies.map((policy) => [policy.sequence, policy.tokenCount]),
+  );
+
+  function countUncompressed(nodes: readonly import("../projection/types.js").MarkTreeNode[]): number {
+    let total = 0;
+    for (const node of nodes) {
+      if (resultGroupMarkIds.has(node.markId)) {
+        continue;
+      }
+      for (let seq = node.startSequence; seq <= node.endSequence; seq += 1) {
+        total += tokenCountBySequence.get(seq) ?? 0;
+      }
+      total += countUncompressed(node.children);
+    }
+    return total;
+  }
+
+  uncompressedMarkedTokenCount = countUncompressed(lastState.state.markTree.marks);
+
+  const lastModelResponseTime = extractLastModelResponseTime(
+    options.currentMessages as readonly { readonly parts?: readonly { readonly type?: string; readonly time?: { readonly start?: number; readonly end?: number } | null }[] }[],
+  );
+
+  const idleThresholdMs = options.idleThresholdMs ?? 5 * 60 * 1000;
+
+  const gateResult = evaluateReplacementGate({
+    uncompressedMarkedTokenCount,
+    markedTokenAutoCompactionThreshold: runtimeConfig.markedTokenAutoCompactionThreshold,
+    lastModelResponseTime,
+    idleThresholdMs,
+    now: Date.now(),
+  });
+
+  return gateResult.shouldReplace;
+}
+
+async function conditionalSendEntryGate(options: {
+  readonly sessionID: string;
+  readonly sendEntryGate: SendEntryGate;
+  readonly messagesTransformProjector?: MessagesTransformProjector;
+  readonly currentMessages: readonly MessagesTransformEnvelope[];
+  readonly runtimeConfig?: LoadedRuntimeConfig;
+  readonly lockDirectory?: string;
+  readonly idleThresholdMs?: number;
+}): Promise<GateResult> {
+  const replacementGateOpen = computeReplacementGateOpen({
+    messagesTransformProjector: options.messagesTransformProjector,
+    currentMessages: options.currentMessages,
+    runtimeConfig: options.runtimeConfig,
+    idleThresholdMs: options.idleThresholdMs,
+  });
+
+  if (!replacementGateOpen) {
+    return {
+      waited: false,
+      releasedBy: "no-lock",
+      reason: "replacement gate closed, skipping send-entry gate",
+    };
+  }
+
+  if (options.lockDirectory) {
+    const lockState = await readSessionFileLock({
+      lockDirectory: options.lockDirectory,
+      sessionID: options.sessionID,
+    });
+    if (lockState.kind === "unlocked") {
+      return {
+        waited: false,
+        releasedBy: "no-lock",
+        reason: "replacement gate open but no active lock",
+      };
+    }
+  }
+
+  return options.sendEntryGate.waitIfNeeded(options.sessionID);
 }

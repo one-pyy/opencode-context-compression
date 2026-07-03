@@ -20,6 +20,7 @@ export type MessagesTransformEnvelope = MessagesTransformOutput["messages"][numb
 export interface MessagesTransformProjectionInput {
   readonly input: MessagesTransformInput;
   readonly currentMessages: readonly MessagesTransformEnvelope[];
+  readonly replacementGateOpen: boolean;
 }
 
 export interface MessagesTransformProjector {
@@ -165,14 +166,23 @@ export function createProjectionBackedMessagesTransformProjector(options: {
 
 export function createMessagesTransformHook(options: {
   readonly projector?: MessagesTransformProjector;
+  readonly resolveReplacementGateOpen?: (input: {
+    readonly hookInput: MessagesTransformInput;
+    readonly currentMessages: readonly MessagesTransformEnvelope[];
+  }) => Promise<boolean> | boolean;
 } = {}): MessagesTransformHook {
   const projector =
     options.projector ?? createPassThroughMessagesTransformProjector();
 
   return async (input, output) => {
+    const replacementGateOpen = options.resolveReplacementGateOpen
+      ? await options.resolveReplacementGateOpen({ hookInput: input, currentMessages: output.messages })
+      : true;
+
     const nextMessages = await projector.project({
       input,
       currentMessages: output.messages,
+      replacementGateOpen,
     });
 
     if (nextMessages === output.messages) {

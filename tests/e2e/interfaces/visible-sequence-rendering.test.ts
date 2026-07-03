@@ -90,7 +90,7 @@ test(
       projector: createProjectionBackedMessagesTransformProjector({
         buildProjection: async () =>
           projectionBuilder.build({
-            sessionId: fixture.sessionID,
+            sessionId: fixture.sessionID, replacementGateOpen: true,
           }),
       }),
     });
@@ -126,7 +126,7 @@ test(
     assert.equal(reminderEnvelope.parts?.[0]?.state?.output, "Soft compact reminder.");
 
     const secondProjection = await projectionBuilder.build({
-      sessionId: fixture.sessionID,
+      sessionId: fixture.sessionID, replacementGateOpen: true,
     });
     assert.equal(secondProjection.reminders.length, 1);
     assert.match(
@@ -211,7 +211,7 @@ test(
       projector: createProjectionBackedMessagesTransformProjector({
         buildProjection: async () =>
           projectionBuilder.build({
-            sessionId: fixture.sessionID,
+            sessionId: fixture.sessionID, replacementGateOpen: true,
           }),
       }),
     });
@@ -328,7 +328,7 @@ test(
       projector: createProjectionBackedMessagesTransformProjector({
         buildProjection: async () =>
           projectionBuilder.build({
-            sessionId: fixture.sessionID,
+            sessionId: fixture.sessionID, replacementGateOpen: true,
           }),
       }),
     });

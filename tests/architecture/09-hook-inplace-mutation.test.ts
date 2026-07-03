@@ -138,7 +138,7 @@ test("Messages Transform debug counts only projected compressible tokens", async
   const input = { sessionID: "ses_1" } as Parameters<
     typeof projector.project
   >[0]["input"];
-  await projector.project({ input, currentMessages: [] });
+  await projector.project({ input, currentMessages: [], replacementGateOpen: true });
 
   assert.equal(
     projector.getLastProjectionDebugState()?.totalCompressibleTokenCount,

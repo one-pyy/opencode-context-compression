@@ -93,7 +93,10 @@ export function createDefaultMessagesTransformProjector(
           leadingUserPromptText: options.runtimeConfig.leadingUserPromptText,
         });
 
-        return await projectionBuilder.build({ sessionId });
+        return await projectionBuilder.build({
+          sessionId,
+          replacementGateOpen: input.replacementGateOpen,
+        });
       } finally {
         sidecar.close();
       }

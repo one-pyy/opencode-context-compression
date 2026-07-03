@@ -48,6 +48,7 @@ interface RuntimeConfigInput {
   readonly leadingUserPromptPath?: unknown;
   readonly compactionModels?: unknown;
   readonly markedTokenAutoCompactionThreshold?: unknown;
+  readonly idleThresholdMs?: unknown;
   readonly smallUserMessageThreshold?: unknown;
   readonly schedulerMarkThreshold?: unknown;
   readonly runtimeLogPath?: unknown;
@@ -121,6 +122,7 @@ export interface LoadedRuntimeConfig {
   readonly leadingUserPromptText: string;
   readonly models: readonly string[];
   readonly markedTokenAutoCompactionThreshold: number;
+  readonly idleThresholdMs: number;
   readonly smallUserMessageThreshold: number;
   readonly schedulerMarkThreshold: number;
   readonly runtimeLogPath: string;
@@ -183,6 +185,7 @@ const DEFAULTS = {
   allowDelete: false,
   leadingUserPromptPath: "prompts/projection-leading-user.md",
   markedTokenAutoCompactionThreshold: 20_000,
+  idleThresholdMs: 5 * 60 * 1000,
   smallUserMessageThreshold: 1_024,
   schedulerMarkThreshold: 1,
   reminder: {
@@ -450,6 +453,10 @@ export async function loadRuntimeConfig(
       parsed.markedTokenAutoCompactionThreshold ??
         DEFAULTS.markedTokenAutoCompactionThreshold,
       "markedTokenAutoCompactionThreshold",
+    ),
+    idleThresholdMs: readPositiveInteger(
+      parsed.idleThresholdMs ?? DEFAULTS.idleThresholdMs,
+      "idleThresholdMs",
     ),
     smallUserMessageThreshold: readPositiveInteger(
       parsed.smallUserMessageThreshold ?? DEFAULTS.smallUserMessageThreshold,

@@ -405,7 +405,7 @@ async function buildProjectionSnapshot(input: {
   });
 
   const projection = await projectionBuilder.build({
-    sessionId: input.sessionId,
+    sessionId: input.sessionId, replacementGateOpen: true,
   });
   return projection.messages.map((message) => message.contentText);
 }

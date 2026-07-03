@@ -88,6 +88,7 @@ export interface ProjectionState {
 
 export interface ProjectionBuildInput {
   readonly sessionId: string;
+  readonly replacementGateOpen: boolean;
 }
 
 export interface ProjectedPromptMessage {

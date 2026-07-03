@@ -6,6 +6,7 @@ import { createDefaultRuntimePluginSeamServices } from "./runtime/default-plugin
 import { createCompressionMarkAdmission } from "./tools/compression-mark.js";
 import { ToastService } from "./services/toast-service.js";
 import { createFileBackedRuntimeArtifactRecorder } from "./runtime/runtime-artifacts.js";
+import { resolvePluginLockDirectory } from "./runtime/file-lock.js";
 
 const plugin: Plugin = async (input) => {
   const runtimeConfig = await loadRuntimeConfig();
@@ -76,6 +77,8 @@ const plugin: Plugin = async (input) => {
     pluginDirectory: input.directory,
     pluginInput: input,
     runtimeConfig,
+    lockDirectory: resolvePluginLockDirectory(input.directory),
+    idleThresholdMs: runtimeConfig.idleThresholdMs,
   });
 };
 

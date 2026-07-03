@@ -118,7 +118,7 @@ test(
     });
 
     const projection = await projectionBuilder.build({
-      sessionId: fixture.sessionID,
+      sessionId: fixture.sessionID, replacementGateOpen: true,
     });
 
     assert.deepEqual(
@@ -210,7 +210,7 @@ test(
     });
 
     const projection = await projectionBuilder.build({
-      sessionId: fixture.sessionID,
+      sessionId: fixture.sessionID, replacementGateOpen: true,
     });
     const failureMessage = projection.messages.find(
       (message) => message.canonicalId === "tool-mark-rejected",
@@ -280,7 +280,7 @@ test(
     });
 
     const projection = await projectionBuilder.build({
-      sessionId: fixture.sessionID,
+      sessionId: fixture.sessionID, replacementGateOpen: true,
     });
 
     assert.equal(projection.toolResultOverrides.length, 0);
@@ -387,7 +387,7 @@ test(
     });
 
     const projection = await projectionBuilder.build({
-      sessionId: fixture.sessionID,
+      sessionId: fixture.sessionID, replacementGateOpen: true,
     });
     const inspectOverride = projection.toolResultOverrides.find(
       (override) => override.toolName === "compression_inspect",
