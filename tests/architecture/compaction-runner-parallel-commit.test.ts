@@ -67,6 +67,7 @@ test("compaction compute can run independently and commit remains ordered", asyn
       async allocateVisibleId() {
         throw new Error("unused");
       },
+      async markApplied() {},
       async listPendingMarkIds() {
         return [];
       },
@@ -173,6 +174,7 @@ test("compaction commit rejects partial compact fragments before persisting a re
       async allocateVisibleId() {
         throw new Error("unused");
       },
+      async markApplied() {},
       async listPendingMarkIds() {
         return [];
       },
@@ -527,7 +529,8 @@ function createUnusedResultGroupRepository(): ResultGroupRepository {
     async allocateVisibleId() {
       throw new Error("unused");
     },
-    async listPendingMarkIds() {
+    async markApplied() {},
+      async listPendingMarkIds() {
       return [];
     },
   } as ResultGroupRepository;

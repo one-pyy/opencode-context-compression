@@ -22,6 +22,7 @@ interface ResultGroupRow extends Record<string, unknown> {
   readonly created_at: string;
   readonly committed_at: string | null;
   readonly payload_sha256: string;
+  readonly applied: number;
 }
 
 interface ResultFragmentRow extends Record<string, unknown> {
@@ -137,7 +138,7 @@ export function readResultGroup(
   const row = database
     .prepare<ResultGroupRow>(
       `
-        SELECT mark_id, mode, source_start_seq, source_end_seq, fragment_count, model_name, execution_mode, created_at, committed_at, payload_sha256
+        SELECT mark_id, mode, source_start_seq, source_end_seq, fragment_count, model_name, execution_mode, created_at, committed_at, payload_sha256, applied
         FROM result_groups
         WHERE mark_id = :mark_id
       `,
@@ -153,7 +154,7 @@ export function listResultGroups(
   return database
     .prepare<ResultGroupRow>(
       `
-        SELECT mark_id, mode, source_start_seq, source_end_seq, fragment_count, model_name, execution_mode, created_at, committed_at, payload_sha256
+        SELECT mark_id, mode, source_start_seq, source_end_seq, fragment_count, model_name, execution_mode, created_at, committed_at, payload_sha256, applied
         FROM result_groups
         ORDER BY source_start_seq ASC, source_end_seq ASC, mark_id ASC
       `,
@@ -248,6 +249,7 @@ function hydrateResultGroupRecord(
     createdAt: row.created_at,
     committedAt: row.committed_at ?? undefined,
     payloadSha256: row.payload_sha256,
+    applied: row.applied === 1,
     fragments: fragments.map((fragment) => ({
       fragmentIndex: fragment.fragment_index,
       sourceStartSeq: fragment.source_start_seq,
@@ -317,6 +319,7 @@ function mapReplayResultGroupToStoredRecord(
     committedAt: resultGroup.committedAt,
     payloadSha256:
       resultGroup.payloadSha256 ?? computeResultGroupPayloadSha256(resultGroup),
+    applied: false,
     fragments: resultGroup.fragments.map((fragment, fragmentIndex) => ({
       fragmentIndex,
       sourceStartSeq: fragment.sourceStartSeq,
@@ -324,6 +327,17 @@ function mapReplayResultGroupToStoredRecord(
       replacementText: fragment.replacementText,
     })),
   };
+}
+
+export function markResultGroupApplied(
+  database: SqliteDatabase,
+  markID: string,
+): void {
+  database
+    .prepare(
+      `UPDATE result_groups SET applied = 1 WHERE mark_id = :mark_id`,
+    )
+    .run({ mark_id: markID });
 }
 
 function storedResultGroupsMatch(

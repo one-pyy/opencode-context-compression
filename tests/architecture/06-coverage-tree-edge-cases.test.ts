@@ -54,6 +54,7 @@ function createResultGroup(markId: string, startSeq: number, endSeq: number, rep
     executionMode: "auto",
     createdAt: new Date().toISOString(),
     payloadSha256: "hash",
+    applied: true,
     fragments: [
       {
         fragmentIndex: 0,

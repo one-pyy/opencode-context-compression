@@ -127,7 +127,7 @@ function renderMarkNode(input: {
   readonly replacementGateOpen: boolean;
 }): ProjectedPromptMessage[] {
   const resultGroup = input.resultGroupsByMarkId.get(input.node.markId);
-  if (!resultGroup || !input.replacementGateOpen) {
+  if (!resultGroup || (!input.replacementGateOpen && !resultGroup.applied)) {
     return renderSequenceRange({
       startSequence: input.node.startSequence,
       endSequence: input.node.endSequence,

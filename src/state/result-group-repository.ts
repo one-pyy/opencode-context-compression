@@ -3,6 +3,8 @@ import type {
   SessionSidecarResultGroupRecord,
   SessionSidecarVisibleIDAllocation,
 } from "./sidecar-store.js";
+import type { SessionSidecarRepositoryWithDatabase } from "./sidecar-store/repository.js";
+import { markResultGroupApplied } from "./sidecar-store/result-groups.js";
 import { defineInternalModuleContract } from "../internal/module-contract.js";
 import type {
   VisibleIdAllocation,
@@ -29,6 +31,7 @@ export interface CompleteResultGroup {
   readonly createdAt: string;
   readonly committedAt?: string;
   readonly payloadSha256: string;
+  readonly applied: boolean;
   readonly fragments: readonly ResultGroupFragment[];
 }
 
@@ -56,6 +59,7 @@ export interface ResultGroupRepository {
     input: VisibleIdAllocationInput,
   ): Promise<VisibleIdAllocation>;
   listPendingMarkIds(): Promise<readonly string[]>;
+  markApplied(markId: string): Promise<void>;
 }
 
 export const RESULT_GROUP_REPOSITORY_INTERNAL_CONTRACT =
@@ -88,7 +92,7 @@ export const RESULT_GROUP_REPOSITORY_INTERNAL_CONTRACT =
   });
 
 export function createResultGroupRepository(
-  repository: SessionSidecarRepository,
+  repository: SessionSidecarRepositoryWithDatabase,
 ): ResultGroupRepository {
   return {
     async upsertCompleteGroup(input) {
@@ -134,6 +138,9 @@ export function createResultGroupRepository(
     async listPendingMarkIds() {
       return repository.listPendingMarkIds();
     },
+    async markApplied(markId) {
+      markResultGroupApplied(repository.database, markId);
+    },
   } satisfies ResultGroupRepository;
 }
 
@@ -151,6 +158,7 @@ function mapResultGroupRecord(
     createdAt: record.createdAt,
     committedAt: record.committedAt,
     payloadSha256: record.payloadSha256,
+    applied: record.applied,
     fragments: Object.freeze(
       record.fragments.map((fragment) => ({
         fragmentIndex: fragment.fragmentIndex,

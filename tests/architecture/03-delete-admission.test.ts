@@ -93,6 +93,7 @@ function createDeleteResultGroup(markId: string, startSeq: number, endSeq: numbe
     executionMode: "auto",
     createdAt: new Date().toISOString(),
     payloadSha256: "hash",
+    applied: true,
     fragments: [
       {
         fragmentIndex: 0,

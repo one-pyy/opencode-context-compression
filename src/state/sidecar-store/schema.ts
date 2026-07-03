@@ -50,6 +50,7 @@ const EXPECTED_TABLE_COLUMNS: Record<AllowedTableName, readonly string[]> = {
     "created_at",
     "committed_at",
     "payload_sha256",
+    "applied",
   ],
   result_fragments: [
     "mark_id",
@@ -103,6 +104,8 @@ export async function openLockedSessionSidecarDatabase(
 }
 
 export function ensureLockedSidecarSchema(database: SqliteDatabase): void {
+  migrateResultGroupsAppliedColumn(database);
+
   if (needsDestructiveSchemaReset(database)) {
     dropAllUserSchemaObjects(database);
   }
@@ -130,7 +133,8 @@ export function ensureLockedSidecarSchema(database: SqliteDatabase): void {
       execution_mode TEXT NOT NULL,
       created_at TEXT NOT NULL,
       committed_at TEXT,
-      payload_sha256 TEXT NOT NULL
+      payload_sha256 TEXT NOT NULL,
+      applied INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS result_fragments (
@@ -296,4 +300,33 @@ function isAllowedTableName(value: string): value is AllowedTableName {
 
 function isAllowedIndexName(value: string): value is AllowedIndexName {
   return SIDECAR_INDEX_NAMES.includes(value as AllowedIndexName);
+}
+
+function migrateResultGroupsAppliedColumn(database: SqliteDatabase): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS result_groups (
+      mark_id TEXT PRIMARY KEY,
+      mode TEXT NOT NULL CHECK (mode IN ('compact', 'delete')),
+      source_start_seq INTEGER NOT NULL,
+      source_end_seq INTEGER NOT NULL,
+      fragment_count INTEGER NOT NULL CHECK (fragment_count >= 1),
+      model_name TEXT,
+      execution_mode TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      committed_at TEXT,
+      payload_sha256 TEXT NOT NULL,
+      applied INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+
+  const columns = database
+    .prepare<TableInfoRow>(`PRAGMA table_info(result_groups)`)
+    .all()
+    .map((row) => row.name);
+
+  if (!columns.includes("applied")) {
+    database.exec(
+      `ALTER TABLE result_groups ADD COLUMN applied INTEGER NOT NULL DEFAULT 0`,
+    );
+  }
 }

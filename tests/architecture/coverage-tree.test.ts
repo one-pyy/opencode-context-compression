@@ -55,6 +55,7 @@ function createResultGroup(markId: string, startSeq: number, endSeq: number, rep
     executionMode: "auto",
     createdAt: new Date().toISOString(),
     payloadSha256: "hash",
+    applied: true,
     fragments: [
       {
         fragmentIndex: 0,
@@ -151,6 +152,7 @@ test("Coverage Tree Render - Gap Merging and Fragments (15.18 & 15.33)", () => {
       executionMode: "auto",
       createdAt: new Date().toISOString(),
       payloadSha256: "hash",
+    applied: true,
       fragments: [
         { fragmentIndex: 0, sourceStartSeq: 1, sourceEndSeq: 1, replacementText: "FRAG_1" },
         { fragmentIndex: 1, sourceStartSeq: 3, sourceEndSeq: 3, replacementText: "FRAG_2" }

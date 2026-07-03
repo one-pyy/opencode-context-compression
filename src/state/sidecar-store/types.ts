@@ -62,6 +62,7 @@ export interface SessionSidecarResultGroupRecord {
   readonly createdAt: string;
   readonly committedAt?: string;
   readonly payloadSha256: string;
+  readonly applied: boolean;
   readonly fragments: readonly SessionSidecarResultFragment[];
 }
 

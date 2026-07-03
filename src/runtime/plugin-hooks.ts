@@ -46,6 +46,7 @@ import {
 } from "./runtime-artifacts.js";
 import type { ToastService } from "../services/toast-service.js";
 import { openSessionSidecarRepository } from "../state/sidecar-store.js";
+import { createResultGroupRepository } from "../state/result-group-repository.js";
 import { resolvePluginStateDirectory, resolveSessionDatabasePath } from "./sidecar-layout.js";
 import { readPendingToastEvents, markToastEventsProcessed } from "../state/sidecar-store/toast-events.js";
 import { executeBackgroundCompactions } from "./background-compaction-executor.js";
@@ -175,6 +176,15 @@ export function createContextCompressionHooks(
         });
         throw error;
       }
+
+      await markAppliedResultGroups({
+        sessionID,
+        projectionState: messagesTransformProjector?.getLastProjectionState?.(),
+        pluginDirectory: options.pluginDirectory,
+        runtimeConfig: options.runtimeConfig,
+        currentMessages: output.messages,
+        idleThresholdMs: options.idleThresholdMs,
+      });
 
       await runtimeArtifacts.writeMessagesTransformSnapshot({
         sessionID,
@@ -329,8 +339,8 @@ function computeReplacementGateOpen(options: {
     return true;
   }
 
-  const resultGroupMarkIds = new Set(
-    lastState.state.resultGroups.map((group) => group.markId),
+  const resultGroupsByMarkId = new Map(
+    lastState.state.resultGroups.map((group) => [group.markId, group]),
   );
 
   let uncompressedMarkedTokenCount = 0;
@@ -341,7 +351,8 @@ function computeReplacementGateOpen(options: {
   function countUncompressed(nodes: readonly import("../projection/types.js").MarkTreeNode[]): number {
     let total = 0;
     for (const node of nodes) {
-      if (resultGroupMarkIds.has(node.markId)) {
+      const resultGroup = resultGroupsByMarkId.get(node.markId);
+      if (resultGroup && resultGroup.applied) {
         continue;
       }
       for (let seq = node.startSequence; seq <= node.endSequence; seq += 1) {
@@ -369,6 +380,76 @@ function computeReplacementGateOpen(options: {
   });
 
   return gateResult.shouldReplace;
+}
+
+async function markAppliedResultGroups(options: {
+  readonly sessionID: string;
+  readonly projectionState?: import("../projection/types.js").ProjectedMessageSet;
+  readonly pluginDirectory?: string;
+  readonly runtimeConfig?: LoadedRuntimeConfig;
+  readonly currentMessages: readonly MessagesTransformEnvelope[];
+  readonly idleThresholdMs?: number;
+}): Promise<void> {
+  if (!options.projectionState || !options.pluginDirectory || !options.runtimeConfig) {
+    return;
+  }
+
+  const lastState = options.projectionState;
+  const resultGroupsByMarkId = new Map(
+    lastState.state.resultGroups.map((group) => [group.markId, group]),
+  );
+  const tokenCountBySequence = new Map(
+    lastState.state.messagePolicies.map((policy) => [policy.sequence, policy.tokenCount]),
+  );
+
+  let uncompressedMarkedTokenCount = 0;
+  function countUncompressed(nodes: readonly import("../projection/types.js").MarkTreeNode[]): number {
+    let total = 0;
+    for (const node of nodes) {
+      const resultGroup = resultGroupsByMarkId.get(node.markId);
+      if (resultGroup && resultGroup.applied) {
+        continue;
+      }
+      for (let seq = node.startSequence; seq <= node.endSequence; seq += 1) {
+        total += tokenCountBySequence.get(seq) ?? 0;
+      }
+      total += countUncompressed(node.children);
+    }
+    return total;
+  }
+  uncompressedMarkedTokenCount = countUncompressed(lastState.state.markTree.marks);
+
+  const lastModelResponseTime = extractLastModelResponseTime(
+    options.currentMessages as readonly { readonly parts?: readonly { readonly type?: string; readonly time?: { readonly start?: number; readonly end?: number } | null }[] }[],
+  );
+  const idleThresholdMs = options.idleThresholdMs ?? 5 * 60 * 1000;
+
+  const gateResult = evaluateReplacementGate({
+    uncompressedMarkedTokenCount,
+    markedTokenAutoCompactionThreshold: options.runtimeConfig.markedTokenAutoCompactionThreshold,
+    lastModelResponseTime,
+    idleThresholdMs,
+    now: Date.now(),
+  });
+
+  if (!gateResult.shouldReplace) {
+    return;
+  }
+
+  const stateDirectory = resolvePluginStateDirectory(options.pluginDirectory);
+  const databasePath = resolveSessionDatabasePath(stateDirectory, options.sessionID);
+  const sidecar = await openSessionSidecarRepository({ databasePath });
+
+  try {
+    const resultGroupRepo = createResultGroupRepository(sidecar);
+    for (const group of lastState.state.resultGroups) {
+      if (!group.applied) {
+        await resultGroupRepo.markApplied(group.markId);
+      }
+    }
+  } finally {
+    sidecar.close();
+  }
 }
 
 async function conditionalSendEntryGate(options: {
