@@ -113,10 +113,12 @@ function collectReplayableEntries(
   let nextSequence = 1;
 
   for (const envelope of envelopes) {
+    let hostSequence: number | undefined;
     if (isCanonicalHostMessageRole(envelope.info.role)) {
+      hostSequence = nextSequence++;
       hostHistory.push(
         Object.freeze({
-          sequence: nextSequence++,
+          sequence: hostSequence,
           message: {
             info: envelope.info as any,
             parts: envelope.parts.flatMap((part): CanonicalHostMessagePart[] => {
@@ -177,32 +179,13 @@ function collectReplayableEntries(
         callID: part.callID,
         ordinal: nextOrdinal,
       });
-      const syntheticSequence = nextSequence++;
-
-      hostHistory.push(
-        Object.freeze({
-          sequence: syntheticSequence,
-          message: {
-            info: {
-              id: syntheticMessageId,
-              role: "tool",
-            },
-            parts: [
-              {
-                type: "text" as const,
-                text: resolveCompressionMarkToolVisibleText(completedState.output),
-                messageId: syntheticMessageId,
-              },
-            ],
-          } satisfies CanonicalHostMessage,
-        } satisfies ReplayableHostHistoryEntry),
-      );
+      const eventSequence = hostSequence ?? nextSequence;
 
       if (part.tool === "compression_inspect") {
         collectReplayableCompressionInspectEntry({
           completedState,
           syntheticMessageId,
-          syntheticSequence,
+          syntheticSequence: eventSequence,
           toolHistory,
           compressionInspectToolCalls,
         });
@@ -213,7 +196,7 @@ function collectReplayableEntries(
         collectReplayableCompressionRecallEntry({
           completedState,
           syntheticMessageId,
-          syntheticSequence,
+          syntheticSequence: eventSequence,
           toolHistory,
           compressionRecallToolCalls,
         });
@@ -224,7 +207,7 @@ function collectReplayableEntries(
       if (!parsedInput.ok) {
         compressionMarkToolCalls.push(
           Object.freeze({
-            sequence: syntheticSequence,
+            sequence: eventSequence,
             sourceMessageId: syntheticMessageId,
             outcome: "invalid-input",
             errorCode: parsedInput.result.errorCode,
@@ -240,7 +223,7 @@ function collectReplayableEntries(
       } catch {
         compressionMarkToolCalls.push(
           Object.freeze({
-            sequence: syntheticSequence,
+            sequence: eventSequence,
             sourceMessageId: syntheticMessageId,
             outcome: "invalid-result",
             mode: parsedInput.value.mode,
@@ -255,7 +238,7 @@ function collectReplayableEntries(
 
        compressionMarkToolCalls.push(
         Object.freeze({
-          sequence: syntheticSequence,
+          sequence: eventSequence,
           sourceMessageId: syntheticMessageId,
           outcome: parsedResult.ok === true ? "accepted" : "rejected",
           mode: parsedInput.value.mode,
@@ -273,7 +256,7 @@ function collectReplayableEntries(
 
       toolHistory.push(
         Object.freeze({
-          sequence: syntheticSequence,
+          sequence: eventSequence,
           sourceMessageId: syntheticMessageId,
           toolName: "compression_mark",
           input: parsedInput.value,
@@ -322,7 +305,7 @@ function collectReplayableCompressionInspectEntry(input: {
         sequence: input.syntheticSequence,
         sourceMessageId: input.syntheticMessageId,
         outcome: "invalid-result",
-        startVisibleMessageId: parsedInput.value.from,
+        startVisibleMessageId: undefined,
         endVisibleMessageId: parsedInput.value.to,
         errorCode: "INVALID_RANGE",
         message: "compression_inspect returned an invalid result payload.",
@@ -336,7 +319,7 @@ function collectReplayableCompressionInspectEntry(input: {
       sequence: input.syntheticSequence,
       sourceMessageId: input.syntheticMessageId,
       outcome: parsedResult.ok === true ? "accepted" : "rejected",
-      startVisibleMessageId: parsedInput.value.from,
+      startVisibleMessageId: undefined,
       endVisibleMessageId: parsedInput.value.to,
       ...(parsedResult.ok === true && "inspectId" in parsedResult
         ? { inspectId: parsedResult.inspectId }
@@ -457,18 +440,4 @@ function isReplayableToolPart(
     typeof part.tool === "string" &&
     isReplayablePluginToolName(part.tool)
   );
-}
-
-function resolveCompressionMarkToolVisibleText(output: string): string {
-  const trimmed = output.trim();
-  if (trimmed.length === 0) {
-    return "compression_mark returned an empty result payload.";
-  }
-
-  try {
-    const parsed = deserializeCompressionMarkResult(output);
-    return parsed.ok ? trimmed : parsed.message;
-  } catch {
-    return trimmed;
-  }
 }

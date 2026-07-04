@@ -12,7 +12,9 @@
     "test:dist-entry": "npm run build && node --import tsx --test tests/e2e/runtime/build-first-entry.test.ts",
     "token-counter": "uv run --with fastapi --with uvicorn --with tiktoken scripts/token_counter_service.py",
     "probe:seams": "npm run build && node --enable-source-maps scripts/run-seam-probe.mjs",
-    "trim-json": "node --import tsx scripts/trim-json.ts"
+    "trim-json": "node --import tsx scripts/trim-json.ts",
+    "measure-tokens": "node --import tsx scripts/measure-tokens.ts",
+    "diff-projection": "node --import tsx scripts/diff-projection-json.ts"
   },
   "dependencies": {
     "@opencode-ai/plugin": "1.3.13",

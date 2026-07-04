@@ -368,7 +368,6 @@ test(
             sourceMessageId: "tool-inspect-range",
             toolName: "compression_inspect",
             input: {
-              from: visibleIds.user1.assignedVisibleId,
               to: visibleIds.user2.assignedVisibleId,
             },
             result: {

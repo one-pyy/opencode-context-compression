@@ -11,3 +11,4 @@ node_modules/
 .sisyphus/tmp/
 .sisyphus/next-plan/
 /live-runtime-proof/
+.bak/

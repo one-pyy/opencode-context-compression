@@ -5,7 +5,6 @@ export const COMPRESSION_INSPECT_TOOL_NAME = "compression_inspect";
 export type CompressionInspectErrorCode = "INVALID_RANGE" | "SESSION_NOT_READY";
 
 export interface CompressionInspectInputV1 {
-  readonly from: string;
   readonly to: string;
 }
 
@@ -57,9 +56,9 @@ export type CompressionInspectValidationResult =
 
 export interface CompressionInspectExternalContract {
   readonly toolName: "compression_inspect";
-  readonly inputShape: "{ from, to }";
+  readonly inputShape: "{ to }";
   readonly outputShape: "placeholder first, then JSON-serialized resolved message token array after projection";
-  readonly callTiming: "when the model needs to inspect uncompressed compressible messages in a visible-id range";
+  readonly callTiming: "when the model needs to inspect uncompressed compressible messages up to a visible-id endpoint";
   readonly visibleSideEffects: readonly [
     "returns an inspectId placeholder immediately",
     "messages.transform replaces the placeholder with message ids and token counts from the current projection state"
@@ -73,11 +72,11 @@ export interface CompressionInspectExternalContract {
 
 export const COMPRESSION_INSPECT_EXTERNAL_CONTRACT = Object.freeze({
   toolName: "compression_inspect",
-  inputShape: "{ from, to }",
+  inputShape: "{ to }",
   outputShape:
     "placeholder first, then JSON-serialized resolved message token array after projection",
   callTiming:
-    "when the model needs to inspect uncompressed compressible messages in a visible-id range",
+    "when the model needs to inspect uncompressed compressible messages up to a visible-id endpoint",
   visibleSideEffects: [
     "returns an inspectId placeholder immediately",
     "messages.transform replaces the placeholder with message ids and token counts from the current projection state",
@@ -96,21 +95,20 @@ export function validateCompressionInspectInput(
   const record = asRecord(input);
   if (record === undefined) {
     return invalidRange(
-      'compression_inspect input must be a JSON object. Example: {"from":"compressible_000123_ab","to":"compressible_000130_q7"}',
+      'compression_inspect input must be a JSON object. Example: {"to":"compressible_000130_q7"}',
     );
   }
 
-  const from = readNonEmptyString(record.from);
   const to = readNonEmptyString(record.to);
-  if (from === undefined || to === undefined) {
+  if (to === undefined) {
     return invalidRange(
-      `compression_inspect from and to must both be non-empty visible message IDs. You provided: from=${JSON.stringify(record.from)}, to=${JSON.stringify(record.to)}`,
+      `compression_inspect to must be a non-empty visible message ID. You provided: to=${JSON.stringify(record.to)}`,
     );
   }
 
   return {
     ok: true,
-    value: { from, to },
+    value: { to },
   };
 }
 

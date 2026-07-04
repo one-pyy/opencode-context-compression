@@ -15,7 +15,6 @@ import {
 
 export interface CompressionInspectAdmissionInput {
   readonly sessionID: string;
-  readonly from: string;
   readonly to: string;
 }
 
@@ -63,7 +62,6 @@ export async function executeCompressionInspect(
 
   const admissionInput = {
     sessionID: context.sessionID,
-    from: parsed.value.from,
     to: parsed.value.to,
   } satisfies CompressionInspectAdmissionInput;
   const admission = options.admission ?? createCompressionInspectAdmission();
@@ -85,18 +83,14 @@ export function createCompressionInspectTool(
   return tool({
     description:
       "Inspect token counts for a visible message range before deciding whether to call compression_mark. " +
-      "Use this when you need to choose an exact range for compression. Provide inclusive from/to visible message IDs. " +
-      "Choose from as the first visible message ID in the candidate range and to as the current newest visible message ID, so inspection covers the full span from that start through the latest message. " +
+      "Use this when you need to choose an exact range for compression. Provide the to visible message ID — the range always starts from the first visible message. " +
       "The result lists uncompressed compressible messages in that range with their current token counts. " +
       "After inspecting a range, either call compression_mark or leave the range unchanged. " +
       "Do not repeatedly inspect the same range unless new visible messages were added or the range boundaries changed. " +
       "compression_mark records a future compaction request; it does not immediately change the current visible context.",
     args: {
-      from: tool.schema.string().min(1).describe(
-        "The visible message ID where the inclusive inspection range starts"
-      ),
       to: tool.schema.string().min(1).describe(
-        "The visible message ID where the inclusive inspection range ends"
+        "The last visible message ID in the range to inspect (the range starts from the first visible message)"
       ),
     },
     async execute(args, context) {

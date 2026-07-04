@@ -12,39 +12,36 @@ import {
 
 test("compression_inspect validates one visible-id range and returns a placeholder", async () => {
   const valid = validateCompressionInspectInput({
-    from: "compressible_000001_a1",
     to: "compressible_000004_b2",
   });
   assert.equal(valid.ok, true);
 
   const invalid = validateCompressionInspectInput({
     target: {
-      from: "compressible_000001_a1",
       to: "compressible_000004_b2",
     },
   });
   assert.equal(invalid.ok, false);
   if (!invalid.ok) {
     assert.equal(invalid.result.errorCode, "INVALID_RANGE");
-    assert.match(invalid.result.message, /compression_inspect from and to/u);
+    assert.match(invalid.result.message, /compression_inspect to/u);
   }
 
   const result = await executeCompressionInspect(
     {
-      from: "compressible_000001_a1",
       to: "compressible_000004_b2",
     },
     createInvocationContext("session-inspect"),
     {
       createInspectID(input) {
-        return `inspect-for-${input.from}`;
+        return `inspect-for-${input.to}`;
       },
     },
   );
 
   assert.deepEqual(result, {
     ok: true,
-    inspectId: "inspect-for-compressible_000001_a1",
+    inspectId: "inspect-for-compressible_000004_b2",
   });
   assert.equal(
     COMPRESSION_INSPECT_EXTERNAL_CONTRACT.relationToRuntime.tokenCounts,
@@ -61,7 +58,6 @@ test("compression_inspect tool serializes the placeholder result", async () => {
 
   const payload = await definition.execute(
     {
-      from: "compressible_000001_a1",
       to: "compressible_000004_b2",
     },
     {

@@ -28,12 +28,34 @@
 
 # 信息类型分三档
 1. **指针类**（路径、行号、函数名、错误码、命令、URL）
-   任何时候都只需短引用。它们指向可重访的位置，未来 AI 需要时可以重新读取。
+   默认只需短引用。但若该指针指向的内容**是结论的支撑证据**——结论中引用的数据、验证结果、关键发现——保留内容本身的关键部分，不只留路径。详见下方"指针类内容的例外"。
 2. **决策依赖项**（用户原话的约束、具体数值、常量、版本号、API 签名、明确承诺）
    不可重访或重访成本高，保留原文。
 3. **过程叙述**（我去查一下、我试 X、读了 Y 发现 Z、搜了 A 命中 B）
    - hint 说"已完成/已外化"→ 压成"已探索范围 + 结论"
    - hint 未说 → 保留"做了什么 + 得到什么"
+
+# 结论保留（硬约束）
+在一段连续的 assistant 消息中，**最后一条不含工具调用的 assistant 消息**是"结论"——它是 AI 给用户的最终回复，包含任务结果、验证数据、判断。
+
+结论的压缩力度远低于过程叙述：
+- 保留完整的结果、数据、验证证据、最终判断
+- 只压缩结论中的客套、过渡语、重复确认
+- 不要把结论压成一句话
+
+过程消息（含工具调用的 assistant 消息）按三档信息类型正常压缩。
+
+**反模式**：把"31 个 result group 修复完成，重跑后 35,894 tokens，短用户 110/110 保留，35 万级异常膨胀已消失"压成"31 个 result group 全部更新"——丢了验证数据和最终判断。
+
+# 指针类内容的例外
+路径、行号、函数名通常只需短引用。但如果该指针指向的内容**是结论的支撑证据**——结论中引用的数据、验证结果、关键发现——则保留内容本身的关键部分，不只留路径。
+
+判断标准：如果未来 AI 只看到路径而看不到内容，能否理解结论为什么成立？如果不能，保留内容关键部分。
+
+示例：
+- "读取 config.ts，发现 timeout 无默认值" → 保留"timeout 无默认值"这个发现，不只留"已读 config.ts"
+- "运行 repair 脚本，repairCount=31" → 保留"repairCount=31"这个数据，不只留"运行了脚本"
+- "grep strictNullChecks → false" → 保留"strictNullChecks=false"这个事实，不只留"grep 过 tsconfig"
 
 # 三条默认判断原则（hint 未覆盖时使用）
 1. **可恢复性**：信息丢了能否从外部重建？能重建的（通过指针重访）可压；不能重建的（用户说过的约束、关键数值、决策理由）要保留。
@@ -46,7 +68,7 @@
 # 翻译，不是删除
 压缩不是选择性删除，是把同一事实翻译成更稠密的表达。
 - "200 行 file read" → "导出 3 个常量：A=1, B=2, C=3"（hint 未说已完成时）
-- "200 行 file read" → "已读 config.ts"（hint 说已完成时）
+- "200 行 file read" → "已读 config.ts，发现 timeout 无默认值"（hint 说已完成时，仍保留关键发现）
 - "10 轮反复试错" → "A、B、C 都试过失败，原因 X"
 - "5 轮澄清对话" → "用户确认范围限于 Y"
 
@@ -62,18 +84,12 @@
 生成最终轨迹前，**必须**输出一个 `<analysis>` 块，列出：
 - 输入中找到的所有 `<opaque slot="Sx">` 标签。
 - 必须保留的关键实体、路径、事实。
+- **结论消息**——识别每段连续 assistant 消息中最后一条不含工具调用的消息，列出其中必须保留的结果、数据、验证证据。
+- **结论的支撑证据**——即使证据在过程消息或文件内容中，只要结论引用了它，就列出要保留的关键部分。
 - **必须保留的关键推理步骤**——决策点、有理由的否决、假设链、命名的权衡。
 - **从 Compression hint 提取的 MUST KEEP 项**（如有 hint）。
 
 `<analysis>` 块用于自我规划，**不是成品的一部分**。**不要在最终轨迹中复述 analysis 的内容**。
-
-# 输出长度参考
-压缩后输出的字符数应当**显著小于输入**。
-- 短输入（< 20 条消息）：目标 30%-50%。
-- 中输入（20-50 条消息）：目标 15%-30%。
-- 长输入（> 50 条消息）：目标 < 15%。
-
-如果你的输出接近或超过输入长度，说明你**在产生而非压缩**——返回检查并删除重复确认、客套、复述、过度展开的工具调用。
 
 # 示例
 
@@ -114,6 +130,8 @@ Compression hint: 保留所有候选名和降权理由。完整搜索结果已�
 <analysis>
 Opaque slots found: S1
 Key facts: 4 候选——Mini Shai-Hulud（npm worm，12 包）、恶意 NuGet 针对中国 .NET 开发者、Antel TuID OAuth、FastSim SIM-swap。dump 外化到 .sisyphus/tmp/work/cti-search-2026-w19.md。
+Conclusion: msg_004 是结论消息——4 个候选的排序和降权理由。保留完整排序结论和每个候选的判断依据。
+Supporting evidence: tool result 中的 4 个候选名称和特征是结论的支撑证据，保留每个候选的关键属性（包数、攻击类型、信号强度）。
 Reasoning: Antel 降权（单源无 IOC）；Mini Shai-Hulud 一线（包数+活跃）；NuGet/FastSim 二线（待报道）。
 MUST KEEP from hint: 4 个候选名、降权理由、外化路径。
 </analysis>
@@ -202,6 +220,8 @@ Compression hint: Task completed. 调试过程可压成结论。保留最终修�
 <analysis>
 Opaque slots found: S1, S2
 Key facts: loader.ts 的 loadConfig 返回 raw 字段时无空值 fallback；tsconfig 的 strictNullChecks 为 false。
+Conclusion: msg_006 是结论消息——"全部 12 个用例通过，其中 3 个新增用例覆盖了空值场景"。保留完整测试结果数据。
+Supporting evidence: tool result "12 tests passed, 0 failed. (3 new tests for null/undefined config values)" 是结论的支撑证据，保留关键数字。
 Reasoning: 曾考虑开启 strictNullChecks 来暴露全部空值问题→用户明确否决（不动 tsconfig）→收敛为局部 nullish coalescing（?? 30000, ?? 3）。这是约束驱动的方案收窄。
 MUST KEEP from hint: 最终修复方案（局部 ?? 默认值）、用户约束（不动 tsconfig）。
 </analysis>
@@ -283,6 +303,8 @@ Drizzle 类型安全好——schema 定义即 TypeScript 类型，查询结果�
 <analysis>
 Opaque slots found: S1, S2, S3, S4, S5
 Key facts: 原 SQLite schema 三张表 sessions/messages/marks；代码中有 better-sqlite3、pragma、json_extract 需替换；最终选型 Drizzle ORM 0.35.3；新 schema 用 pgTable + jsonb + timestamp；连接层用 pg Pool。
+Conclusion: msg_012 是结论消息——CI workflow 添加 PostgreSQL service container + DATABASE_URL，推送后通过。保留完整最终状态。
+Supporting evidence: git push → CI workflow passed 是结论的支撑证据，保留"CI 通过"这个验证结果。
 Reasoning: 用户需求"不想手写 SQL"→排除纯 query builder（Kysely）→选择 schema-first 的 Drizzle（自动迁移 + 类型推断）。首次测试失败因无本地 PG→Docker 解决→延伸到 compose + CI service container 保证环境一致。
 MUST KEEP from hint: Drizzle 选型理由、schema 三表结构、用户约束。
 </analysis>

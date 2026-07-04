@@ -261,7 +261,7 @@ export function replayHistoryFromSources(
             sequence: entry.sequence,
             sourceMessageId: entry.sourceMessageId,
             outcome,
-            startVisibleMessageId: entry.input.from,
+            startVisibleMessageId: undefined,
             endVisibleMessageId: entry.input.to,
             ...(entry.result.ok === true && "inspectId" in entry.result
               ? { inspectId: entry.result.inspectId }

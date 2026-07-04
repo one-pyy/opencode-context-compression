@@ -52,6 +52,7 @@ import { readPendingToastEvents, markToastEventsProcessed } from "../state/sidec
 import { executeBackgroundCompactions } from "./background-compaction-executor.js";
 import type { LoadedRuntimeConfig } from "../config/runtime-config.js";
 import type { PluginInput } from "@opencode-ai/plugin";
+import type { ProjectedMessageSet, MarkTreeNode } from "../projection/types.js";
 import {
   evaluateReplacementGate,
   extractLastModelResponseTime,
@@ -141,22 +142,13 @@ export function createContextCompressionHooks(
         currentMessages: output.messages,
       });
 
-      const gateResult = await conditionalSendEntryGate({
-        sessionID,
-        sendEntryGate,
+      const gateOpen = computeReplacementGateOpen({
         messagesTransformProjector,
         currentMessages: output.messages,
         runtimeConfig: options.runtimeConfig,
-        lockDirectory: options.lockDirectory,
         idleThresholdMs: options.idleThresholdMs,
       });
 
-      await runtimeArtifacts.recordEvent({
-        sessionID,
-        seam: "experimental.chat.messages.transform",
-        stage: "gate",
-        payload: gateResult,
-      });
       await runtimeArtifacts.writeMessagesTransformSnapshot({
         sessionID,
         phase: "hook-in",
@@ -165,26 +157,84 @@ export function createContextCompressionHooks(
         },
       });
 
-      try {
-        await messagesTransform(input, output);
-      } catch (error) {
-        await runtimeArtifacts.recordEvent({
+      if (gateOpen) {
+        await conditionalSendEntryGate({
           sessionID,
-          seam: "experimental.chat.messages.transform",
-          stage: "failed",
-          payload: serializeError(error),
+          sendEntryGate,
+          messagesTransformProjector,
+          currentMessages: output.messages,
+          runtimeConfig: options.runtimeConfig,
+          lockDirectory: options.lockDirectory,
+          idleThresholdMs: options.idleThresholdMs,
         });
-        throw error;
-      }
 
-      await markAppliedResultGroups({
-        sessionID,
-        projectionState: messagesTransformProjector?.getLastProjectionState?.(),
-        pluginDirectory: options.pluginDirectory,
-        runtimeConfig: options.runtimeConfig,
-        currentMessages: output.messages,
-        idleThresholdMs: options.idleThresholdMs,
-      });
+        await messagesTransform(input, output);
+
+        const projectionState = messagesTransformProjector?.getLastProjectionState?.();
+        if (projectionState && options.pluginInput && options.runtimeConfig) {
+          if (hasEligibleMarksForCompression(projectionState)) {
+            await executeBackgroundCompactions({
+              pluginInput: options.pluginInput,
+              runtimeConfig: options.runtimeConfig,
+              runtimeArtifacts,
+              sessionId: sessionID,
+              projectionState,
+            });
+            await messagesTransform(input, output);
+          }
+        }
+
+        await markAppliedResultGroups({
+          sessionID,
+          projectionState: messagesTransformProjector?.getLastProjectionState?.(),
+          pluginDirectory: options.pluginDirectory,
+          runtimeConfig: options.runtimeConfig,
+          currentMessages: output.messages,
+          idleThresholdMs: options.idleThresholdMs,
+        });
+      } else {
+        try {
+          await messagesTransform(input, output);
+        } catch (error) {
+          await runtimeArtifacts.recordEvent({
+            sessionID,
+            seam: "experimental.chat.messages.transform",
+            stage: "failed",
+            payload: serializeError(error),
+          });
+          throw error;
+        }
+
+        await markAppliedResultGroups({
+          sessionID,
+          projectionState: messagesTransformProjector?.getLastProjectionState?.(),
+          pluginDirectory: options.pluginDirectory,
+          runtimeConfig: options.runtimeConfig,
+          currentMessages: output.messages,
+          idleThresholdMs: options.idleThresholdMs,
+        });
+
+        if (options.pluginInput && options.runtimeConfig) {
+          const projectionState = messagesTransformProjector?.getLastProjectionState?.();
+          if (projectionState) {
+            executeBackgroundCompactions({
+              pluginInput: options.pluginInput,
+              runtimeConfig: options.runtimeConfig,
+              runtimeArtifacts,
+              sessionId: sessionID,
+              projectionState,
+            }).catch((error) => {
+              runtimeArtifacts.writeDiagnostic({
+                sessionID,
+                scope: "plugin-hooks",
+                severity: "error",
+                message: "Background compaction executor failed.",
+                payload: { error: serializeError(error) },
+              }).catch(() => {});
+            });
+          }
+        }
+      }
 
       await runtimeArtifacts.writeMessagesTransformSnapshot({
         sessionID,
@@ -250,27 +300,6 @@ export function createContextCompressionHooks(
         } catch {
         }
       }
-
-      if (options.pluginInput && options.runtimeConfig && options.pluginDirectory) {
-        const projectionState = messagesTransformProjector?.getLastProjectionState?.();
-        if (projectionState) {
-          executeBackgroundCompactions({
-            pluginInput: options.pluginInput,
-            runtimeConfig: options.runtimeConfig,
-            runtimeArtifacts,
-            sessionId: sessionID,
-            projectionState,
-          }).catch((error) => {
-            runtimeArtifacts.writeDiagnostic({
-              sessionID,
-              scope: "plugin-hooks",
-              severity: "error",
-              message: "Background compaction executor failed.",
-              payload: { error: serializeError(error) },
-            }).catch(() => {});
-          });
-        }
-      }
     },
     "chat.params": async (input, output) => {
       const metadata = await chatParams(input, output);
@@ -325,6 +354,26 @@ function serializeError(error: unknown): {
     name: "Error",
     message: String(error),
   };
+}
+
+function hasEligibleMarksForCompression(projectionState: ProjectedMessageSet): boolean {
+  const resultGroupMarkIds = new Set(
+    projectionState.state.resultGroups.map((group) => group.markId),
+  );
+
+  function walk(nodes: readonly MarkTreeNode[]): boolean {
+    for (const node of nodes) {
+      if (!resultGroupMarkIds.has(node.markId)) {
+        return true;
+      }
+      if (walk(node.children)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  return walk(projectionState.state.markTree.marks);
 }
 
 function computeReplacementGateOpen(options: {

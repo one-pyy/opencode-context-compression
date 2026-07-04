@@ -27,7 +27,6 @@ export function buildCompressionInspectOverrides(
     (state.history.compressionInspectToolCalls ?? []).flatMap((call) => {
       if (
         call.outcome !== "accepted" ||
-        call.startVisibleMessageId === undefined ||
         call.endVisibleMessageId === undefined
       ) {
         return [];
@@ -50,7 +49,6 @@ export function buildCompressionInspectOverrides(
               ? error.message
               : "compression_inspect could not resolve the requested range.",
             {
-              from: call.startVisibleMessageId,
               to: call.endVisibleMessageId,
             },
           ),
@@ -70,7 +68,7 @@ export function buildCompressionInspectOverrides(
 
 export function inspectMessagesInRange(input: {
   readonly policies: readonly MessageProjectionPolicy[];
-  readonly from: string;
+  readonly from?: string;
   readonly to: string;
   readonly coveredSequences: ReadonlySet<number>;
 }): readonly CompressionInspectMessageTokenInfo[] {
@@ -96,7 +94,7 @@ export function inspectMessagesInRange(input: {
 
 function parseInclusiveVisibleRange(
   policies: readonly MessageProjectionPolicy[],
-  from: string,
+  from: string | undefined,
   to: string,
 ): { readonly startVisibleSeq: number; readonly endVisibleSeq: number } {
   const visibleSeqByKey = new Map(
@@ -105,11 +103,23 @@ function parseInclusiveVisibleRange(
       policy.visibleSeq,
     ]),
   );
-  const startVisibleSeq = visibleSeqByKey.get(toVisibleIdLookupKey(from));
   const endVisibleSeq = visibleSeqByKey.get(toVisibleIdLookupKey(to));
-  if (startVisibleSeq === undefined || endVisibleSeq === undefined) {
+  if (endVisibleSeq === undefined) {
     throw new Error("compression_inspect targets an unknown visible-id range.");
   }
+
+  let startVisibleSeq: number;
+  if (from !== undefined) {
+    startVisibleSeq = visibleSeqByKey.get(toVisibleIdLookupKey(from)) ?? -1;
+    if (startVisibleSeq < 0) {
+      throw new Error("compression_inspect targets an unknown visible-id range.");
+    }
+  } else {
+    // Default to the first compressible message
+    const firstCompressible = policies.find((p) => p.visibleKind === "compressible");
+    startVisibleSeq = firstCompressible?.visibleSeq ?? 1;
+  }
+
   if (startVisibleSeq > endVisibleSeq) {
     throw new Error("compression_inspect from/to range is reversed.");
   }

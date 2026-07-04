@@ -156,7 +156,7 @@ function renderMarkNode(input: {
       ...renderGapRange({
         startSequence: cursor,
         endSequence: fragment.sourceStartSeq - 1,
-        children: input.node.children,
+        children: [],
         historyBySequence: input.historyBySequence,
         policiesBySequence: input.policiesBySequence,
         resultGroupsByMarkId: input.resultGroupsByMarkId,
@@ -173,7 +173,7 @@ function renderMarkNode(input: {
     ...renderGapRange({
       startSequence: cursor,
       endSequence: input.node.endSequence,
-      children: input.node.children,
+      children: [],
       historyBySequence: input.historyBySequence,
       policiesBySequence: input.policiesBySequence,
       resultGroupsByMarkId: input.resultGroupsByMarkId,
@@ -298,14 +298,6 @@ function collectSuppressedCanonicalIds(
   },
 ): void {
   input.suppressedCanonicalIds.add(input.node.sourceMessageId);
-  input.node.children.forEach((child) => {
-    collectSuppressedCanonicalIds({
-      node: child,
-      resultGroup: input.resultGroup,
-      historyBySequence: input.historyBySequence,
-      suppressedCanonicalIds: input.suppressedCanonicalIds,
-    });
-  });
 
   input.resultGroup.fragments.forEach((fragment) => {
     for (
