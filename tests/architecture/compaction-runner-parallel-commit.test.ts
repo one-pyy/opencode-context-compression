@@ -15,9 +15,16 @@ import type { CompactionInputBuilder } from "../../src/compaction/input-builder.
 import type { OutputValidator } from "../../src/compaction/output-validation.js";
 import type { SafeTransportAdapter } from "../../src/runtime/compaction-transport.js";
 import { createDefaultRuntimePluginSeamServices } from "../../src/runtime/default-plugin-services.js";
+import { executeBackgroundCompactions } from "../../src/runtime/background-compaction-executor.js";
 import type { RuntimeArtifactRecorder } from "../../src/runtime/runtime-artifacts.js";
 import { createFileBackedRuntimeArtifactRecorder } from "../../src/runtime/runtime-artifacts.js";
 import type { ResultGroupRepository } from "../../src/state/result-group-repository.js";
+import type { ProjectedMessageSet } from "../../src/projection/types.js";
+import {
+  replayHistoryFromSources,
+  type CanonicalHostMessage,
+} from "../../src/history/history-replay-reader.js";
+import { ToastService } from "../../src/services/toast-service.js";
 
 test("compaction compute can run independently and commit remains ordered", async () => {
   const events: string[] = [];
@@ -415,6 +422,81 @@ test("default runtime services write repo-owned artifacts under runtime config r
   }
 });
 
+test("background compaction shows failed toast after final execution failure", async () => {
+  const pluginDirectory = await mkdtemp(
+    join(tmpdir(), "opencode-context-compression-background-toast-failed-"),
+  );
+  const events: string[] = [];
+
+  try {
+    await executeBackgroundCompactions({
+      pluginInput: createPluginInput(pluginDirectory),
+      runtimeConfig: {
+        ...createRuntimeConfig({ repoRoot: pluginDirectory }),
+        transport: {
+          async invoke(request) {
+            events.push(`transport:${request.markID}`);
+            throw new Error("model unavailable");
+          },
+        },
+      },
+      runtimeArtifacts: createFileBackedRuntimeArtifactRecorder({
+        pluginDirectory,
+        runtimeLogPath: "logs/runtime-events.jsonl",
+        seamLogPath: "logs/seams.jsonl",
+        loggingLevel: "off",
+      }),
+      sessionId: "session-toast-failed",
+      projectionState: createProjectedSetWithOneMark("session-toast-failed"),
+      toastService: createRecordingToastService(events),
+    });
+
+    assert.deepEqual(events, [
+      "toast:Compression Started",
+      "transport:mark-1",
+      "toast:Compression Failed",
+    ]);
+  } finally {
+    await rm(pluginDirectory, { recursive: true, force: true });
+  }
+});
+
+test("background compaction skips child marks when the parent already has a result group", async () => {
+  const pluginDirectory = await mkdtemp(
+    join(tmpdir(), "opencode-context-compression-covered-child-"),
+  );
+  const events: string[] = [];
+
+  try {
+    await executeBackgroundCompactions({
+      pluginInput: createPluginInput(pluginDirectory),
+      runtimeConfig: {
+        ...createRuntimeConfig({ repoRoot: pluginDirectory }),
+        transport: {
+          async invoke(request) {
+            events.push(`transport:${request.markID}`);
+            throw new Error("covered child should not be compressed");
+          },
+        },
+      },
+      runtimeArtifacts: createFileBackedRuntimeArtifactRecorder({
+        pluginDirectory,
+        runtimeLogPath: "logs/runtime-events.jsonl",
+        seamLogPath: "logs/seams.jsonl",
+        loggingLevel: "off",
+      }),
+      sessionId: "session-covered-child",
+      projectionState: createProjectedSetWithCompressedParentAndChildMark(
+        "session-covered-child",
+      ),
+    });
+
+    assert.deepEqual(events, []);
+  } finally {
+    await rm(pluginDirectory, { recursive: true, force: true });
+  }
+});
+
 function createRunInput(markId: string): RunCompactionInput {
   return {
     build: {
@@ -427,6 +509,132 @@ function createRunInput(markId: string): RunCompactionInput {
       timeoutMs: 1_000,
     },
   };
+}
+
+function createProjectedSetWithOneMark(sessionId: string): ProjectedMessageSet {
+  const message = {
+    info: { id: "msg-1", role: "assistant" },
+    parts: [{ type: "text", text: "Compress this message." }],
+  } satisfies CanonicalHostMessage;
+  const history = replayHistoryFromSources({
+    sessionId,
+    hostHistory: [{ sequence: 1, message }],
+    toolHistory: [],
+  });
+  const state: ProjectedMessageSet["state"] = {
+    sessionId,
+    history,
+    markTree: {
+      conflicts: [],
+      marks: [
+        {
+          markId: "mark-1",
+          mode: "compact",
+          startVisibleMessageId: "compressible_000001_aa",
+          endVisibleMessageId: "compressible_000001_aa",
+          sourceMessageId: "mark-tool-1",
+          sourceSequence: 2,
+          startSequence: 1,
+          endSequence: 1,
+          depth: 0,
+          children: [],
+        },
+      ],
+    },
+    conflicts: [],
+    messagePolicies: [
+      {
+        canonicalId: "msg-1",
+        sequence: 1,
+        role: "assistant",
+        visibleKind: "compressible",
+        tokenCount: 10,
+        visibleId: "compressible_000001_aa",
+        visibleSeq: 1,
+        visibleBase62: "aa",
+      },
+    ],
+    visibleIdAllocations: [],
+    resultGroups: [],
+    failedToolMessageIds: new Map(),
+  };
+
+  return {
+    sessionId,
+    messages: [],
+    toolResultOverrides: [],
+    reminders: [],
+    conflicts: [],
+    state,
+  };
+}
+
+function createProjectedSetWithCompressedParentAndChildMark(
+  sessionId: string,
+): ProjectedMessageSet {
+  const projected = createProjectedSetWithOneMark(sessionId);
+  const parentMark = {
+    ...projected.state.markTree.marks[0]!,
+    markId: "parent-mark",
+    sourceMessageId: "parent-mark-tool",
+    children: [
+      {
+        ...projected.state.markTree.marks[0]!,
+        markId: "child-mark",
+        sourceMessageId: "child-mark-tool",
+        children: [],
+      },
+    ],
+  };
+
+  return {
+    ...projected,
+    state: {
+      ...projected.state,
+      markTree: {
+        conflicts: [],
+        marks: [parentMark],
+      },
+      resultGroups: [
+        {
+          markId: "parent-mark",
+          mode: "compact",
+          sourceStartSeq: 1,
+          sourceEndSeq: 1,
+          fragmentCount: 1,
+          executionMode: "compact",
+          createdAt: "2026-07-04T00:00:00.000Z",
+          payloadSha256: "test-parent",
+          applied: false,
+          fragments: [
+            {
+              fragmentIndex: 0,
+              sourceStartSeq: 1,
+              sourceEndSeq: 1,
+              replacementText: "parent summary",
+            },
+          ],
+        },
+      ],
+    },
+  };
+}
+
+function createRecordingToastService(events: string[]): ToastService {
+  return new ToastService(
+    {
+      directory: "",
+      worktree: "",
+      client: {
+        tui: {
+          async showToast(request: { readonly body: { readonly title: string } }) {
+            events.push(`toast:${request.body.title}`);
+          },
+        },
+      },
+    } as unknown as PluginInput,
+    { enabled: true },
+  );
 }
 
 function createRuntimeConfig(input: { readonly repoRoot: string }): LoadedRuntimeConfig {

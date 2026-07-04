@@ -166,6 +166,7 @@ export function createContextCompressionHooks(
           runtimeConfig: options.runtimeConfig,
           lockDirectory: options.lockDirectory,
           idleThresholdMs: options.idleThresholdMs,
+          toastService,
         });
 
         await messagesTransform(input, output);
@@ -179,6 +180,7 @@ export function createContextCompressionHooks(
               runtimeArtifacts,
               sessionId: sessionID,
               projectionState,
+              toastService,
             });
             await messagesTransform(input, output);
           }
@@ -223,6 +225,7 @@ export function createContextCompressionHooks(
               runtimeArtifacts,
               sessionId: sessionID,
               projectionState,
+              toastService,
             }).catch((error) => {
               runtimeArtifacts.writeDiagnostic({
                 sessionID,
@@ -363,12 +366,11 @@ function hasEligibleMarksForCompression(projectionState: ProjectedMessageSet): b
 
   function walk(nodes: readonly MarkTreeNode[]): boolean {
     for (const node of nodes) {
-      if (!resultGroupMarkIds.has(node.markId)) {
-        return true;
+      if (resultGroupMarkIds.has(node.markId)) {
+        continue;
       }
-      if (walk(node.children)) {
-        return true;
-      }
+
+      return true;
     }
     return false;
   }
@@ -509,6 +511,7 @@ async function conditionalSendEntryGate(options: {
   readonly runtimeConfig?: LoadedRuntimeConfig;
   readonly lockDirectory?: string;
   readonly idleThresholdMs?: number;
+  readonly toastService?: ToastService;
 }): Promise<GateResult> {
   const replacementGateOpen = computeReplacementGateOpen({
     messagesTransformProjector: options.messagesTransformProjector,
@@ -537,7 +540,13 @@ async function conditionalSendEntryGate(options: {
         reason: "replacement gate open but no active lock",
       };
     }
+
+    options.toastService?.showCompressionStarted().catch(() => {});
   }
 
-  return options.sendEntryGate.waitIfNeeded(options.sessionID);
+  const gateResult = await options.sendEntryGate.waitIfNeeded(options.sessionID);
+  if (gateResult.releasedBy === "lock-failed") {
+    options.toastService?.showCompressionFailed(gateResult.reason).catch(() => {});
+  }
+  return gateResult;
 }

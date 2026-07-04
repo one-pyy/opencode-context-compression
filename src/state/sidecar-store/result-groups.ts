@@ -172,8 +172,6 @@ export function upsertResultGroup(
   return runInTransaction(database, () => {
     const existing = readResultGroup(database, normalized.markID);
     if (existing === undefined) {
-      writeToastEvent(database, "compression_start");
-      
       try {
         insertCommittedResultGroup(database, normalized);
         const inserted = readResultGroup(database, normalized.markID)!;

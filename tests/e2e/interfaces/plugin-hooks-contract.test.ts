@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -23,6 +24,8 @@ import { stripLeadingVisibleMessageId } from "../../../src/runtime/text-complete
 import {
   TOOL_EXECUTE_BEFORE_EXTERNAL_CONTRACT,
 } from "../../../src/runtime/send-entry-gate.js";
+import { acquireSessionFileLock } from "../../../src/runtime/file-lock.js";
+import { ToastService } from "../../../src/services/toast-service.js";
 import { createHermeticE2EFixture } from "../harness/fixture.js";
 
 test(
@@ -134,6 +137,66 @@ test("messages.transform mutates the provided output array in place", async () =
   assert.equal(output.messages.length, 1);
   assert.equal(output.messages[0]?.info.id, "msg-user-2");
   assert.equal(output.messages[0]?.parts[0]?.type, "text");
+});
+
+test("messages.transform shows compression start toast before waiting and failed toast after lock failure", async () => {
+  const lockRoot = await mkdtemp(join(tmpdir(), "opencode-context-compression-lock-toast-"));
+  const lockDirectory = join(lockRoot, "locks");
+  const sessionID = "session-lock-toast";
+  const events: string[] = [];
+
+  try {
+    const acquired = await acquireSessionFileLock({
+      lockDirectory,
+      sessionID,
+    });
+    assert.equal(acquired.acquired, true);
+
+    const hooks = createContextCompressionHooks({
+      lockDirectory,
+      toastService: createRecordingToastService(events),
+      sendEntryGate: {
+        async waitIfNeeded() {
+          events.push("gate:wait");
+          return {
+            waited: true,
+            releasedBy: "lock-failed",
+            reason: "active compaction lock reached a terminal failure state",
+          };
+        },
+      },
+      messagesTransformProjector: {
+        project({ currentMessages }) {
+          return currentMessages;
+        },
+      },
+    });
+
+    const output = {
+      messages: [
+        {
+          info: createUserMessage({ id: "msg-user-lock-toast" }),
+          parts: [
+            createTextPart({
+              messageID: "msg-user-lock-toast",
+              id: "part-user-lock-toast",
+              text: "Original message.",
+            }),
+          ],
+        },
+      ],
+    };
+
+    await hooks["experimental.chat.messages.transform"]?.({ sessionID }, output);
+
+    assert.deepEqual(events, [
+      "toast:Compression Started",
+      "gate:wait",
+      "toast:Compression Failed",
+    ]);
+  } finally {
+    await rm(lockRoot, { recursive: true, force: true });
+  }
 });
 
 test("text.complete strips a leading visible msg_id from assistant output", () => {
@@ -260,6 +323,23 @@ function createPluginInput(repoRoot: string): PluginInput {
     serverUrl: new URL("http://localhost:3900"),
     $: {} as PluginInput["$"],
   };
+}
+
+function createRecordingToastService(events: string[]): ToastService {
+  return new ToastService(
+    {
+      client: {
+        tui: {
+          async showToast(request: { readonly body: { readonly title: string } }) {
+            events.push(`toast:${request.body.title}`);
+          },
+        },
+      },
+      directory: "",
+      worktree: "",
+    } as unknown as PluginInput,
+    { enabled: true },
+  );
 }
 
 function createUserMessage(overrides: { readonly id: string }) {

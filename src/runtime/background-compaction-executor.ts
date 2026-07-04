@@ -18,6 +18,7 @@ import {
 import { createCompactionInputBuilder } from "../compaction/input-builder.js";
 import { createOutputValidator } from "../compaction/output-validation.js";
 import { createDirectLLMCompactionTransport } from "../compaction/transport/direct-llm.js";
+import type { ToastService } from "../services/toast-service.js";
 
 export interface BackgroundCompactionExecutorOptions {
   readonly pluginInput: PluginInput;
@@ -25,6 +26,7 @@ export interface BackgroundCompactionExecutorOptions {
   readonly runtimeArtifacts: RuntimeArtifactRecorder;
   readonly sessionId: string;
   readonly projectionState: ProjectedMessageSet;
+  readonly toastService?: ToastService;
 }
 
 interface EligibleMark {
@@ -42,13 +44,15 @@ function collectEligibleMarks(projectionState: ProjectedMessageSet): EligibleMar
 
   function walk(nodes: readonly MarkTreeNode[]): void {
     for (const node of nodes) {
-      if (!resultGroupMarkIds.has(node.markId)) {
-        eligible.push({
-          markId: node.markId,
-          sourceMessageId: node.sourceMessageId,
-          createdAt: now,
-        });
+      if (resultGroupMarkIds.has(node.markId)) {
+        continue;
       }
+
+      eligible.push({
+        markId: node.markId,
+        sourceMessageId: node.sourceMessageId,
+        createdAt: now,
+      });
       walk(node.children);
     }
   }
@@ -60,7 +64,7 @@ function collectEligibleMarks(projectionState: ProjectedMessageSet): EligibleMar
 export async function executeBackgroundCompactions(
   options: BackgroundCompactionExecutorOptions,
 ): Promise<void> {
-  const { sessionId, projectionState, pluginInput, runtimeConfig, runtimeArtifacts } = options;
+  const { sessionId, projectionState, pluginInput, runtimeConfig, runtimeArtifacts, toastService } = options;
   const lockDirectory = resolvePluginLockDirectory(pluginInput.directory);
 
   const stateDirectory = resolvePluginStateDirectory(pluginInput.directory);
@@ -86,6 +90,8 @@ export async function executeBackgroundCompactions(
         `background compaction lock acquisition failed unexpectedly for session '${sessionId}'`,
       );
     }
+
+    toastService?.showCompressionStarted().catch(() => {});
 
     await runtimeArtifacts.writeDiagnostic({
       sessionID: sessionId,
@@ -248,6 +254,10 @@ export async function executeBackgroundCompactions(
         ? `background compaction completed with failure: ${firstFailureMessage ?? "unknown error"}`
         : `background compaction completed successfully (${eligibleMarks.length} marks processed)`,
     });
+
+    if (didFail) {
+      toastService?.showCompressionFailed(firstFailureMessage).catch(() => {});
+    }
   } finally {
     sidecar.close();
   }
