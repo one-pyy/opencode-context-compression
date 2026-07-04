@@ -6,14 +6,11 @@ import { createDefaultRuntimePluginSeamServices } from "./runtime/default-plugin
 import { createCompressionMarkAdmission } from "./tools/compression-mark.js";
 import { ToastService } from "./services/toast-service.js";
 import { createFileBackedRuntimeArtifactRecorder } from "./runtime/runtime-artifacts.js";
-import { resolvePluginLockDirectory } from "./runtime/file-lock.js";
+import { resolvePluginLockDirectory, clearStaleRunningLocks } from "./runtime/file-lock.js";
 
 const plugin: Plugin = async (input) => {
   const runtimeConfig = await loadRuntimeConfig();
-  const seamServices = createDefaultRuntimePluginSeamServices(
-    input,
-    runtimeConfig,
-  );
+  const lockDirectory = resolvePluginLockDirectory(input.directory);
   const startupArtifacts = createFileBackedRuntimeArtifactRecorder({
     pluginDirectory: runtimeConfig.repoRoot,
     runtimeLogPath: runtimeConfig.runtimeLogPath,
@@ -21,6 +18,31 @@ const plugin: Plugin = async (input) => {
     debugSnapshotPath: runtimeConfig.debugSnapshotPath,
     loggingLevel: runtimeConfig.logging.level,
   });
+
+  // Clear any running locks left by a previous process that exited mid-compaction.
+  // After restart no old compaction process can still be alive, so running locks are stale.
+  try {
+    const result = await clearStaleRunningLocks({ lockDirectory });
+    if (result.clearedCount > 0 || result.errors.length > 0) {
+      await startupArtifacts.writeDiagnostic({
+        sessionID: "plugin-startup",
+        scope: "plugin-startup",
+        severity: result.errors.length > 0 ? "error" : "info",
+        message: "Cleared stale running locks from previous process.",
+        payload: {
+          clearedCount: result.clearedCount,
+          errors: result.errors,
+        },
+      });
+    }
+  } catch {
+    // Lock cleanup failure is non-fatal — stale locks will still time out naturally.
+  }
+
+  const seamServices = createDefaultRuntimePluginSeamServices(
+    input,
+    runtimeConfig,
+  );
 
   const toastService = new ToastService(input, runtimeConfig.toast);
   await startupArtifacts.writeDiagnostic({
@@ -77,7 +99,7 @@ const plugin: Plugin = async (input) => {
     pluginDirectory: input.directory,
     pluginInput: input,
     runtimeConfig,
-    lockDirectory: resolvePluginLockDirectory(input.directory),
+    lockDirectory,
     idleThresholdMs: runtimeConfig.idleThresholdMs,
   });
 };

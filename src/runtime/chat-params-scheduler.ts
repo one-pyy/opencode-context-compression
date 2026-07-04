@@ -26,20 +26,13 @@ type ChatParamsHook = NonNullable<Hooks["chat.params"]>;
 export type ChatParamsInput = Parameters<ChatParamsHook>[0];
 export type ChatParamsOutput = Parameters<ChatParamsHook>[1];
 
-export interface FrozenCompactionBatchSnapshot {
-  readonly markIds: readonly string[];
-  readonly markCount: number;
-  readonly dispatchedAt: string;
-}
-
 export interface ChatParamsSchedulingMetadata {
-  readonly schedulerState: "idle" | "eligible" | "scheduled";
+  readonly schedulerState: "idle" | "eligible";
   readonly scheduled: boolean;
   readonly reason: string;
   readonly activeCompactionLock: boolean;
   readonly pendingMarkCount: number;
   readonly diagnostics?: ChatParamsSchedulerDiagnostics;
-  readonly dispatchedBatch?: FrozenCompactionBatchSnapshot;
 }
 
 export interface ChatParamsSchedulerDiagnostics {
@@ -119,26 +112,12 @@ export interface InternalSchedulerEvaluation {
   readonly diagnostics: ChatParamsSchedulerDiagnostics;
 }
 
-export interface ChatParamsSchedulerDispatchResult {
-  readonly scheduled: boolean;
-  readonly reason: string;
-  readonly dispatchedBatch?: FrozenCompactionBatchSnapshot;
-}
-
 export interface InternalChatParamsSchedulerDependencies {
   readonly evaluate: (
     sessionId: string,
   ) =>
     | Promise<InternalSchedulerEvaluation>
     | InternalSchedulerEvaluation;
-  readonly dispatch?: (
-    input: {
-      readonly sessionId: string;
-      readonly eligibleMarkIds: readonly string[];
-    },
-  ) =>
-    | Promise<ChatParamsSchedulerDispatchResult>
-    | ChatParamsSchedulerDispatchResult;
 }
 
 export interface HistoryBackedChatParamsSchedulerOptions {
@@ -159,7 +138,6 @@ export interface HistoryBackedChatParamsSchedulerOptions {
   ) =>
     | Promise<SessionCanonicalIdentityServiceHandle>
     | SessionCanonicalIdentityServiceHandle;
-  readonly dispatch?: InternalChatParamsSchedulerDependencies["dispatch"];
 }
 
 export interface SessionCanonicalIdentityServiceHandle {
@@ -303,34 +281,18 @@ export function createInternalChatParamsScheduler(
         };
       }
 
-      const dispatch =
-        dependencies.dispatch ??
-        ((input) => ({
-          scheduled: true,
-          reason: "froze the current replay-derived mark set for compaction dispatch",
-          dispatchedBatch: Object.freeze({
-            markIds: Object.freeze([...input.eligibleMarkIds]),
-            markCount: input.eligibleMarkIds.length,
-            dispatchedAt: now(),
-          } satisfies FrozenCompactionBatchSnapshot),
-        } satisfies ChatParamsSchedulerDispatchResult));
-
-      const dispatched = await dispatch({
-        sessionId,
-        eligibleMarkIds: evaluation.eligibleMarkIds,
-      });
-
       return {
-        scheduled: dispatched.scheduled,
-        reason: dispatched.reason,
+        scheduled: false,
+        reason:
+          "queued replayed marks have reached the marked-token auto-compaction threshold; compaction will be triggered by messages.transform",
         metadata: buildMetadata({
-          schedulerState: dispatched.scheduled ? "scheduled" : "eligible",
-          scheduled: dispatched.scheduled,
-          reason: dispatched.reason,
+          schedulerState: "eligible",
+          scheduled: false,
+          reason:
+            "queued replayed marks have reached the marked-token auto-compaction threshold; compaction will be triggered by messages.transform",
           activeCompactionLock: false,
           eligibleMarkIds: evaluation.eligibleMarkIds,
           diagnostics: evaluation.diagnostics,
-          dispatchedBatch: dispatched.dispatchedBatch,
         }),
       };
     },
@@ -393,8 +355,7 @@ export function createHistoryBackedChatParamsScheduler(
           diagnostics: eligibility.diagnostics,
         } satisfies InternalSchedulerEvaluation;
       },
-      dispatch: options.dispatch,
-    },
+      },
     {
       now: options.now,
     },
@@ -411,7 +372,7 @@ export function createRuntimeChatParamsSchedulerService(options: {
         metadata:
           decision.metadata ??
           buildMetadata({
-            schedulerState: decision.scheduled ? "scheduled" : "idle",
+            schedulerState: "idle",
             scheduled: decision.scheduled,
             reason: decision.reason,
             activeCompactionLock: false,
@@ -636,7 +597,6 @@ function buildMetadata(input: {
   readonly activeCompactionLock: boolean;
   readonly eligibleMarkIds: readonly string[];
   readonly diagnostics?: ChatParamsSchedulerDiagnostics;
-  readonly dispatchedBatch?: FrozenCompactionBatchSnapshot;
 }): ChatParamsSchedulingMetadata {
   return Object.freeze({
     schedulerState: input.schedulerState,
@@ -645,7 +605,6 @@ function buildMetadata(input: {
     activeCompactionLock: input.activeCompactionLock,
     pendingMarkCount: input.eligibleMarkIds.length,
     ...(input.diagnostics ? { diagnostics: input.diagnostics } : {}),
-    ...(input.dispatchedBatch ? { dispatchedBatch: input.dispatchedBatch } : {}),
   });
 }
 

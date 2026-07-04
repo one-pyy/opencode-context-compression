@@ -349,6 +349,69 @@ export async function releaseSessionFileLock(
   await removeLockDirectoryIfEmpty(options.lockDirectory);
 }
 
+export async function clearStaleRunningLocks(options: {
+  readonly lockDirectory: string;
+  readonly now?: () => number;
+}): Promise<{ readonly clearedCount: number; readonly errors: readonly string[] }> {
+  let entries: string[];
+  try {
+    entries = await readdir(options.lockDirectory);
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return { clearedCount: 0, errors: [] };
+    }
+    throw error;
+  }
+
+  const errors: string[] = [];
+  let clearedCount = 0;
+  const now = options.now ?? Date.now;
+
+  for (const entry of entries) {
+    if (!entry.endsWith(".lock")) {
+      continue;
+    }
+
+    const lockPath = join(options.lockDirectory, entry);
+    let serialized: string;
+    try {
+      serialized = await readFile(lockPath, "utf8");
+    } catch (error) {
+      if (isNotFoundError(error)) {
+        continue;
+      }
+      errors.push(`Failed to read '${entry}': ${formatError(error)}`);
+      continue;
+    }
+
+    let record: SessionFileLockRecord;
+    try {
+      record = parseSessionFileLockRecord(serialized, "", lockPath);
+    } catch {
+      // Unparseable lock file — remove it
+      try {
+        await rm(lockPath, { force: true });
+        clearedCount += 1;
+      } catch (error) {
+        errors.push(`Failed to remove unparseable '${entry}': ${formatError(error)}`);
+      }
+      continue;
+    }
+
+    if (record.status === "running") {
+      try {
+        await rm(lockPath, { force: true });
+        clearedCount += 1;
+      } catch (error) {
+        errors.push(`Failed to clear running lock '${entry}': ${formatError(error)}`);
+      }
+    }
+  }
+
+  await removeLockDirectoryIfEmpty(options.lockDirectory);
+  return { clearedCount, errors: Object.freeze(errors) };
+}
+
 export async function settleAndReleaseSessionFileLock(
   options: SettleAndReleaseSessionFileLockOptions,
 ): Promise<SessionFileLockRecord | undefined> {
@@ -640,4 +703,11 @@ async function defaultSleep(ms: number): Promise<void> {
   await new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function formatError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }

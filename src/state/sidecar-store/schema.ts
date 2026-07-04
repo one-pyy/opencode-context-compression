@@ -14,7 +14,6 @@ export const SIDECAR_TABLE_NAMES = [
   "result_groups",
   "result_fragments",
   "toast_events",
-  "pending_compactions",
 ] as const;
 
 export const SIDECAR_INDEX_NAMES = [
@@ -64,12 +63,6 @@ const EXPECTED_TABLE_COLUMNS: Record<AllowedTableName, readonly string[]> = {
     "event_type",
     "created_at",
     "payload",
-    "processed",
-  ],
-  pending_compactions: [
-    "id",
-    "mark_id",
-    "created_at",
     "processed",
   ],
 };
@@ -155,13 +148,7 @@ export function ensureLockedSidecarSchema(database: SqliteDatabase): void {
       processed INTEGER DEFAULT 0
     );
 
-    CREATE TABLE IF NOT EXISTS pending_compactions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      mark_id TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      processed INTEGER DEFAULT 0
-    );
-  `);
+    `);
 
   recreateLockedIndexes(database);
   upsertSchemaMeta(database);
