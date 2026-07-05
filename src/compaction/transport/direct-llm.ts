@@ -16,6 +16,11 @@ import type {
   CompactionTransportTranscriptEntry,
 } from "./types.js";
 
+const OPENAI_REASONING_EFFORT = "high";
+const DEEPSEEK_THINKING_LEVEL = "max";
+const GEMINI_THINKING_LEVEL = "high";
+const ANTHROPIC_HIGH_THINKING_BUDGET_TOKENS = 2048;
+
 export function createDirectLLMCompactionTransport(
   pluginInput: PluginInput,
   options: {
@@ -143,7 +148,7 @@ async function callLLM(
   }
 
   if (provider.type === "openai") {
-    return callOpenAI(provider, modelID, systemPrompt, userMessage, request, signal);
+    return callOpenAI(provider, providerID, modelID, systemPrompt, userMessage, request, signal);
   }
 
   throw new CompactionTransportFatalError(
@@ -321,7 +326,9 @@ async function callGemini(
       contents: [{ role: "user", parts: [{ text: userMessage }] }],
       generationConfig: {
         temperature: 0,
-        thinkingConfig: {},
+        thinkingConfig: {
+          thinkingLevel: GEMINI_THINKING_LEVEL,
+        },
       },
     }),
     signal,
@@ -355,9 +362,12 @@ async function callAnthropic(
     body: JSON.stringify({
       model: modelID,
       max_tokens: 4096,
+      thinking: {
+        type: "enabled",
+        budget_tokens: ANTHROPIC_HIGH_THINKING_BUDGET_TOKENS,
+      },
       system: systemPrompt,
       messages: [{ role: "user", content: userMessage }],
-      temperature: 0,
       stream: true,
     }),
     signal,
@@ -373,6 +383,7 @@ async function callAnthropic(
 
 async function callOpenAI(
   provider: LLMProviderConfig,
+  providerID: string,
   modelID: string,
   systemPrompt: string,
   userMessage: string,
@@ -393,6 +404,7 @@ async function callOpenAI(
         { role: "system", content: systemPrompt },
         { role: "user", content: userMessage },
       ],
+      ...buildOpenAICompatibleReasoningOptions(providerID, modelID),
       temperature: 0,
       stream: true,
     }),
@@ -405,6 +417,29 @@ async function callOpenAI(
   }
 
   return readStreamingText(response, request, parseOpenAISseChunk);
+}
+
+function buildOpenAICompatibleReasoningOptions(
+  providerID: string,
+  modelID: string,
+): Record<string, unknown> {
+  const normalizedProvider = providerID.toLowerCase();
+  const normalizedModel = modelID.toLowerCase();
+
+  if (
+    normalizedProvider.includes("deepseek") ||
+    normalizedModel.includes("deepseek")
+  ) {
+    return {
+      chat_template_kwargs: { thinking: DEEPSEEK_THINKING_LEVEL },
+    };
+  }
+
+  if (normalizedProvider.includes("openai") || normalizedModel.startsWith("gpt")) {
+    return { reasoning_effort: OPENAI_REASONING_EFFORT };
+  }
+
+  return {};
 }
 
 function trimTrailingSlashes(value: string): string {
