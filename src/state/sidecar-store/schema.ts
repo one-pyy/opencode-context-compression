@@ -28,7 +28,6 @@ export const SIDECAR_SCHEMA_META = {
 } as const;
 
 type AllowedTableName = (typeof SIDECAR_TABLE_NAMES)[number];
-type AllowedIndexName = (typeof SIDECAR_INDEX_NAMES)[number];
 
 const EXPECTED_TABLE_COLUMNS: Record<AllowedTableName, readonly string[]> = {
   schema_meta: ["key", "value"],
@@ -67,11 +66,6 @@ const EXPECTED_TABLE_COLUMNS: Record<AllowedTableName, readonly string[]> = {
   ],
 };
 
-interface SqliteObjectRow extends Record<string, unknown> {
-  readonly name: string;
-  readonly type: "table" | "index" | "view" | "trigger";
-}
-
 interface TableInfoRow extends Record<string, unknown> {
   readonly name: string;
 }
@@ -98,10 +92,7 @@ export async function openLockedSessionSidecarDatabase(
 
 export function ensureLockedSidecarSchema(database: SqliteDatabase): void {
   migrateResultGroupsAppliedColumn(database);
-
-  if (needsDestructiveSchemaReset(database)) {
-    dropAllUserSchemaObjects(database);
-  }
+  dropKnownLegacyTables(database);
 
   database.exec(`
     CREATE TABLE IF NOT EXISTS schema_meta (
@@ -151,6 +142,7 @@ export function ensureLockedSidecarSchema(database: SqliteDatabase): void {
     `);
 
   recreateLockedIndexes(database);
+  validateRequiredTableColumns(database);
   upsertSchemaMeta(database);
 }
 
@@ -195,98 +187,32 @@ function upsertSchemaMeta(database: SqliteDatabase): void {
   }
 }
 
-function needsDestructiveSchemaReset(database: SqliteDatabase): boolean {
-  const schemaObjects = listUserSchemaObjects(database);
-  if (schemaObjects.length === 0) {
-    return false;
-  }
-
-  for (const schemaObject of schemaObjects) {
-    if (schemaObject.type === "table") {
-      if (!isAllowedTableName(schemaObject.name)) {
-        return true;
-      }
-
-      if (!tableColumnsMatch(database, schemaObject.name)) {
-        return true;
-      }
-
-      continue;
-    }
-
-    if (schemaObject.type === "index") {
-      if (!isAllowedIndexName(schemaObject.name)) {
-        return true;
-      }
-
-      continue;
-    }
-
-    return true;
-  }
-
-  return false;
+function dropKnownLegacyTables(database: SqliteDatabase): void {
+  database.exec(`DROP TABLE IF EXISTS ${quoteIdentifier("pending_compactions")}`);
 }
 
-function dropAllUserSchemaObjects(database: SqliteDatabase): void {
-  const schemaObjects = listUserSchemaObjects(database);
-  const dropTypeOrder = ["view", "trigger", "index", "table"] as const;
-
-  for (const objectType of dropTypeOrder) {
-    for (const schemaObject of schemaObjects) {
-      if (schemaObject.type !== objectType) {
-        continue;
+function validateRequiredTableColumns(database: SqliteDatabase): void {
+  for (const tableName of SIDECAR_TABLE_NAMES) {
+    const actualColumns = listTableColumns(database, tableName);
+    for (const expectedColumn of EXPECTED_TABLE_COLUMNS[tableName]) {
+      if (!actualColumns.includes(expectedColumn)) {
+        throw new Error(
+          `Session sidecar table '${tableName}' is missing required column '${expectedColumn}'.`,
+        );
       }
-
-      database.exec(
-        `DROP ${schemaObject.type.toUpperCase()} IF EXISTS ${quoteIdentifier(schemaObject.name)}`,
-      );
     }
   }
 }
 
-function listUserSchemaObjects(database: SqliteDatabase): readonly SqliteObjectRow[] {
-  return database
-    .prepare<SqliteObjectRow>(
-      `
-        SELECT name, type
-        FROM sqlite_master
-        WHERE name NOT LIKE 'sqlite_%'
-        ORDER BY CASE type
-          WHEN 'view' THEN 0
-          WHEN 'trigger' THEN 1
-          WHEN 'index' THEN 2
-          ELSE 3
-        END,
-        name ASC
-      `,
-    )
-    .all();
-}
-
-function tableColumnsMatch(
+function listTableColumns(
   database: SqliteDatabase,
   tableName: AllowedTableName,
-): boolean {
+): readonly string[] {
   const actualColumns = database
     .prepare<TableInfoRow>(`PRAGMA table_info(${quoteIdentifier(tableName)})`)
     .all()
     .map((row) => row.name);
-
-  return (
-    actualColumns.length === EXPECTED_TABLE_COLUMNS[tableName].length &&
-    actualColumns.every(
-      (entry, index) => entry === EXPECTED_TABLE_COLUMNS[tableName][index],
-    )
-  );
-}
-
-function isAllowedTableName(value: string): value is AllowedTableName {
-  return SIDECAR_TABLE_NAMES.includes(value as AllowedTableName);
-}
-
-function isAllowedIndexName(value: string): value is AllowedIndexName {
-  return SIDECAR_INDEX_NAMES.includes(value as AllowedIndexName);
+  return actualColumns;
 }
 
 function migrateResultGroupsAppliedColumn(database: SqliteDatabase): void {

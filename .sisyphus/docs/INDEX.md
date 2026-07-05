@@ -5,7 +5,7 @@ Purpose: 记录本子项目当前最新设计与正式实现参考。
 
 ## Summary
 
-当前 docs 承载最新设计与当前正式实现参考，重点覆盖系统总览、消息投影、压缩与删除许可、运行时模型、配置面、验证边界，以及 operator / prompt 相关使用说明。排查真实宿主 session 时，先读 operator live artifact 入口，确认会话、runtime log 尾部、debug snapshot、sidecar database 与 lock 的真相源。压缩输入与 token 估算现已共享同一条文本口径：只保留 `text + tool input/output`，不再把 `reasoning`、`patch`、`file` 当成独立文本来源。Reminder 已通过 no-op 工具调用 / 工具结果对承载，正文进入工具结果，不再作为独立 user 消息注入。压缩调度当前为异步 background executor 模式（pending 中转 + send-entry-gate 阻塞所有普通对话，一轮延迟），目标设计改为异步压缩 + 替换门槛解耦：N+1 在 `messages.transform` 末尾直接启动后台压缩（去掉 pending 中转和 `chat.params` 调度），result group 入库后不立即替换，替换由 token 达标或 idle 超阈值触发，send-entry-gate 缩小到仅在"该替换但压缩未完成"时阻塞（复用 lock 超时），lock 保留防并发。涉及当前设计契约、运行时边界、工具用法或 prompt 评估时，应先读本目录。
+当前 docs 承载最新设计与当前正式实现参考，重点覆盖系统总览、消息投影、压缩与删除许可、运行时模型、配置面、验证边界，以及 operator / prompt 相关使用说明。排查真实宿主 session 时，先读 operator live artifact 入口，确认会话、runtime log 尾部、debug snapshot、sidecar database 与 lock 的真相源。压缩输入与 token 估算现已共享同一条文本口径：只保留 `text + tool input/output`，不再把 `reasoning`、`patch`、`file` 当成独立文本来源。Reminder 已通过 no-op 工具调用 / 工具结果对承载，正文进入工具结果，不再作为独立 user 消息注入。压缩执行当前已去掉 pending 中转，N+1 在 `messages.transform` 末尾直接启动后台压缩；result group 替换门槛解耦与 send-entry-gate 缩小仍是目标设计。sidecar schema bootstrap 必须增量创建/迁移当前表，已知 legacy `pending_compactions` 只能被单表清理，不能触发整库 reset。涉及当前设计契约、运行时边界、工具用法或 prompt 评估时，应先读本目录。
 
 ---
 
@@ -27,7 +27,7 @@ Purpose: 记录本子项目当前最新设计与正式实现参考。
 [compaction/allow-delete.md] — 已实现：delete permission 的语义与准入边界
 [compaction/mark-tool-contract.md] — 已实现：`compression_mark` / `compression_inspect` 公共契约与 replay 入口语义
 [compaction/recall-tool-contract.md] — 已实现：`compression_recall` tool 契约，按 seq 范围召回原始 host history transcript
-[compaction/compaction-lifecycle.md] — 半实现：压缩生命周期、replay-first 模型与 fallback 行为；含异步压缩+替换门槛解耦目标设计（未实现）
+[compaction/compaction-lifecycle.md] — 半实现：压缩生命周期、replay-first 模型与 fallback 行为；压缩执行已 N+1 直接启动，替换门槛解耦仍未实现
 [compaction/model-visible-transcript.md] — 已实现：压缩输入、token 估算与 tool 渲染共享的模型可见 transcript 契约
 [compaction/lock-and-send-gate.md] — 当前实现，部分待调整：lock 保留、send-entry-gate 缩小到仅在"该替换但压缩未完成"时阻塞
 [compaction/failure-handling-and-user-notice.md] — 未实现：失败累计、三次失败停重试、database-backed toast 与 user-role notice 追加规则
@@ -39,7 +39,7 @@ Purpose: 记录本子项目当前最新设计与正式实现参考。
 
 ## Operator
 
-[operator/live-artifact-investigation.md] — 已实现：真实宿主 session、runtime log 尾部、debug snapshot、sidecar database 与 lock 的排查入口
+[operator/live-artifact-investigation.md] — 已实现：真实宿主 session、runtime log 尾部、debug snapshot、sidecar database、lock 与 result fragment sequence repair 的排查入口
 [operator/compaction-records.md] — 已实现：每次压缩模型请求的输入 / 原始输出记录目录与文件命名契约
 [operator/compression-mark-usage.md] — 已实现：`compression_mark` / `compression_inspect` 工具使用说明与常见错误
 [operator/json-snapshot-trimming.md] — 已实现：调试快照 JSON 的安全读取方法

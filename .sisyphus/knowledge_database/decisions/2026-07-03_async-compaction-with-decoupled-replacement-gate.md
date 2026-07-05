@@ -29,4 +29,8 @@ Date: 2026-07-03
 - 替换逻辑从"result group 存在即替换"改为"result group 存在 **且** 门槛满足"
 - docs 中 `compaction-lifecycle.md`、`lock-and-send-gate.md`、`runtime-model.md`、`system-overview.md` 已标注当前实现与目标设计的差异
 
+### UPDATE 2026-07-05
+
+The execution-path part is now implemented: background compaction starts directly from the `messages.transform` tail and no longer uses the old `pending_compactions` queue. The remaining target-state work is replacement-gate decoupling and narrowing send-entry-gate behavior.
+
 Tags: #compaction #architecture #runtime #scheduling #async #replacement-gate

@@ -7,7 +7,7 @@ Purpose: 记录本子项目中具有长期价值的决策、问题、规律与�
 
 ## Summary
 
-这个知识库承接具有长期价值的设计决策、历史问题、运行规律与可复用教程。最新设计与当前正式实现参考应进入 `docs/`；这里保留的是能帮助未来避免重复踩坑、理解演化背景、或复用既有判断方法的 durable 信息。最新高风险陷阱包括：压缩输入使用 text-only 与完整 tool object fallback 两套错误口径；repo-owned runtime artifacts 误用 live `PluginInput.directory` 导致记录写到宿主目录而不是插件仓库。最新架构决策：压缩调度改为异步压缩 + 替换门槛解耦——N+1 在 `messages.transform` 末尾直接启动后台压缩（去掉 pending 中转和 `chat.params` 调度），result group 入库后不立即替换，替换由 token 达标或 idle 超阈值触发，send-entry-gate 缩小到仅在"该替换但压缩未完成"时阻塞（复用 lock 超时），lock 保留防并发。
+这个知识库承接具有长期价值的设计决策、历史问题、运行规律与可复用教程。最新设计与当前正式实现参考应进入 `docs/`；这里保留的是能帮助未来避免重复踩坑、理解演化背景、或复用既有判断方法的 durable 信息。最新高风险陷阱包括：legacy sidecar 表不能触发整库 schema reset；压缩输入使用 text-only 与完整 tool object fallback 两套错误口径；repo-owned runtime artifacts 误用 live `PluginInput.directory` 导致记录写到宿主目录而不是插件仓库。最新架构决策：压缩调度改为异步压缩 + 替换门槛解耦——N+1 在 `messages.transform` 末尾直接启动后台压缩（去掉 pending 中转和 `chat.params` 调度），result group 入库后不立即替换，替换由 token 达标或 idle 超阈值触发，send-entry-gate 缩小到仅在"该替换但压缩未完成"时阻塞（复用 lock 超时），lock 保留防并发。
 
 ## Decisions
 
@@ -23,6 +23,7 @@ Purpose: 记录本子项目中具有长期价值的决策、问题、规律与�
 [issues/2026-04-03_bun-sqlite-runtime-compat-requires-adapter.md] — Bun-flavored runtime 需要 SQLite adapter 与 named-parameter normalization #runtime #sqlite #bun #trap
 [issues/2026-05-12_tool-object-transcript-rendering-bloats-and-omits-compaction-input.md] — 压缩输入必须使用统一模型可见 transcript renderer，不能 text-only 或完整序列化 tool object #compaction #tool-calls #token-estimation #runtime #trap
 [issues/2026-06-20_repo-owned-artifacts-must-not-use-plugin-input-directory.md] — repo-owned runtime artifacts 必须用 `runtimeConfig.repoRoot`，不能用 live `PluginInput.directory` #runtime #artifacts #live-debug #trap
+[issues/2026-07-05_legacy-sidecar-table-must-not-trigger-destructive-reset.md] — 旧 sidecar 表不能触发整库 schema reset；fragment sequence 错位可用 compaction records 或 OpenCode history timeline 修复 #runtime #sqlite #schema-migration #trap #data-loss
 
 ## Learnings
 

@@ -19,7 +19,7 @@
 - `ToastService` 可直接播放：`compressionStart` / `compressionComplete` / `compressionFailed`
 - `toast_events` 表及其消费端已存在
 - projection 已支持按锚点插入 reminder 风格的 `user` 消息
-- sidecar 已保存 pending compaction 与 result group 状态
+- sidecar 已保存 result group 状态；失败状态表尚未实现
 
 ### 当前缺口
 
@@ -98,8 +98,8 @@
 
 ### 后台执行前
 
-- 若某个 pending mark 已是 `abandoned`，则跳过执行
-- 该 pending 项应被清理，避免无限重试
+- 若某个 eligible mark 已是 `abandoned`，则跳过执行
+- 该 mark 不应再次进入自动执行集合，避免无限重试
 
 ### 后台执行失败后
 

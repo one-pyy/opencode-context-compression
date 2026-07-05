@@ -74,7 +74,7 @@ send-entry waiting 不能只看 lock 文件本身。
 
 `chat.params` 调度器必须使用 sidecar-backed canonical identity service 读取 `state.db.visible_sequence_allocations` 中已经分配过的 visible id。它不能按当前 replay sequence 重新生成 visible id；宿主会话可能回滚、裁剪或分支切换，当前 replay sequence 不再等价于模型发出 `compression_mark.from/to` 时看到的持久 visible sequence。
 
-这些字段用于定位为什么 mark 没进入 pending 队列；其中 sidecar-backed identity 现在属于调度正确性的输入，不是可选优化。
+这些字段用于定位为什么 mark 没进入 eligible background compaction 集合；其中 sidecar-backed identity 现在属于调度正确性的输入，不是可选优化。
 
 ## 相关文档
 

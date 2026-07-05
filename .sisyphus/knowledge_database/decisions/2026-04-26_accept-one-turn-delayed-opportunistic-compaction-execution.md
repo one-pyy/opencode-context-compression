@@ -21,4 +21,8 @@ Keeping execution attached to the `messages.transform` tail avoids duplicating p
 
 One model request may pass after `chat.params` schedules pending compaction but before the next `messages.transform` starts the executor and lock. This is expected current behavior, not a startup-latency bug. Future work that wants same-turn compression must first move or reconstruct full projection state at the scheduling boundary.
 
+### UPDATE 2026-07-05
+
+This decision is historical. Current implementation no longer uses `chat.params` to write a pending compaction queue; background compaction starts from the `messages.transform` tail using the projection state already built there. Keep this entry only as background for the older one-turn delayed model.
+
 Tags: #compaction #scheduler #runtime #lifecycle #architecture

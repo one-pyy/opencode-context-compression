@@ -12,7 +12,7 @@
 
 2. **SQLite 是 sidecar state，不是第二套会话**
    - 每个 session 一个数据库：`state/<session-id>.db`
-   - SQLite 只保存结果组、visible-id 映射、schema 元信息等 sidecar 状态
+   - SQLite 只保存结果组、visible-id 映射、toast events、schema 元信息等 sidecar 状态
    - mark 的真值来自 host history / tool history replay，不单独持久化 marks/source snapshots 真值表
 
 3. **文件锁是实时压缩门控**（当前实现，目标设计中缩小 gate 触发范围）
@@ -63,6 +63,17 @@ SQLite 不应承担：
 
 ### `result_fragments`
 - 同一结果组被原始 gap 打散后的有序 replacement 片段
+
+### `toast_events`
+- database-backed toast / notice 事件
+
+### Legacy `pending_compactions`
+- `pending_compactions` 不是当前运行时表
+- 旧 DB 中存在该表时，schema bootstrap 只应删除这张旧队列表，不得清空 `result_groups`、`result_fragments` 或 `visible_sequence_allocations`
+
+## Schema bootstrap 约束（已实现）
+
+sidecar bootstrap 可以自动创建缺失的当前表、补齐兼容列，并清理已知 legacy 表。它不得因为出现无关旧表就重建整个数据库；如果关键结果表缺少当前代码必须读取的列，应失败并要求显式迁移，而不是静默丢弃已提交 result group。
 
 ## 模块职责边界
 

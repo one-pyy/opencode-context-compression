@@ -85,7 +85,7 @@ debug snapshot 适合确认投影前后消息结构、模型可见 transcript、
 1. 在 `runtime-events.jsonl` 里按目标 `sessionID` 过滤，并只看尾部记录。
 2. 找最新 `experimental.chat.messages.transform` completed 记录里的 `payload.projectionDebug`。
 3. 找最新 `chat.params` completed 记录里的 scheduler payload。
-4. 再查 sidecar 的 pending / result / toast，确认是否真的有后台压缩完成或卡住。
+4. 再查 sidecar 的 result / visible id / toast，确认是否真的有后台压缩完成或卡住。
 
 `messages.transform` 的 `payload.projectionDebug` 用来判断当前投影状态：
 
@@ -109,28 +109,51 @@ debug snapshot 适合确认投影前后消息结构、模型可见 transcript、
 
 ## Session database / sidecar 在哪里
 
-sidecar database 是插件的持久状态来源，用于查 pending compaction、result group、visible id 映射、toast event、失败状态等。
+sidecar database 是插件的持久状态来源，用于查 result group、visible id 映射、toast event、失败状态等。
 
 位置取决于目标项目的 runtime 配置与工作目录。排查时先从 runtime log、debug snapshot 或 lock 文件推回目标项目目录，再在该项目的插件状态目录中找 session 对应的 SQLite sidecar。
 
 读取 sidecar 时，重点查：
 
-- pending compaction 是否还存在。
 - result group 是否已经写入 terminal 状态。
 - visible id / canonical id 映射是否存在。
 - toast 或 failure 记录是否已经持久化。
 
 sidecar 当前常见表包括：
 
-- `pending_compactions`
 - `result_groups`
 - `result_fragments`
 - `toast_events`
 - `visible_sequence_allocations`
 
+旧 DB 中可能残留 `pending_compactions`。它是已废弃的调度队列表，不保存 replacement 正文或 fragment range；当前 schema bootstrap 只应清理这张 legacy 表，不应把它当成当前运行状态。
+
 sidecar 不保存 scheduler 的最新 token 统计快照；不要假设存在 scheduler state 表。token 统计、调度原因和阈值判断以 `runtime-events.jsonl` 尾部的 `chat.params` / `messages.transform` 记录为准。
 
 不要只凭 assistant prose 或 toast 文案判断 sidecar 已经更新；必须查数据库记录或 runtime event。一个旧 `result_group` 只能证明某个 mark 曾经压缩完成，不代表后续所有 mark 都已处理，也不代表当前没有新的未压范围。
+
+## Result fragment sequence repair（已实现）
+
+当 `result_groups` 与 `result_fragments.replacement_text` 仍存在，但投影后 token 明显偏高、已压缩范围原文泄漏时，优先检查 result fragment sequence 是否沿用旧 replay 口径。修复流程：
+
+1. 先备份目标 `state/{sessionID}.db`。
+2. 确认 `logs/compaction-records/` 中该 session 的 `.in.yaml` 覆盖 DB 中全部 `result_groups.mark_id`。
+3. 用当前 projection 输入运行 dry-run：
+
+```bash
+node --import tsx scripts/repair-result-group-sequences.ts \
+  --session {sessionID} \
+  --hook-in logs/debug-snapshots/{sessionID}.projection-in.json
+```
+
+4. 只有 dry-run 显示 `skippedCount=0` 时才加 `--apply` 写回。
+5. 写回后用 `scripts/run-projection.ts` 和 `scripts/measure-tokens.ts` 验证 token 回落，并确认 `Uncompressed marked tokens=0`。
+
+该流程使用 compaction request transcript 中的 `hostMessageID` 重新映射 fragment 范围；不要直接相信旧 `result_fragments.source_start_seq/source_end_seq`。
+
+如果 `.in.yaml` 缺失但旧 DB 仍有 `result_groups` / `result_fragments`，先做只读 dry-run：从当前 OpenCode message/part 数据重建旧 replay 口径，将 `compression_mark`、`compression_inspect`、`compression_recall` 的 completed tool part 作为旧 synthetic sequence slot，再把旧 `source_start_seq` / `source_end_seq` 映射到 canonical message id 与当前 sequence。该降级路径必须先在有 `.in.yaml` 的 session 上与 transcript 精确算法对齐后再用于缺 records 的 DB。
+
+批量修复使用 `scripts/batch-repair-result-sequences-from-opencode.ts`。默认 dry-run；`--apply` 时只写 `legacy-seq-repairable` 项，并先把将写的 `state/{sessionID}.db` 复制到 `--backup-dir`。脚本按 `compression_mark.from/to`、`visible_sequence_allocations` 与 OpenCode message/part history 复核真实 mark 范围；`current-correct` 不写，`unsafe` 与 `missing-message-source` 只进入 `.sisyphus/tmp/work/seq-repair-batch-*.md` 报告。
 
 ## Lock 文件在哪里
 
@@ -190,7 +213,7 @@ Provider <provider-id> not found in config
 - 最新 runtime log 尾部时间。
 - 最新错误是否仍存在，发生在修复前还是修复后。
 - 当前 lock 是否存在，是否仍是 `running`。
-- pending mark / 成功 mark / 失败 mark 是否交错。
+- 待处理 mark / 成功 mark / 失败 mark 是否交错。
 - sidecar 中是否已有 terminal 状态或失败状态。
 - 下一步该查配置来源链、worker 中断、lock cleanup、还是 sidecar 状态。
 

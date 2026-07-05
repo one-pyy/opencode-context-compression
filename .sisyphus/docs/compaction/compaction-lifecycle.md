@@ -11,28 +11,28 @@
 1. 当前 hook 重放后存在至少一个合法且仍有效的 mark 节点
 2. 当前有效覆盖树中的未压原始 token 总数达到 `markedTokenAutoCompactionThreshold`
 
-## 调度与执行时序（当前实现，待替换）
+## 调度与执行时序（当前实现，部分待替换）
 
-当前 runtime 采用异步 background executor 模式，接受一轮延迟的 opportunistic execution：
+当前 runtime 已去掉 pending 中转，采用 `messages.transform` 末尾直接启动的异步 background executor：
 
-1. `messages.transform` 先完成本轮投影，并产出完整 projection state
-2. `chat.params` 根据 replayed marks / mark tree / token 阈值冻结 eligible mark，并写入 pending compactions
-3. 下一轮 `messages.transform` 末尾的 background executor 扫描 pending compactions，写 lock 并开始压缩
+1. N+0：模型调用 `compression_mark`，mark 进入 host history
+2. N+1：`messages.transform` replay 历史，构造 projection state，并在末尾直接收集 eligible marks
+3. background executor 写 lock、执行压缩、写 result group、清 lock
 4. lock 存在期间，后续 `messages.transform` gate 会等待压缩完成后再继续投影
 
-因此，`chat.params` 写入 pending 的同一轮请求仍可能继续发给模型；压缩通常在下一轮处理时启动。
+旧 DB 中可能残留 `pending_compactions`，但它不是当前运行时状态表。schema bootstrap 只应清理这张 legacy 队列表，不得因此清空 result group 或 visible id 数据。
 
 ## 目标设计：异步压缩 + 替换门槛解耦（未实现）
 
-目标设计保留异步后台压缩，但将**压缩执行**与**替换应用**解耦，去掉 pending 中转，并将 send-entry-gate 缩小到仅在"该替换但压缩未完成"时触发：
+目标设计保留异步后台压缩，但将**替换应用**与 result group 写入解耦，并将 send-entry-gate 缩小到仅在"该替换但压缩未完成"时触发：
 
 ### 压缩执行（N+1 启动）
 
-1. N+0：模型在 `chat.params` 之后调用 `compression_mark`，mark 进入 host history
+1. N+0：模型调用 `compression_mark`，mark 进入 host history
 2. N+1：`messages.transform` replay 历史，第一次看到 mark。构造完 projection state 后，若存在 eligible mark，**直接在末尾启动后台压缩**（state 已在手边，不需要 pending 中转，不需要等 `chat.params`）
 3. 后台压缩写 lock、调小模型、写 result group、清 lock
 
-关键变化：压缩从 N+2 提前到 N+1，因为 `messages.transform` 已经有 projection state，不需要跨 seam 传递。`chat.params` 的调度评估逻辑合并回 `messages.transform`，pending 中转去掉。
+当前实现已具备这一执行路径：压缩从 N+2 提前到 N+1，因为 `messages.transform` 已经有 projection state，不需要跨 seam 传递。剩余目标是将 result group 的替换应用与入库时机解耦。
 
 ### 替换应用（门槛触发）
 
@@ -58,7 +58,7 @@ send-entry-gate 不完全移除，而是缩小到仅在"替换门槛已满足但
 ### 收益
 
 - 压缩提前一轮：N+1 即开始，N+2 result group 已入库
-- 去掉 pending 中转和 `chat.params` 调度职责，单一路径
+- 压缩执行已是单一路径：`messages.transform` 末尾直接启动后台压缩
 - send-entry-gate 缩小到最小必要范围，正常对话不阻塞
 - idle 时间吸收等待：用户休息后再发消息时，result group 已就绪，直接替换，无感知
 
@@ -71,14 +71,14 @@ send-entry-gate 不完全移除，而是缩小到仅在"替换门槛已满足但
 
 | 维度 | 当前实现 | 目标设计 |
 |---|---|---|
-| 压缩启动 | N+2（executor 扫 pending） | N+1（messages.transform 末尾直接启动） |
-| pending 中转 | 需要（chat.params 写，executor 读） | 不需要（state 在手边） |
-| chat.params 调度 | 冻结 batch、写 pending | 合并回 messages.transform |
+| 压缩启动 | N+1（messages.transform 末尾直接启动） | N+1（保持当前启动路径） |
+| pending 中转 | 不需要（state 在手边） | 不需要 |
+| chat.params 调度 | 不负责压缩执行调度 | 不负责压缩执行调度 |
 | 替换时机 | result group 存在即替换 | result group 存在 **且** 门槛满足 |
 | send-entry-gate | 阻塞所有普通对话 | 仅在"该替换但压缩未完成"时阻塞，复用 lock 超时 |
 | lock | 保留 | 保留（防并发压缩 + gate 等待） |
 
-同一个 batch 内的多个 pending mark 当前分两阶段执行：
+同一个 batch 内的多个 eligible mark 当前分两阶段执行：
 
 1. **compute 阶段并行**：每个 mark 独立构造 compaction input、调用模型 transport、执行 retry / fallback / output validation。
 2. **commit 阶段串行**：已验证结果按 pending 顺序写入 result group，并批量标记 processed pending rows。
