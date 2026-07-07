@@ -9,7 +9,8 @@ import type {
 } from "../types.js";
 import type { ToastService } from "../../services/toast-service.js";
 import { TokenCounter } from "../../utils/token-counter.js";
-import type { CompactionRequest, TransportResponse } from "../types.js";
+import type { CompactionRequest } from "../types.js";
+import { CompactionTransportEmptyResponseError } from "../transport/errors.js";
 
 const DEFAULT_MAX_ATTEMPTS_PER_MODEL = 2;
 
@@ -118,6 +119,12 @@ export async function computeCompactionAttempt(
           validatedOutput,
         } satisfies CompactionAttemptComputation;
       } catch (error) {
+        await writeCompactionRecordSafely(dependencies, input, request, {
+          createdAt: recordCreatedAt,
+          suffix: "err",
+          payload: buildCompactionErrorRecord(error),
+          attemptIndex,
+        });
         lastAttemptError = error;
         continue;
       }
@@ -172,8 +179,8 @@ async function writeCompactionRecordSafely(
   request: CompactionRequest,
   record: {
     readonly createdAt: string;
-    readonly suffix: "in" | "out";
-    readonly payload: CompactionRequest | TransportResponse["rawPayload"];
+    readonly suffix: "in" | "out" | "err";
+    readonly payload: unknown;
     readonly attemptIndex: number;
   },
 ): Promise<void> {
@@ -206,6 +213,28 @@ async function writeCompactionRecordSafely(
       },
     });
   }
+}
+
+function buildCompactionErrorRecord(error: unknown): unknown {
+  if (error instanceof CompactionTransportEmptyResponseError) {
+    return {
+      name: error.name,
+      message: error.message,
+      diagnostic: error.diagnosticPayload,
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+    };
+  }
+
+  return {
+    name: "NonErrorThrown",
+    message: String(error),
+  };
 }
 
 function buildModelChain(input: RunCompactionInput): readonly string[] {

@@ -55,7 +55,7 @@ export interface RuntimeArtifactRecorder {
     readonly sourceStartSeq?: number;
     readonly sourceEndSeq?: number;
     readonly createdAt?: string;
-    readonly suffix: "in" | "out";
+    readonly suffix: "in" | "out" | "err";
     readonly payload: unknown;
     readonly model?: string;
     readonly attemptIndex?: number;

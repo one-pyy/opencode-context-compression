@@ -6,6 +6,7 @@ import type { PluginInput } from "@opencode-ai/plugin";
 import type { RuntimeArtifactRecorder } from "../../runtime/runtime-artifacts.js";
 import {
   CompactionTransportAbortedError,
+  CompactionTransportEmptyResponseError,
   CompactionTransportFatalError,
   CompactionTransportRetryableError,
   CompactionTransportTimeoutError,
@@ -17,9 +18,10 @@ import type {
 } from "./types.js";
 
 const OPENAI_REASONING_EFFORT = "high";
-const DEEPSEEK_THINKING_LEVEL = "max";
 const GEMINI_THINKING_LEVEL = "high";
 const ANTHROPIC_HIGH_THINKING_BUDGET_TOKENS = 2048;
+const EMPTY_STREAM_FRAME_SAMPLE_LIMIT = 8;
+const EMPTY_STREAM_DATA_PREVIEW_LIMIT = 600;
 
 export function createDirectLLMCompactionTransport(
   pluginInput: PluginInput,
@@ -140,15 +142,15 @@ async function callLLM(
   );
 
   if (provider.type === "gemini") {
-    return callGemini(provider, modelID, systemPrompt, userMessage, request, signal);
+    return callGemini(provider, runtimeArtifacts, modelID, systemPrompt, userMessage, request, signal);
   }
 
   if (provider.type === "anthropic") {
-    return callAnthropic(provider, modelID, systemPrompt, userMessage, request, signal);
+    return callAnthropic(provider, runtimeArtifacts, modelID, systemPrompt, userMessage, request, signal);
   }
 
   if (provider.type === "openai") {
-    return callOpenAI(provider, providerID, modelID, systemPrompt, userMessage, request, signal);
+    return callOpenAI(provider, runtimeArtifacts, providerID, modelID, systemPrompt, userMessage, request, signal);
   }
 
   throw new CompactionTransportFatalError(
@@ -310,6 +312,7 @@ async function getProviderConfig(
 
 async function callGemini(
   provider: LLMProviderConfig,
+  runtimeArtifacts: RuntimeArtifactRecorder,
   modelID: string,
   systemPrompt: string,
   userMessage: string,
@@ -339,11 +342,12 @@ async function callGemini(
     throw new Error(`Gemini API error: ${response.status} ${text}`);
   }
 
-  return readStreamingText(response, request, parseGeminiSseChunk);
+  return readStreamingText(response, runtimeArtifacts, request, parseGeminiSseChunk);
 }
 
 async function callAnthropic(
   provider: LLMProviderConfig,
+  runtimeArtifacts: RuntimeArtifactRecorder,
   modelID: string,
   systemPrompt: string,
   userMessage: string,
@@ -378,11 +382,12 @@ async function callAnthropic(
     throw new Error(`Anthropic API error: ${response.status} ${text}`);
   }
 
-  return readStreamingText(response, request, parseAnthropicSseChunk);
+  return readStreamingText(response, runtimeArtifacts, request, parseAnthropicSseChunk);
 }
 
 async function callOpenAI(
   provider: LLMProviderConfig,
+  runtimeArtifacts: RuntimeArtifactRecorder,
   providerID: string,
   modelID: string,
   systemPrompt: string,
@@ -416,7 +421,7 @@ async function callOpenAI(
     throw new Error(`OpenAI API error: ${response.status} ${text}`);
   }
 
-  return readStreamingText(response, request, parseOpenAISseChunk);
+  return readStreamingText(response, runtimeArtifacts, request, parseOpenAISseChunk);
 }
 
 function buildOpenAICompatibleReasoningOptions(
@@ -425,15 +430,6 @@ function buildOpenAICompatibleReasoningOptions(
 ): Record<string, unknown> {
   const normalizedProvider = providerID.toLowerCase();
   const normalizedModel = modelID.toLowerCase();
-
-  if (
-    normalizedProvider.includes("deepseek") ||
-    normalizedModel.includes("deepseek")
-  ) {
-    return {
-      chat_template_kwargs: { thinking: DEEPSEEK_THINKING_LEVEL },
-    };
-  }
 
   if (normalizedProvider.includes("openai") || normalizedModel.startsWith("gpt")) {
     return { reasoning_effort: OPENAI_REASONING_EFFORT };
@@ -448,6 +444,7 @@ function trimTrailingSlashes(value: string): string {
 
 async function readStreamingText(
   response: Response,
+  runtimeArtifacts: RuntimeArtifactRecorder,
   request: CompactionTransportRequest,
   parseChunk: (data: string) => string,
 ): Promise<string> {
@@ -462,6 +459,12 @@ async function readStreamingText(
   let buffer = "";
   let aggregated = "";
   let receivedAnyToken = false;
+  let frameCount = 0;
+  let dataFrameCount = 0;
+  let parsedDataFrameCount = 0;
+  let doneFrameCount = 0;
+  let textChunkCount = 0;
+  const frameSamples: EmptyStreamFrameSample[] = [];
   let firstTokenTimer: ReturnType<typeof setTimeout> | undefined;
   let streamIdleTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -505,11 +508,22 @@ async function readStreamingText(
       buffer = frames.pop() ?? "";
 
       for (const frame of frames) {
-        const chunk = parseSseFrame(frame, parseChunk);
+        frameCount += 1;
+        const parsedFrame = parseSseFrame(frame, parseChunk);
+        dataFrameCount += parsedFrame.dataFrameCount;
+        parsedDataFrameCount += parsedFrame.parsedDataFrameCount;
+        doneFrameCount += parsedFrame.doneFrameCount;
+
+        if (frameSamples.length < EMPTY_STREAM_FRAME_SAMPLE_LIMIT) {
+          frameSamples.push(...parsedFrame.samples.slice(0, EMPTY_STREAM_FRAME_SAMPLE_LIMIT - frameSamples.length));
+        }
+
+        const chunk = parsedFrame.text;
         if (!chunk) {
           continue;
         }
 
+        textChunkCount += 1;
         if (!receivedAnyToken) {
           receivedAnyToken = true;
           if (firstTokenTimer) {
@@ -537,7 +551,27 @@ async function readStreamingText(
   }
 
   if (!receivedAnyToken || aggregated.trim().length === 0) {
-    throw new Error("Streaming response produced no text content.");
+    const diagnosticPayload = {
+      markID: request.markID,
+      model: request.model,
+      frameCount,
+      dataFrameCount,
+      parsedDataFrameCount,
+      doneFrameCount,
+      textChunkCount,
+      remainingBufferLength: buffer.length,
+      responseStatus: response.status,
+      responseContentType: response.headers.get("content-type"),
+      sampledFrames: frameSamples,
+    };
+    await runtimeArtifacts.writeDiagnostic({
+      sessionID: request.sessionID,
+      scope: "direct-llm",
+      severity: "error",
+      message: "Streaming response produced no text content; captured SSE summary.",
+      payload: diagnosticPayload,
+    });
+    throw new CompactionTransportEmptyResponseError(diagnosticPayload);
   }
 
   return aggregated;
@@ -546,10 +580,10 @@ async function readStreamingText(
 function parseSseFrame(
   frame: string,
   parseChunk: (data: string) => string,
-): string {
+): ParsedSseFrame {
   const trimmed = frame.trim();
   if (trimmed.length === 0) {
-    return "";
+    return EMPTY_PARSED_SSE_FRAME;
   }
 
   const dataLines = trimmed
@@ -558,15 +592,136 @@ function parseSseFrame(
     .map((line) => line.slice(5).trim());
 
   if (dataLines.length === 0) {
-    return "";
+    return {
+      text: "",
+      dataFrameCount: 0,
+      parsedDataFrameCount: 0,
+      doneFrameCount: 0,
+      samples: [summarizeNonDataFrame(trimmed)],
+    };
   }
 
   const data = dataLines.join("\n");
   if (data === "[DONE]") {
-    return "";
+    return {
+      text: "",
+      dataFrameCount: 1,
+      parsedDataFrameCount: 0,
+      doneFrameCount: 1,
+      samples: [{ kind: "done", preview: "[DONE]" }],
+    };
   }
 
-  return parseChunk(data);
+  return {
+    text: parseChunk(data),
+    dataFrameCount: 1,
+    parsedDataFrameCount: 1,
+    doneFrameCount: 0,
+    samples: [summarizeDataFrame(data)],
+  };
+}
+
+interface ParsedSseFrame {
+  readonly text: string;
+  readonly dataFrameCount: number;
+  readonly parsedDataFrameCount: number;
+  readonly doneFrameCount: number;
+  readonly samples: readonly EmptyStreamFrameSample[];
+}
+
+type EmptyStreamFrameSample =
+  | {
+      readonly kind: "data-json";
+      readonly topLevelKeys: readonly string[];
+      readonly signalKeys: readonly string[];
+      readonly preview: string;
+    }
+  | {
+      readonly kind: "data-text" | "done" | "non-data";
+      readonly preview: string;
+    };
+
+const EMPTY_PARSED_SSE_FRAME: ParsedSseFrame = Object.freeze({
+  text: "",
+  dataFrameCount: 0,
+  parsedDataFrameCount: 0,
+  doneFrameCount: 0,
+  samples: [],
+});
+
+function summarizeDataFrame(data: string): EmptyStreamFrameSample {
+  try {
+    const parsed: unknown = JSON.parse(data);
+    if (isPlainRecord(parsed)) {
+      return {
+        kind: "data-json",
+        topLevelKeys: Object.keys(parsed),
+        signalKeys: collectSignalKeys(parsed),
+        preview: truncateForDiagnostic(data),
+      };
+    }
+  } catch {
+    return { kind: "data-text", preview: truncateForDiagnostic(data) };
+  }
+
+  return { kind: "data-text", preview: truncateForDiagnostic(data) };
+}
+
+function summarizeNonDataFrame(frame: string): EmptyStreamFrameSample {
+  return { kind: "non-data", preview: truncateForDiagnostic(frame) };
+}
+
+function collectSignalKeys(value: unknown): readonly string[] {
+  const keys = new Set<string>();
+  collectSignalKeysInner(value, keys, 0);
+  return [...keys].sort();
+}
+
+function collectSignalKeysInner(value: unknown, keys: Set<string>, depth: number): void {
+  if (depth > 5 || value === null) {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value.slice(0, 4)) {
+      collectSignalKeysInner(item, keys, depth + 1);
+    }
+    return;
+  }
+
+  if (!isPlainRecord(value)) {
+    return;
+  }
+
+  for (const [key, nested] of Object.entries(value)) {
+    if (isPotentialTextSignalKey(key)) {
+      keys.add(key);
+    }
+    collectSignalKeysInner(nested, keys, depth + 1);
+  }
+}
+
+function isPotentialTextSignalKey(key: string): boolean {
+  const normalized = key.toLowerCase();
+  return (
+    normalized.includes("content") ||
+    normalized.includes("text") ||
+    normalized.includes("reasoning") ||
+    normalized.includes("thinking") ||
+    normalized.includes("delta") ||
+    normalized.includes("message")
+  );
+}
+
+function truncateForDiagnostic(value: string): string {
+  if (value.length <= EMPTY_STREAM_DATA_PREVIEW_LIMIT) {
+    return value;
+  }
+  return `${value.slice(0, EMPTY_STREAM_DATA_PREVIEW_LIMIT)}...<truncated ${value.length - EMPTY_STREAM_DATA_PREVIEW_LIMIT} chars>`;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function parseGeminiSseChunk(data: string): string {
@@ -640,7 +795,11 @@ function combineAbortSignals(
 }
 
 function mapApiError(error: unknown): Error {
-  if (error instanceof Error) {
+    if (error instanceof Error) {
+    if (error instanceof CompactionTransportEmptyResponseError) {
+      return error;
+    }
+
     if (error.message.includes("429") || error.message.includes("rate")) {
       return new CompactionTransportRetryableError(error.message, {
         code: "429",

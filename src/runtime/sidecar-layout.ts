@@ -47,7 +47,7 @@ export interface CompactionRecordPathInput {
   readonly sourceStartSeq?: number;
   readonly sourceEndSeq?: number;
   readonly createdAt: string;
-  readonly suffix: "in" | "out";
+  readonly suffix: "in" | "out" | "err";
   readonly model?: string;
   readonly attemptIndex?: number;
 }

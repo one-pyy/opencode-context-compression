@@ -60,6 +60,16 @@ export class CompactionTransportAbortedError extends Error {
   }
 }
 
+export class CompactionTransportEmptyResponseError extends Error {
+  readonly diagnosticPayload: unknown;
+
+  constructor(diagnosticPayload: unknown) {
+    super("Streaming response produced no text content.");
+    this.name = "CompactionTransportEmptyResponseError";
+    this.diagnosticPayload = diagnosticPayload;
+  }
+}
+
 export class CompactionTransportMalformedPayloadError extends Error {
   readonly rawPayload: unknown;
   readonly request: CompactionTransportRequestSummary;
