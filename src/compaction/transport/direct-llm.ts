@@ -17,9 +17,9 @@ import type {
   CompactionTransportTranscriptEntry,
 } from "./types.js";
 
-const OPENAI_REASONING_EFFORT = "high";
-const GEMINI_THINKING_LEVEL = "high";
-const ANTHROPIC_HIGH_THINKING_BUDGET_TOKENS = 2048;
+const OPENAI_REASONING_EFFORT = "medium";
+const OPENAI_COMPATIBLE_REASONING_EFFORT = "none";
+const GEMINI_THINKING_LEVEL = "medium";
 const EMPTY_STREAM_FRAME_SAMPLE_LIMIT = 8;
 const EMPTY_STREAM_DATA_PREVIEW_LIMIT = 600;
 
@@ -367,8 +367,10 @@ async function callAnthropic(
       model: modelID,
       max_tokens: 4096,
       thinking: {
-        type: "enabled",
-        budget_tokens: ANTHROPIC_HIGH_THINKING_BUDGET_TOKENS,
+        type: "adaptive",
+      },
+      output_config: {
+        effort: "medium",
       },
       system: systemPrompt,
       messages: [{ role: "user", content: userMessage }],
@@ -431,11 +433,12 @@ function buildOpenAICompatibleReasoningOptions(
   const normalizedProvider = providerID.toLowerCase();
   const normalizedModel = modelID.toLowerCase();
 
-  if (normalizedProvider.includes("openai") || normalizedModel.startsWith("gpt")) {
-    return { reasoning_effort: OPENAI_REASONING_EFFORT };
-  }
-
-  return {};
+  return {
+    reasoning_effort:
+      normalizedProvider.includes("openai") || normalizedModel.startsWith("gpt")
+        ? OPENAI_REASONING_EFFORT
+        : OPENAI_COMPATIBLE_REASONING_EFFORT,
+  };
 }
 
 function trimTrailingSlashes(value: string): string {

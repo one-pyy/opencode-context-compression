@@ -153,6 +153,19 @@ SQLite 只需保存：
 
 默认 compaction prompt 应从第一次尝试起就强调 protected placeholder discipline，而不是把强约束留到 retry-only prompt。
 
+## Provider 推理强度（已实现）
+
+直接 LLM transport 按 provider 协议设置固定的压缩推理强度；这些值当前不是 runtime config 字段：
+
+| 请求类型 | 当前参数 |
+|---|---|
+| OpenAI provider 或 `gpt*` 模型 | `reasoning_effort: "medium"` |
+| 其他 OpenAI-compatible provider | `reasoning_effort: "none"` |
+| Gemini | `generationConfig.thinkingConfig.thinkingLevel: "medium"` |
+| Anthropic | `thinking.type: "adaptive"` 与 `output_config.effort: "medium"` |
+
+可执行真相源是 `opencode-context-compression/src/compaction/transport/direct-llm.ts`。修改 provider 分类、参数名或强度时，必须同步更新本节；不要把这些固定请求参数误写成可由 `opencode-context-compression/src/config/runtime-config.jsonc` 覆盖。
+
 ## 流式 transport 与 timeout / fallback 契约
 
 当 compaction transport 改为流式实现时，单次模型尝试应遵守以下 timeout 语义：
