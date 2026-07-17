@@ -39,6 +39,16 @@ test("sidecar bootstrap drops legacy pending queue without clearing committed re
     });
     try {
       database.exec(`
+        DROP TABLE compaction_failures;
+        CREATE TABLE compaction_failures (
+          mark_id TEXT PRIMARY KEY,
+          rounds INTEGER NOT NULL,
+          last_error TEXT NOT NULL,
+          failed_at TEXT NOT NULL
+        );
+        INSERT INTO compaction_failures (mark_id, rounds, last_error, failed_at)
+        VALUES ('mark-legacy-failure', 3, 'legacy model-chain exhaustion', '2026-07-05T00:00:04.000Z');
+
         CREATE TABLE pending_compactions (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           mark_id TEXT NOT NULL,
@@ -73,10 +83,39 @@ test("sidecar bootstrap drops legacy pending queue without clearing committed re
           `SELECT COUNT(*) AS count FROM result_fragments`,
         )
         .get();
+      const failureTable = migrated
+        .prepare<{ readonly name: string }>(
+          `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'compaction_failures'`,
+        )
+        .get();
+      const schemaVersion = migrated
+        .prepare<{ readonly value: string }>(
+          `SELECT value FROM schema_meta WHERE key = 'schema_version'`,
+        )
+        .get();
+      const migratedFailure = migrated
+        .prepare<{
+          readonly failure_count: number;
+          readonly last_error: string;
+          readonly last_failed_at: string;
+        }>(
+          `SELECT failure_count, last_error, last_failed_at
+           FROM compaction_failures
+           WHERE mark_id = 'mark-legacy-failure'`,
+        )
+        .get();
 
       assert.equal(legacyTable, undefined);
       assert.equal(groupCount?.count, 1);
       assert.equal(fragmentCount?.count, 1);
+      assert.equal(failureTable?.name, "compaction_failures");
+      assert.equal(migratedFailure?.failure_count, 3);
+      assert.equal(migratedFailure?.last_error, "legacy model-chain exhaustion");
+      assert.equal(
+        migratedFailure?.last_failed_at,
+        "2026-07-05T00:00:04.000Z",
+      );
+      assert.equal(schemaVersion?.value, "2");
     } finally {
       migrated.close();
     }

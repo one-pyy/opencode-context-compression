@@ -43,8 +43,7 @@
   "compressing": {
     "timeoutSeconds": 600,
     "firstTokenTimeoutSeconds": 40,
-    "streamIdleTimeoutSeconds": 40,
-    "maxAttemptsPerModel": 1
+    "streamIdleTimeoutSeconds": 40
   },
   "toast": {
     "enabled": true,

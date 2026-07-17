@@ -61,7 +61,7 @@ test(
       {
         kind: "success",
         rawPayload: {
-          contentText: "Compact summary that illegally drops the opaque block.",
+          contentText: "<compression_output>Compact summary that illegally drops the opaque block.</compression_output>",
         },
       },
     ]);
@@ -76,7 +76,6 @@ test(
       () =>
         invalidRunner.run({
           build: compactBuild(fixture.sessionID, "mark-invalid"),
-          maxAttemptsPerModel: 1,
           resultGroup: {
             sourceStartSeq: 10,
             sourceEndSeq: 13,
@@ -97,6 +96,101 @@ test(
       "Existing replacement that must survive later failures.",
     );
 
+    const explanationTransport = createScriptedCompactionTransport([
+      {
+        kind: "success",
+        rawPayload: {
+          contentText:
+            '<plan>Keep the lead summary and the opaque slot.</plan><compression_output>Lead summary.\n<opaque slot="S1">Model-added text is ignored.</opaque></compression_output><explanation>This optional prose is not persisted.</explanation>',
+        },
+      },
+    ]);
+    const explanationRunner = createContractLevelCompactionRunner({
+      inputBuilder: createCompactionInputBuilder(),
+      transport: createSafeTransportAdapter(explanationTransport.transport),
+      outputValidator: createOutputValidator(),
+      resultGroupRepository: resultGroups,
+    });
+
+    const explanationResult = await explanationRunner.run({
+      build: {
+        ...compactBuild(fixture.sessionID, "mark-explanation"),
+        transcript: compactBuild(fixture.sessionID, "mark-explanation").transcript.slice(0, 2),
+      },
+      resultGroup: {
+        sourceStartSeq: 10,
+        sourceEndSeq: 12,
+        createdAt: "2026-04-06T12:10:02.000Z",
+        committedAt: "2026-04-06T12:10:03.000Z",
+      },
+    });
+    explanationTransport.assertConsumed();
+    assert.equal(
+      explanationResult.validatedOutput.contentText,
+      'Lead summary.\n<opaque slot="S1"/>',
+    );
+    assert.equal(
+      (await resultGroups.getCompleteGroup("mark-explanation"))?.fragments[0]?.replacementText,
+      "Lead summary.",
+    );
+
+    for (const [markId, contentText] of [
+      ["mark-missing-output", "Unwrapped response."],
+      ["mark-duplicate-output", "<compression_output>First.</compression_output><compression_output>Second.</compression_output>"],
+      ["mark-extra-prose", "Preface.<compression_output>Wrapped.</compression_output>"],
+      ["mark-wrong-order", "<explanation>Early.</explanation><compression_output>Wrapped.</compression_output>"],
+      ["mark-duplicate-plan", "<plan>One.</plan><plan>Two.</plan><compression_output>Wrapped.</compression_output>"],
+    ] as const) {
+      const protocolTransport = createScriptedCompactionTransport([
+        { kind: "success", rawPayload: { contentText } },
+      ]);
+      const protocolRunner = createContractLevelCompactionRunner({
+        inputBuilder: createCompactionInputBuilder(),
+        transport: createSafeTransportAdapter(protocolTransport.transport),
+        outputValidator: createOutputValidator(),
+        resultGroupRepository: resultGroups,
+      });
+      await assert.rejects(
+        () =>
+          protocolRunner.run({
+            build: compactBuild(fixture.sessionID, markId),
+          }),
+        /optional <plan>, exactly one <compression_output>, and optional <explanation>|protocol sections must not be nested/u,
+      );
+      protocolTransport.assertConsumed();
+    }
+
+    for (const [markId, contentText, expectedError] of [
+      [
+        "mark-duplicate-placeholder",
+        '<compression_output>Lead.\n<opaque slot="S1"/>\n<opaque slot="S1"/>\nTail.</compression_output>',
+        /exactly the expected opaque placeholders/u,
+      ],
+      [
+        "mark-unknown-placeholder",
+        '<compression_output>Lead.\n<opaque slot="S1"/>\n<opaque slot="S2"/>\nTail.</compression_output>',
+        /exactly the expected opaque placeholders/u,
+      ],
+    ] as const) {
+      const opaqueTransport = createScriptedCompactionTransport([
+        { kind: "success", rawPayload: { contentText } },
+      ]);
+      const opaqueRunner = createContractLevelCompactionRunner({
+        inputBuilder: createCompactionInputBuilder(),
+        transport: createSafeTransportAdapter(opaqueTransport.transport),
+        outputValidator: createOutputValidator(),
+        resultGroupRepository: resultGroups,
+      });
+      await assert.rejects(
+        () =>
+          opaqueRunner.run({
+            build: compactBuild(fixture.sessionID, markId),
+          }),
+        expectedError,
+      );
+      opaqueTransport.assertConsumed();
+    }
+
     const malformedTransport = createScriptedCompactionTransport([
       {
         kind: "success",
@@ -116,7 +210,6 @@ test(
       () =>
         malformedRunner.run({
           build: compactBuild(fixture.sessionID, "mark-malformed"),
-          maxAttemptsPerModel: 1,
           resultGroup: {
             sourceStartSeq: 20,
             sourceEndSeq: 23,
@@ -136,7 +229,7 @@ test(
       {
         kind: "success",
         rawPayload: {
-          contentText: "[deleted span notice]",
+          contentText: "<compression_output>[deleted span notice]</compression_output>",
         },
       },
     ]);
@@ -152,7 +245,6 @@ test(
         ...compactBuild(fixture.sessionID, "mark-delete"),
         executionMode: "delete",
       },
-      maxAttemptsPerModel: 1,
       resultGroup: {
         sourceStartSeq: 30,
         sourceEndSeq: 33,
@@ -185,7 +277,6 @@ test(
       () =>
         timeoutRunner.run({
           build: compactBuild(fixture.sessionID, "mark-timeout"),
-          maxAttemptsPerModel: 1,
           resultGroup: {
             sourceStartSeq: 40,
             sourceEndSeq: 43,

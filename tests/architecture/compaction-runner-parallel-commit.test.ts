@@ -18,7 +18,20 @@ import { createDefaultRuntimePluginSeamServices } from "../../src/runtime/defaul
 import { executeBackgroundCompactions } from "../../src/runtime/background-compaction-executor.js";
 import type { RuntimeArtifactRecorder } from "../../src/runtime/runtime-artifacts.js";
 import { createFileBackedRuntimeArtifactRecorder } from "../../src/runtime/runtime-artifacts.js";
+import {
+  resolvePluginStateDirectory,
+  resolveSessionDatabasePath,
+} from "../../src/runtime/sidecar-layout.js";
 import type { ResultGroupRepository } from "../../src/state/result-group-repository.js";
+import { createCompactionFailureRepository } from "../../src/state/compaction-failure-repository.js";
+import {
+  bootstrapSessionSidecar,
+  openSessionSidecarRepository,
+} from "../../src/state/sidecar-store.js";
+import {
+  resolvePluginLockDirectory,
+  resolveSessionFileLockPath,
+} from "../../src/runtime/file-lock.js";
 import type { ProjectedMessageSet } from "../../src/projection/types.js";
 import {
   replayHistoryFromSources,
@@ -202,7 +215,7 @@ test("compaction commit rejects partial compact fragments before persisting a re
 });
 
 test("compaction compute records model request and raw payload only", async () => {
-  const records: Array<{ suffix: "in" | "out"; payload: unknown }> = [];
+  const records: Array<{ suffix: "in" | "out" | "err"; payload: unknown }> = [];
   const diagnostics: unknown[] = [];
   const rawPayload = { contentText: "model output", usage: { input: 1 } };
 
@@ -269,8 +282,8 @@ test("compaction compute records model request and raw payload only", async () =
   ]);
 });
 
-test("compaction record write failure does not block compute", async () => {
-  const diagnostics: Array<{ message: string; payload?: unknown }> = [];
+test("diagnostic write failures surface when compaction record writes fail", async () => {
+  let diagnosticAttempts = 0;
   const runtimeArtifacts = {
     async recordEvent() {
       return;
@@ -278,8 +291,9 @@ test("compaction record write failure does not block compute", async () => {
     async writeMessagesTransformSnapshot() {
       return;
     },
-    async writeDiagnostic(input) {
-      diagnostics.push({ message: input.message, payload: input.payload });
+    async writeDiagnostic() {
+      diagnosticAttempts += 1;
+      throw new Error("diagnostic disk unavailable");
     },
     async writeCompactionRecord() {
       throw new Error("record disk unavailable");
@@ -314,14 +328,12 @@ test("compaction record write failure does not block compute", async () => {
     runtimeArtifacts,
   };
 
-  const computation = await computeCompactionAttempt(
-    dependencies,
-    createRunInput("mark-records-2"),
+  await assert.rejects(
+    () => computeCompactionAttempt(dependencies, createRunInput("mark-records-2")),
+    /diagnostic disk unavailable/u,
   );
 
-  assert.deepEqual(computation.response.rawPayload, { contentText: "model output" });
-  assert.equal(diagnostics.length, 2);
-  assert.match(diagnostics[0].message, /failed to write compaction/i);
+  assert.equal(diagnosticAttempts, 2);
 });
 
 test("file-backed recorder writes paired compaction records with shared time prefix", async () => {
@@ -427,6 +439,103 @@ test("background compaction shows failed toast after final execution failure", a
     join(tmpdir(), "opencode-context-compression-background-toast-failed-"),
   );
   const events: string[] = [];
+  const sessionId = `session-toast-failed-${Date.now()}`;
+
+  try {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await executeBackgroundCompactions({
+        pluginInput: createPluginInput(pluginDirectory),
+        runtimeConfig: {
+          ...createRuntimeConfig({ repoRoot: pluginDirectory }),
+          transport: {
+            async invoke(request) {
+              events.push(`transport:${request.markID}`);
+              throw new Error("model unavailable");
+            },
+          },
+        },
+        runtimeArtifacts: createFileBackedRuntimeArtifactRecorder({
+          pluginDirectory,
+          runtimeLogPath: "logs/runtime-events.jsonl",
+          seamLogPath: "logs/seams.jsonl",
+          loggingLevel: "off",
+        }),
+        sessionId,
+        projectionState: createProjectedSetWithOneMark(sessionId),
+        toastService: createRecordingToastService(events),
+      });
+    }
+
+    const databasePath = resolveSessionDatabasePath(
+      resolvePluginStateDirectory(pluginDirectory),
+      sessionId,
+    );
+    const sidecar = await openSessionSidecarRepository({ databasePath });
+    try {
+      const failure = createCompactionFailureRepository(sidecar).getFailure("mark-1");
+      assert.equal(failure?.failureCount, 3);
+      assert.match(failure?.lastError ?? "", /model unavailable/u);
+    } finally {
+      sidecar.close();
+    }
+
+    await executeBackgroundCompactions({
+      pluginInput: createPluginInput(pluginDirectory),
+      runtimeConfig: {
+        ...createRuntimeConfig({ repoRoot: pluginDirectory }),
+        transport: {
+          async invoke(request) {
+            events.push(`unexpected-transport:${request.markID}`);
+            throw new Error("terminal failure should have skipped this mark");
+          },
+        },
+      },
+      runtimeArtifacts: createFileBackedRuntimeArtifactRecorder({
+        pluginDirectory,
+        runtimeLogPath: "logs/runtime-events.jsonl",
+        seamLogPath: "logs/seams.jsonl",
+        loggingLevel: "off",
+      }),
+      sessionId,
+      projectionState: createProjectedSetWithOneMark(sessionId),
+      toastService: createRecordingToastService(events),
+    });
+
+    assert.deepEqual(events, [
+      "toast:Compression Started",
+      "transport:mark-1",
+      "toast:Compression Failed",
+      "toast:Compression Started",
+      "transport:mark-1",
+      "toast:Compression Failed",
+      "toast:Compression Started",
+      "transport:mark-1",
+      "toast:Compression Failed",
+    ]);
+  } finally {
+    await rm(pluginDirectory, { recursive: true, force: true });
+    await rm(
+      resolveSessionDatabasePath(resolvePluginStateDirectory(pluginDirectory), sessionId),
+      { force: true },
+    );
+  }
+});
+
+test("a successful later send clears the persisted model-chain failure count", async () => {
+  const pluginDirectory = await mkdtemp(
+    join(tmpdir(), "opencode-context-compression-background-recovery-"),
+  );
+  const sessionId = `session-background-recovery-${Date.now()}`;
+  const databasePath = resolveSessionDatabasePath(
+    resolvePluginStateDirectory(pluginDirectory),
+    sessionId,
+  );
+  const runtimeArtifacts = createFileBackedRuntimeArtifactRecorder({
+    pluginDirectory,
+    runtimeLogPath: "logs/runtime-events.jsonl",
+    seamLogPath: "logs/seams.jsonl",
+    loggingLevel: "off",
+  });
 
   try {
     await executeBackgroundCompactions({
@@ -434,8 +543,103 @@ test("background compaction shows failed toast after final execution failure", a
       runtimeConfig: {
         ...createRuntimeConfig({ repoRoot: pluginDirectory }),
         transport: {
-          async invoke(request) {
-            events.push(`transport:${request.markID}`);
+          async invoke() {
+            throw new Error("temporary model outage");
+          },
+        },
+      },
+      runtimeArtifacts,
+      sessionId,
+      projectionState: createProjectedSetWithOneMark(sessionId),
+    });
+
+    const failedSidecar = await openSessionSidecarRepository({ databasePath });
+    try {
+      assert.equal(
+        createCompactionFailureRepository(failedSidecar).getFailure("mark-1")
+          ?.failureCount,
+        1,
+      );
+    } finally {
+      failedSidecar.close();
+    }
+
+    await executeBackgroundCompactions({
+      pluginInput: createPluginInput(pluginDirectory),
+      runtimeConfig: {
+        ...createRuntimeConfig({ repoRoot: pluginDirectory }),
+        transport: {
+          async invoke() {
+            return {
+              contentText:
+                "<compression_output>Recovered compact summary.</compression_output>",
+            };
+          },
+        },
+      },
+      runtimeArtifacts,
+      sessionId,
+      projectionState: createProjectedSetWithOneMark(sessionId),
+    });
+
+    const recoveredSidecar = await openSessionSidecarRepository({ databasePath });
+    try {
+      assert.equal(
+        createCompactionFailureRepository(recoveredSidecar).getFailure("mark-1"),
+        null,
+      );
+      const group = recoveredSidecar.database
+        .prepare<{ readonly count: number }>(
+          `SELECT COUNT(*) AS count FROM result_groups WHERE mark_id = 'mark-1'`,
+        )
+        .get();
+      assert.equal(group?.count, 1);
+    } finally {
+      recoveredSidecar.close();
+    }
+  } finally {
+    await rm(pluginDirectory, { recursive: true, force: true });
+    await rm(databasePath, { force: true });
+  }
+});
+
+test("terminal failure persistence errors release the lock and leave the mark retryable", async () => {
+  const pluginDirectory = await mkdtemp(
+    join(tmpdir(), "opencode-context-compression-terminal-write-failure-"),
+  );
+  const sessionId = `session-terminal-write-failure-${Date.now()}`;
+  const databasePath = resolveSessionDatabasePath(
+    resolvePluginStateDirectory(pluginDirectory),
+    sessionId,
+  );
+  const lockPath = resolveSessionFileLockPath(
+    resolvePluginLockDirectory(pluginDirectory),
+    sessionId,
+  );
+  const events: string[] = [];
+
+  try {
+    await bootstrapSessionSidecar({ databasePath });
+    const setupSidecar = await openSessionSidecarRepository({ databasePath });
+    try {
+      setupSidecar.database.exec(`
+        CREATE TRIGGER fail_terminal_compaction_insert
+        BEFORE INSERT ON compaction_failures
+        BEGIN
+          SELECT RAISE(FAIL, 'terminal failure persistence blocked');
+        END;
+      `);
+    } finally {
+      setupSidecar.close();
+    }
+
+    await executeBackgroundCompactions({
+      pluginInput: createPluginInput(pluginDirectory),
+      runtimeConfig: {
+        ...createRuntimeConfig({ repoRoot: pluginDirectory }),
+        transport: {
+          async invoke() {
+            events.push("failed-attempt");
             throw new Error("model unavailable");
           },
         },
@@ -446,18 +650,61 @@ test("background compaction shows failed toast after final execution failure", a
         seamLogPath: "logs/seams.jsonl",
         loggingLevel: "off",
       }),
-      sessionId: "session-toast-failed",
-      projectionState: createProjectedSetWithOneMark("session-toast-failed"),
-      toastService: createRecordingToastService(events),
+      sessionId,
+      projectionState: createProjectedSetWithOneMark(sessionId),
     });
 
+    const failedSidecar = await openSessionSidecarRepository({ databasePath });
+    try {
+      assert.equal(
+        createCompactionFailureRepository(failedSidecar).getFailure("mark-1"),
+        null,
+      );
+      failedSidecar.database.exec(`DROP TRIGGER fail_terminal_compaction_insert`);
+    } finally {
+      failedSidecar.close();
+    }
+    await assert.rejects(readFile(lockPath, "utf8"), { code: "ENOENT" });
+
+    await executeBackgroundCompactions({
+      pluginInput: createPluginInput(pluginDirectory),
+      runtimeConfig: {
+        ...createRuntimeConfig({ repoRoot: pluginDirectory }),
+        transport: {
+          async invoke() {
+            events.push("recovery-attempt");
+            return { contentText: "<compression_output>Recovered summary.</compression_output>" };
+          },
+        },
+      },
+      runtimeArtifacts: createFileBackedRuntimeArtifactRecorder({
+        pluginDirectory,
+        runtimeLogPath: "logs/runtime-events.jsonl",
+        seamLogPath: "logs/seams.jsonl",
+        loggingLevel: "off",
+      }),
+      sessionId,
+      projectionState: createProjectedSetWithOneMark(sessionId),
+    });
+
+    const recoveredSidecar = await openSessionSidecarRepository({ databasePath });
+    try {
+      const row = recoveredSidecar.database
+        .prepare<{ readonly count: number }>(
+          `SELECT COUNT(*) AS count FROM result_groups WHERE mark_id = 'mark-1'`,
+        )
+        .get();
+      assert.equal(row?.count, 1);
+    } finally {
+      recoveredSidecar.close();
+    }
     assert.deepEqual(events, [
-      "toast:Compression Started",
-      "transport:mark-1",
-      "toast:Compression Failed",
+      "failed-attempt",
+      "recovery-attempt",
     ]);
   } finally {
     await rm(pluginDirectory, { recursive: true, force: true });
+    await rm(databasePath, { force: true });
   }
 });
 
@@ -661,7 +908,6 @@ function createRuntimeConfig(input: { readonly repoRoot: string }): LoadedRuntim
       firstTokenTimeoutMs: 1_000,
       streamIdleTimeoutSeconds: 1,
       streamIdleTimeoutMs: 1_000,
-      maxAttemptsPerModel: 1,
     },
     reminder: {
       hsoft: 1,

@@ -91,9 +91,6 @@
         },
         "streamIdleTimeoutSeconds": {
           "$ref": "#/$defs/positiveInteger"
-        },
-        "maxAttemptsPerModel": {
-          "$ref": "#/$defs/positiveInteger"
         }
       }
     },

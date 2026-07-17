@@ -10,6 +10,10 @@ import {
 import { resolvePluginStateDirectory, resolveSessionDatabasePath } from "./sidecar-layout.js";
 import { bootstrapSessionSidecar, openSessionSidecarRepository } from "../state/sidecar-store.js";
 import { createResultGroupRepository } from "../state/result-group-repository.js";
+import {
+  createCompactionFailureRepository,
+  MAX_COMPACTION_FAILURE_COUNT,
+} from "../state/compaction-failure-repository.js";
 import { buildCompactionRunInputForMark } from "../compaction/replay-run-input.js";
 import {
   computeCompactionAttempt,
@@ -19,6 +23,7 @@ import { createCompactionInputBuilder } from "../compaction/input-builder.js";
 import { createOutputValidator } from "../compaction/output-validation.js";
 import { createDirectLLMCompactionTransport } from "../compaction/transport/direct-llm.js";
 import type { ToastService } from "../services/toast-service.js";
+import { getCompactionModelChainExhaustionInfo } from "../compaction/errors.js";
 
 export interface BackgroundCompactionExecutorOptions {
   readonly pluginInput: PluginInput;
@@ -74,7 +79,12 @@ export async function executeBackgroundCompactions(
   const sidecar = await openSessionSidecarRepository({ databasePath });
 
   try {
-    const eligibleMarks = collectEligibleMarks(projectionState);
+    const failureRepo = createCompactionFailureRepository(sidecar);
+    const eligibleMarks = collectEligibleMarks(projectionState).filter(
+      (mark) =>
+        (failureRepo.getFailure(mark.markId)?.failureCount ?? 0) <
+        MAX_COMPACTION_FAILURE_COUNT,
+    );
 
     if (eligibleMarks.length === 0) {
       return;
@@ -140,21 +150,19 @@ export async function executeBackgroundCompactions(
         payload: { markId: eligible.markId },
       });
 
-      const runInput = buildCompactionRunInputForMark({
-        sessionId,
-        state: projectionState.state,
-        markId: eligible.markId,
-        model: runtimeConfig.models[0],
-        promptText: runtimeConfig.promptText,
-        timeoutMs: runtimeConfig.compressing.timeoutMs,
-        firstTokenTimeoutMs: runtimeConfig.compressing.firstTokenTimeoutMs,
-        streamIdleTimeoutMs: runtimeConfig.compressing.streamIdleTimeoutMs,
-        compactionModels: runtimeConfig.models.slice(1),
-        maxAttemptsPerModel: runtimeConfig.compressing.maxAttemptsPerModel,
-        createdAt: eligible.createdAt,
-      });
-
       try {
+        const runInput = buildCompactionRunInputForMark({
+          sessionId,
+          state: projectionState.state,
+          markId: eligible.markId,
+          model: runtimeConfig.models[0],
+          promptText: runtimeConfig.promptText,
+          timeoutMs: runtimeConfig.compressing.timeoutMs,
+          firstTokenTimeoutMs: runtimeConfig.compressing.firstTokenTimeoutMs,
+          streamIdleTimeoutMs: runtimeConfig.compressing.streamIdleTimeoutMs,
+          compactionModels: runtimeConfig.models.slice(1),
+          createdAt: eligible.createdAt,
+        });
         const computation = await computeCompactionAttempt(
           {
             inputBuilder,
@@ -173,6 +181,40 @@ export async function executeBackgroundCompactions(
           computation,
         };
       } catch (error) {
+        const exhaustion = getCompactionModelChainExhaustionInfo(error);
+        if (exhaustion !== null) {
+          try {
+            const failure = failureRepo.recordFailure({
+              markId: eligible.markId,
+              lastError: formatError(error),
+              failedAt: new Date().toISOString(),
+            });
+            if (failure.failureCount >= MAX_COMPACTION_FAILURE_COUNT) {
+              return {
+                eligible,
+                kind: "terminal" as const,
+                failureCount: failure.failureCount,
+                error,
+              };
+            }
+            return {
+              eligible,
+              kind: "retryable" as const,
+              failureCount: failure.failureCount,
+              error,
+            };
+          } catch (persistenceError) {
+            return {
+              eligible,
+              kind: "failed" as const,
+              error: new Error(
+                `Compaction exhausted the model chain, but failure count persistence failed: ${formatError(persistenceError)}`,
+                { cause: persistenceError },
+              ),
+            };
+          }
+        }
+
         return {
           eligible,
           kind: "failed" as const,
@@ -195,16 +237,27 @@ export async function executeBackgroundCompactions(
         continue;
       }
 
-      if (item.kind === "failed") {
+      if (
+        item.kind === "terminal" ||
+        item.kind === "retryable" ||
+        item.kind === "failed"
+      ) {
         didFail = true;
         firstFailureMessage ??= formatError(item.error);
         await runtimeArtifacts.writeDiagnostic({
           sessionID: sessionId,
           scope: "background-compaction",
           severity: "error",
-          message: "Background compaction failed for mark.",
+          message: item.kind === "terminal"
+            ? "Background compaction reached the cross-send failure limit for mark."
+            : item.kind === "retryable"
+              ? "Background compaction exhausted the model chain; the mark remains retryable."
+              : "Background compaction failed before model-chain exhaustion.",
           payload: {
             markId: item.eligible.markId,
+            ...(item.kind === "terminal" || item.kind === "retryable"
+              ? { failureCount: item.failureCount }
+              : {}),
             error: formatError(item.error),
           },
         });
@@ -222,6 +275,7 @@ export async function executeBackgroundCompactions(
             runtimeArtifacts,
           },
         );
+        failureRepo.clear(item.eligible.markId);
 
         await runtimeArtifacts.writeDiagnostic({
           sessionID: sessionId,
@@ -237,7 +291,7 @@ export async function executeBackgroundCompactions(
           sessionID: sessionId,
           scope: "background-compaction",
           severity: "error",
-          message: "Background compaction failed for mark.",
+          message: "Background compaction result commit failed.",
           payload: {
             markId: item.eligible.markId,
             error: formatError(error),

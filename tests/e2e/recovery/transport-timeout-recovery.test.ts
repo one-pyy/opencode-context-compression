@@ -96,7 +96,6 @@ test(
             markId: "mark-timeout-001",
             transcript: createCompactTranscript(),
           }),
-          maxAttemptsPerModel: 1,
           resultGroup: {
             sourceStartSeq: 2,
             sourceEndSeq: 3,
@@ -149,7 +148,6 @@ test(
             markId: "mark-malformed-001",
             transcript: createCompactTranscript(),
           }),
-          maxAttemptsPerModel: 1,
           resultGroup: {
             sourceStartSeq: 2,
             sourceEndSeq: 3,
@@ -262,7 +260,7 @@ test(
       {
         kind: "success",
         rawPayload: {
-          contentText: "Assistant and tool context were compacted into one stable summary.",
+          contentText: "<compression_output>Assistant and tool context were compacted into one stable summary.</compression_output>",
         },
       },
     ]);
@@ -274,7 +272,7 @@ test(
         markId: "mark-retry-001",
         transcript: createCompactTranscript(),
       }),
-      maxAttemptsPerModel: 2,
+      compactionModels: ["model-backup"],
       resultGroup: {
         sourceStartSeq: 2,
         sourceEndSeq: 3,
@@ -286,6 +284,10 @@ test(
     scriptedTransport.assertConsumed();
     assert.equal(result.validatedOutput.contentText, "Assistant and tool context were compacted into one stable summary.");
     assert.equal(scriptedTransport.calls.length, 2);
+    assert.deepEqual(
+      scriptedTransport.calls.map((call) => call.request.model),
+      ["model-primary", "model-backup"],
+    );
     assert.deepEqual(await readCommittedMarkCounts(resultGroups, "mark-retry-001"), {
       groupCount: 1,
       fragmentCount: 1,

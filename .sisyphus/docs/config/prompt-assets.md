@@ -36,6 +36,8 @@
 
 - reminder prompt 不使用变量模板
 - compaction prompt 是模板
+- compaction 响应使用可选 `<plan>`、唯一必需 `<compression_output>`、可选且可省略 `<explanation>`
+- runtime 只提取 `<compression_output>` 参与 opaque 编号校验、source range 映射与持久化；其他区段不进入最终轨迹
 - 不允许 builtin prompt fallback
 - 缺文件、空文件或格式错误时应 fail fast
 

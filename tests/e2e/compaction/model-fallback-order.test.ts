@@ -4,6 +4,7 @@ import test from "node:test";
 
 import { createCompactionInputBuilder } from "../../../src/compaction/input-builder.js";
 import { createOutputValidator } from "../../../src/compaction/output-validation.js";
+import { getCompactionModelChainExhaustionInfo } from "../../../src/compaction/errors.js";
 import { createContractLevelCompactionRunner } from "../../../src/compaction/runner.js";
 import { createScriptedCompactionTransport } from "../../../src/compaction/transport/index.js";
 import { createSafeTransportAdapter } from "../../../src/runtime/compaction-transport.js";
@@ -19,7 +20,7 @@ import {
 import { createHermeticE2EFixture } from "../harness/fixture.js";
 
 test(
-  "compaction runner retries the same model before falling back through compactionModels order",
+  "compaction runner tries every configured model once per execution",
   { concurrency: false },
   async (t) => {
     const fixture = await createHermeticE2EFixture(t, {
@@ -39,7 +40,7 @@ test(
       {
         kind: "success",
         rawPayload: {
-          contentText: "Lead summary without the required opaque block.",
+          contentText: "<compression_output>Lead summary without the required opaque block.</compression_output>",
         },
         assertRequest(request, callIndex) {
           assert.equal(callIndex, 0);
@@ -49,22 +50,22 @@ test(
       {
         kind: "success",
         rawPayload: {
-          contentText: "Still invalid because the opaque block vanished again.",
+          contentText: "<compression_output>Still invalid because the opaque block vanished again.</compression_output>",
         },
         assertRequest(request, callIndex) {
           assert.equal(callIndex, 1);
-          assert.equal(request.model, "model-primary");
+          assert.equal(request.model, "model-backup");
         },
       },
       {
         kind: "success",
         rawPayload: {
           contentText:
-            'Lead summary. <opaque slot="S1">Protected prior result block.</opaque> Tail summary.',
+            '<compression_output>Lead summary.\n<opaque slot="S1">Ignored model prose.</opaque>\nTail summary.</compression_output>',
         },
         assertRequest(request, callIndex) {
           assert.equal(callIndex, 2);
-          assert.equal(request.model, "model-backup");
+          assert.equal(request.model, "model-tertiary");
         },
       },
     ]);
@@ -112,7 +113,6 @@ test(
         ],
       },
       compactionModels: ["model-primary", "model-backup", "model-tertiary"],
-      maxAttemptsPerModel: 2,
       resultGroup: {
         sourceStartSeq: 30,
         sourceEndSeq: 33,
@@ -122,15 +122,15 @@ test(
     });
 
     scriptedTransport.assertConsumed();
-    assert.equal(result.request.model, "model-backup");
+    assert.equal(result.request.model, "model-tertiary");
     assert.deepEqual(
       scriptedTransport.calls.map((call) => call.request.model),
-      ["model-primary", "model-primary", "model-backup"],
+      ["model-primary", "model-backup", "model-tertiary"],
     );
 
     const stored = await resultGroups.getCompleteGroup("mark-fallback-001");
     assert.ok(stored);
-    assert.equal(stored.modelName, "model-backup");
+    assert.equal(stored.modelName, "model-tertiary");
     assert.equal(stored.mode, "compact");
     assert.deepEqual(
       stored.fragments.map((fragment) => ({
@@ -205,7 +205,7 @@ test(
       {
         kind: "success",
         rawPayload: {
-          contentText: "Recovered summary after arbitrary failed attempts.",
+          contentText: "<compression_output>Recovered summary after arbitrary failed attempts.</compression_output>",
         },
         assertRequest(request, callIndex) {
           assert.equal(callIndex, 3);
@@ -247,7 +247,6 @@ test(
         ],
       },
       compactionModels: ["model-backup", "model-tertiary", "model-final"],
-      maxAttemptsPerModel: 1,
       resultGroup: {
         sourceStartSeq: 50,
         sourceEndSeq: 51,
@@ -306,7 +305,6 @@ test(
             ],
           },
           compactionModels: ["model-backup"],
-          maxAttemptsPerModel: 1,
           resultGroup: {
             sourceStartSeq: 60,
             sourceEndSeq: 60,
@@ -314,7 +312,13 @@ test(
             committedAt: "2026-04-06T12:31:01.000Z",
           },
         }),
-      /last model failed/u,
+      (error: unknown) => {
+        assert.match(error instanceof Error ? error.message : String(error), /last model failed/u);
+        assert.deepEqual(getCompactionModelChainExhaustionInfo(error), {
+          attempts: 2,
+        });
+        return true;
+      },
     );
     failingTransport.assertConsumed();
     assert.equal(await resultGroups.getCompleteGroup("mark-arbitrary-fallback-failed"), null);

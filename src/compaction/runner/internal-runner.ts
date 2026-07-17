@@ -10,9 +10,9 @@ import type {
 import type { ToastService } from "../../services/toast-service.js";
 import { TokenCounter } from "../../utils/token-counter.js";
 import type { CompactionRequest } from "../types.js";
+import { markCompactionModelChainExhausted } from "../errors.js";
 import { CompactionTransportEmptyResponseError } from "../transport/errors.js";
-
-const DEFAULT_MAX_ATTEMPTS_PER_MODEL = 2;
+import type { CompleteResultGroupInput } from "../../state/result-group-repository.js";
 
 export interface ContractLevelCompactionRunnerOptions {
   readonly now?: () => string;
@@ -20,10 +20,16 @@ export interface ContractLevelCompactionRunnerOptions {
   readonly tokenCounter?: TokenCounter;
 }
 
+export interface CompactionComputeOptions {
+  readonly now?: () => string;
+}
+
 export interface CompactionAttemptComputation {
   readonly request: RunCompactionResult["request"];
   readonly response: RunCompactionResult["response"];
   readonly validatedOutput: RunCompactionResult["validatedOutput"];
+  readonly resultGroup: CompleteResultGroupInput;
+  readonly attemptIndex: number;
 }
 
 export interface CompactionAttemptCommitInput {
@@ -32,7 +38,6 @@ export interface CompactionAttemptCommitInput {
 }
 
 export interface CompactionCommitOptions {
-  readonly now?: () => string;
   readonly toastService?: ToastService;
   readonly tokenCounter?: TokenCounter;
 }
@@ -53,7 +58,7 @@ export function createContractLevelCompactionRunnerImplementation(
 
       let computation: CompactionAttemptComputation;
       try {
-        computation = await computeCompactionAttempt(dependencies, input);
+        computation = await computeCompactionAttempt(dependencies, input, { now });
       } catch (error) {
         if (toastService) {
           toastService.showCompressionFailed(formatErrorMessage(error)).catch(() => {});
@@ -62,7 +67,6 @@ export function createContractLevelCompactionRunnerImplementation(
       }
 
       await commitCompactionAttempt({ computation, runInput: input }, dependencies, {
-        now,
         toastService,
         tokenCounter,
       });
@@ -75,67 +79,71 @@ export function createContractLevelCompactionRunnerImplementation(
 export async function computeCompactionAttempt(
   dependencies: InternalCompactionRunnerDependencies,
   input: RunCompactionInput,
+  options: CompactionComputeOptions = {},
 ): Promise<CompactionAttemptComputation> {
+  const now = options.now ?? (() => new Date().toISOString());
   const modelChain = buildModelChain(input);
-  const maxAttemptsPerModel = normalizeMaxAttemptsPerModel(
-    input.maxAttemptsPerModel,
-  );
   let lastAttemptError: unknown;
 
-  for (const model of modelChain) {
-    for (
-      let attemptIndex = 0;
-      attemptIndex < maxAttemptsPerModel;
-      attemptIndex += 1
-    ) {
-      const request = await dependencies.inputBuilder.build({
-        ...input.build,
-        model,
+  for (let modelIndex = 0; modelIndex < modelChain.length; modelIndex += 1) {
+    const model = modelChain[modelIndex]!;
+    const attemptIndex = modelIndex;
+    const request = await dependencies.inputBuilder.build({
+      ...input.build,
+      model,
+    });
+    const recordCreatedAt = new Date().toISOString();
+
+    try {
+      await writeCompactionRecordSafely(dependencies, input, request, {
+        createdAt: recordCreatedAt,
+        suffix: "in",
+        payload: request,
+        attemptIndex,
       });
-      const recordCreatedAt = new Date().toISOString();
+      const response = await dependencies.transport.execute(request);
+      await writeCompactionRecordSafely(dependencies, input, request, {
+        createdAt: recordCreatedAt,
+        suffix: "out",
+        payload: response.rawPayload,
+        attemptIndex,
+      });
+      const validatedOutput = await dependencies.outputValidator.validate({
+        request,
+        response,
+      });
+      const resultGroup = buildCompactionResultGroup({
+        request,
+        validatedOutput,
+        runInput: input,
+        now,
+      });
 
-      try {
-        await writeCompactionRecordSafely(dependencies, input, request, {
-          createdAt: recordCreatedAt,
-          suffix: "in",
-          payload: request,
-          attemptIndex,
-        });
-        const response = await dependencies.transport.execute(request);
-        await writeCompactionRecordSafely(dependencies, input, request, {
-          createdAt: recordCreatedAt,
-          suffix: "out",
-          payload: response.rawPayload,
-          attemptIndex,
-        });
-        const validatedOutput = await dependencies.outputValidator.validate({
-          request,
-          response,
-        });
-
-        return {
-          request,
-          response,
-          validatedOutput,
-        } satisfies CompactionAttemptComputation;
-      } catch (error) {
-        await writeCompactionRecordSafely(dependencies, input, request, {
-          createdAt: recordCreatedAt,
-          suffix: "err",
-          payload: buildCompactionErrorRecord(error),
-          attemptIndex,
-        });
-        lastAttemptError = error;
-        continue;
-      }
+      return {
+        request,
+        response,
+        validatedOutput,
+        resultGroup,
+        attemptIndex,
+      } satisfies CompactionAttemptComputation;
+    } catch (error) {
+      await writeCompactionRecordSafely(dependencies, input, request, {
+        createdAt: recordCreatedAt,
+        suffix: "err",
+        payload: buildCompactionErrorRecord(error),
+        attemptIndex,
+      });
+      lastAttemptError = error;
+      continue;
     }
   }
 
-  if (lastAttemptError !== undefined) {
-    throw lastAttemptError;
-  }
-
-  throw new Error("Compaction runner exhausted its model chain without producing a result.");
+  throw markCompactionModelChainExhausted(
+    lastAttemptError ?? new Error("Compaction runner exhausted its model chain without producing a result."),
+    {
+      attempts: modelChain.length,
+    },
+  );
 }
 
 export async function commitCompactionAttempt(
@@ -143,15 +151,9 @@ export async function commitCompactionAttempt(
   dependencies: InternalCompactionRunnerDependencies,
   options: CompactionCommitOptions = {},
 ): Promise<void> {
-  const now = options.now ?? (() => new Date().toISOString());
   const toastService = options.toastService;
   const tokenCounter = options.tokenCounter ?? new TokenCounter();
-  const resultGroup = buildCompactionResultGroup({
-    request: input.computation.request,
-    validatedOutput: input.computation.validatedOutput,
-    runInput: input.runInput,
-    now,
-  });
+  const resultGroup = input.computation.resultGroup;
 
   await dependencies.resultGroupRepository.upsertCompleteGroup(resultGroup);
 
@@ -252,18 +254,6 @@ function buildModelChain(input: RunCompactionInput): readonly string[] {
   }
 
   return Object.freeze(modelChain);
-}
-
-function normalizeMaxAttemptsPerModel(value: number | undefined): number {
-  if (value === undefined) {
-    return DEFAULT_MAX_ATTEMPTS_PER_MODEL;
-  }
-
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new Error("Compaction runner maxAttemptsPerModel must be a positive integer.");
-  }
-
-  return value;
 }
 
 function formatErrorMessage(error: unknown): string {

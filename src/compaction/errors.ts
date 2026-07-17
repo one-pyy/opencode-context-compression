@@ -18,3 +18,26 @@ export class InvalidCompactionOutputError extends Error {
     this.executionMode = options.executionMode;
   }
 }
+
+export interface CompactionModelChainExhaustionInfo {
+  readonly attempts: number;
+}
+
+const modelChainExhaustionInfo = new WeakMap<Error, CompactionModelChainExhaustionInfo>();
+
+export function markCompactionModelChainExhausted(
+  error: unknown,
+  info: CompactionModelChainExhaustionInfo,
+): Error {
+  const normalized = error instanceof Error ? error : new Error(String(error));
+  modelChainExhaustionInfo.set(normalized, Object.freeze({ ...info }));
+  return normalized;
+}
+
+export function getCompactionModelChainExhaustionInfo(
+  error: unknown,
+): CompactionModelChainExhaustionInfo | null {
+  return error instanceof Error
+    ? modelChainExhaustionInfo.get(error) ?? null
+    : null;
+}

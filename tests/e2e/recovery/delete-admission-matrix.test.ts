@@ -195,7 +195,7 @@ test(
       {
         kind: "success",
         rawPayload: {
-          contentText: "Delete notice: assistant reasoning and tool details were removed because they are no longer needed.",
+          contentText: "<compression_output>Delete notice: assistant reasoning and tool details were removed because they are no longer needed.</compression_output>",
         },
       },
     ]);
@@ -231,7 +231,6 @@ test(
           },
         ],
       },
-      maxAttemptsPerModel: 1,
       resultGroup: {
         sourceStartSeq: 2,
         sourceEndSeq: 3,

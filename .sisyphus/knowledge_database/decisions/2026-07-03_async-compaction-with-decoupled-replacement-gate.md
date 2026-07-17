@@ -1,5 +1,6 @@
 ## async-compaction-with-decoupled-replacement-gate
 Date: 2026-07-03
+Last Updated: 2026-07-17
 
 ### Decision
 
@@ -33,4 +34,12 @@ Date: 2026-07-03
 
 The execution-path part is now implemented: background compaction starts directly from the `messages.transform` tail and no longer uses the old `pending_compactions` queue. The remaining target-state work is replacement-gate decoupling and narrowing send-entry-gate behavior.
 
-Tags: #compaction #architecture #runtime #scheduling #async #replacement-gate
+### Additional Observations
+
+**2026-07-17**: 失败重试与请求驱动的异步执行边界保持一致：每次发送只执行一轮完整模型链，整链耗尽后持久化增加一次 `failure_count`，等待下一次发送再重试；累计三次不同发送失败后才停止该 mark 的自动压缩。
+
+选择跨发送累计，而不是在一次 background execution 内立即连续跑三轮，原因是后者会把短暂 provider、网络或配置故障放大成同一时刻的请求风暴，也失去两次发送之间恢复的机会。备选的“总共只允许三次模型调用”会在配置模型超过三个时跳过后备模型，因此也不采用。
+
+这项决策要求把模型输出校验和 source-range 映射留在单次模型尝试内：任一步失败都可以 fallback 到本轮下一个模型；SQLite result-group commit、失败计数持久化等 operational failure 不增加 `failure_count`。任意成功提交会清除已有失败计数。
+
+Tags: #compaction #architecture #runtime #scheduling #async #replacement-gate #retry #failure-handling

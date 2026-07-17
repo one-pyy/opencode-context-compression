@@ -1,8 +1,8 @@
-# 压缩失败处理与 user-role 提示（未实现）
+# 压缩失败处理与 user-role 提示（半实现）
 
 ## 文档定位
 
-本文档描述压缩任务失败时的运行时处理目标：即时 toast、失败累计、三次失败后停止自动重试，以及在后续投影中按锚点追加一条给 AI 的 `user` 角色提示。
+本文档描述压缩任务失败时的运行时处理：即时 toast、跨发送累计三次模型链失败后的 terminal failure，以及尚未实现的 user-role notice。
 
 ## 范围澄清
 
@@ -19,13 +19,11 @@
 - `ToastService` 可直接播放：`compressionStart` / `compressionComplete` / `compressionFailed`
 - `toast_events` 表及其消费端已存在
 - projection 已支持按锚点插入 reminder 风格的 `user` 消息
-- sidecar 已保存 result group 状态；失败状态表尚未实现
+- sidecar 已保存 result group 状态和 terminal compaction failure
 
 ### 当前缺口
 
 - 后台压缩失败路径没有稳定写入 database-backed toast
-- 失败 mark 缺少 durable failure state
-- 失败超过阈值后，系统不会停止自动重试
 - 后续轮次里没有针对 abandoned compaction 的 `user-role notice`
 
 ## 目标行为
@@ -35,12 +33,12 @@
 - 某个后台 compaction mark 失败时，运行时应产生一条失败提醒
 - 这条提醒至少要让操作员知道“压缩失败了”与“最近错误是什么”
 
-### 2. 同一 mark 失败三次后停止自动重试
+### 2. 跨发送累计三次失败后停止自动重试（已实现）
 
-- 连续失败次数按 **`mark_id`** 累计
-- 第 1、2 次失败：允许后续自动重试
-- 第 3 次失败：该 mark 进入 **abandoned** 状态
-- abandoned mark 不再加入后续自动执行
+- 每次发送触发的后台执行按顺序让全部配置模型各尝试一次
+- 任意模型成功则立即结束并清除已有失败计数
+- 整条模型链失败后，按 `mark_id` 将 `failure_count` 增加一次
+- 第三次不同发送均整链失败后，该 mark 进入 terminal 状态，不再加入后续自动执行
 
 ### 3. 三次失败后写入 user-role notice
 
@@ -59,63 +57,44 @@
 
 ## Sidecar 表设计目标
 
-当前更适合采用一张失败状态表来同时承接：
-
-- 连续失败次数
-- 最近错误
-- 是否已经 abandoned
-- 对应的锚点消息
-- 最终要追加给 AI 的 `user-role notice text`
-
-推荐最小字段：
+当前 `compaction_failures` 表承接 terminal failure，字段为：
 
 - `mark_id`
-- `anchor_canonical_id`
 - `failure_count`
-- `last_error_message`
-- `status`（`retrying` / `abandoned` / `resolved`）
-- `notice_text`
-- `first_failed_at`
+- `last_error`
 - `last_failed_at`
+
+未来接入 user-role notice 时，需要另行增加稳定锚点和 notice 状态；当前表不假装承载尚未实现的 projection 契约。
 
 ## 执行规则
 
 ## 失败计数口径
 
-- `failure_count` 的单位必须是 **同一个 `mark_id` 的完整 compaction task 最终失败次数**
-- 一次 compaction task 内部的模型 retry / fallback 不单独计数
-- 这意味着以下情况都仍只算 **同一次任务执行**：
-  - 同模型的第 1 / 2 次重试
-  - 从主模型切换到 fallback 模型
-  - transport retryable error 后继续尝试同一模型链
-- 只有当整条模型链耗尽、该次 compaction task 最终仍失败时，才把 `failure_count += 1`
-
-### 为什么必须区分
-
-- 如果把模型内部 retry 也算进 `failure_count`，一次短暂的上游抖动就可能错误触发“三次失败后停止自动重试”
-- fallback 是单次任务内部的恢复机制，不应被误判成多次独立失败
-- 因此“三次失败停重试”的语义必须固定为：**同一 mark 的完整压缩任务最终失败三次**
+- 模型链顺序来自 `compactionModels`
+- 每次发送中每个模型最多尝试一次
+- transport、`<compression_output>` 协议、opaque 校验和 result-group source-range 映射任一失败，都会继续尝试本次发送中的下一个模型
+- 整条模型链耗尽后累计一次失败；不会在同一次发送中立即启动第二轮
 
 ### 后台执行前
 
-- 若某个 eligible mark 已是 `abandoned`，则跳过执行
+- 若某个 eligible mark 的 `failure_count >= 3`，则跳过执行
+- `failure_count < 3` 的 mark 在下一次发送时仍可重试
 - 该 mark 不应再次进入自动执行集合，避免无限重试
 
 ### 后台执行失败后
 
-- 更新失败状态表中的 `failure_count` 与 `last_error_message`
-- 小于 3 次时保持 `retrying`
-- 达到 3 次时切换到 `abandoned`
-- 同时生成 `notice_text`
+- 只有当前发送中的完整模型链确实耗尽时，才将 `failure_count` 增加一次并更新最近错误与失败时间
+- 第三次失败在该 mark 耗尽时立即成为 terminal，不等待同 batch 的其他 mark 完成
+- input 构造、SQLite commit、失败计数持久化或其他 operational failure 不增加 `failure_count`
+- 已写入 terminal failure 的 mark 在后续自动执行中直接跳过
 
 ### 后台执行成功后
 
-- 若对应 mark 之前有失败状态，应转为 `resolved`
-- resolved 后不再继续投影失败提示
+- 任意重试成功后删除对应失败计数记录
 
 ## Projection 规则
 
-- projection 读取 `status = abandoned` 且锚点仍存在的失败记录
+- 目标态 projection 读取 abandoned notice 且锚点仍存在的失败记录
 - 在锚点 canonical message 后插入一条 `source = synthetic/reminder-like`、`role = user` 的 notice
 - 若锚点不存在，则直接跳过
 
@@ -127,7 +106,8 @@
 
 ## 实现状态
 
-- **未实现**：失败累计表、三次失败 stop-retry、abandoned notice projection
+- **已实现**：每次发送执行一轮完整模型链、跨发送累计三次失败、terminal failure sidecar 表、后续自动调度跳过 terminal mark、direct failure toast
+- **未实现**：abandoned notice projection
 - **半实现**：toast 消费端与 direct toast 已存在，但后台失败到 database-backed toast 的生产链仍不完整
 
 ## 相关文档

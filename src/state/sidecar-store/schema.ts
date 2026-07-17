@@ -13,6 +13,7 @@ export const SIDECAR_TABLE_NAMES = [
   "visible_sequence_allocations",
   "result_groups",
   "result_fragments",
+  "compaction_failures",
   "toast_events",
 ] as const;
 
@@ -23,7 +24,7 @@ export const SIDECAR_INDEX_NAMES = [
 ] as const;
 
 export const SIDECAR_SCHEMA_META = {
-  schema_version: "1",
+  schema_version: "2",
   truth_model: "history-replay-result-groups",
 } as const;
 
@@ -56,6 +57,12 @@ const EXPECTED_TABLE_COLUMNS: Record<AllowedTableName, readonly string[]> = {
     "source_start_seq",
     "source_end_seq",
     "replacement_text",
+  ],
+  compaction_failures: [
+    "mark_id",
+    "failure_count",
+    "last_error",
+    "last_failed_at",
   ],
   toast_events: [
     "id",
@@ -92,6 +99,7 @@ export async function openLockedSessionSidecarDatabase(
 
 export function ensureLockedSidecarSchema(database: SqliteDatabase): void {
   migrateResultGroupsAppliedColumn(database);
+  migrateCompactionFailuresTable(database);
   dropKnownLegacyTables(database);
 
   database.exec(`
@@ -137,6 +145,13 @@ export function ensureLockedSidecarSchema(database: SqliteDatabase): void {
       created_at TEXT NOT NULL,
       payload TEXT,
       processed INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS compaction_failures (
+      mark_id TEXT PRIMARY KEY,
+      failure_count INTEGER NOT NULL CHECK (failure_count BETWEEN 1 AND 3),
+      last_error TEXT NOT NULL,
+      last_failed_at TEXT NOT NULL
     );
 
     `);
@@ -242,4 +257,40 @@ function migrateResultGroupsAppliedColumn(database: SqliteDatabase): void {
       `ALTER TABLE result_groups ADD COLUMN applied INTEGER NOT NULL DEFAULT 0`,
     );
   }
+}
+
+function migrateCompactionFailuresTable(database: SqliteDatabase): void {
+  const columns = database
+    .prepare<TableInfoRow>(`PRAGMA table_info(compaction_failures)`)
+    .all()
+    .map((row) => row.name);
+  if (!columns.includes("rounds") || columns.includes("failure_count")) {
+    return;
+  }
+
+  database.exec(`
+    ALTER TABLE compaction_failures RENAME TO compaction_failures_legacy_rounds;
+
+    CREATE TABLE compaction_failures (
+      mark_id TEXT PRIMARY KEY,
+      failure_count INTEGER NOT NULL CHECK (failure_count BETWEEN 1 AND 3),
+      last_error TEXT NOT NULL,
+      last_failed_at TEXT NOT NULL
+    );
+
+    INSERT INTO compaction_failures (
+      mark_id,
+      failure_count,
+      last_error,
+      last_failed_at
+    )
+    SELECT
+      mark_id,
+      MIN(MAX(rounds, 1), 3),
+      last_error,
+      failed_at
+    FROM compaction_failures_legacy_rounds;
+
+    DROP TABLE compaction_failures_legacy_rounds;
+  `);
 }

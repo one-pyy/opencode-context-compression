@@ -81,9 +81,9 @@ send-entry-gate 不完全移除，而是缩小到仅在"替换门槛已满足但
 同一个 batch 内的多个 eligible mark 当前分两阶段执行：
 
 1. **compute 阶段并行**：每个 mark 独立构造 compaction input、调用模型 transport、执行 retry / fallback / output validation。
-2. **commit 阶段串行**：已验证结果按 pending 顺序写入 result group，并批量标记 processed pending rows。
+2. **commit 阶段串行**：已验证结果按 eligible mark 顺序写入 result group。
 
-并行边界只覆盖模型计算与校验；SQLite result group 写入、pending row 更新、lock settle 仍保持单线程顺序。失败的 mark 不写 result group，也不标记 processed；成功或已有 result group 的 mark 才进入 processed 集合。
+并行边界主要覆盖模型计算与校验；SQLite result group 写入与 lock settle 保持单线程顺序。某个 mark 在当前发送中耗尽完整模型链时立即增加一次持久失败计数，第三次跨发送失败后进入 terminal；input 构造或 result group commit 等 operational failure 不增加失败计数。
 
 ## Replay-first 主模型
 
@@ -136,22 +136,22 @@ SQLite 只需保存：
 
 - 用 XML 包裹
 - 为每个片段分配唯一占位符
-- 模型输出必须保留这些占位符
+- 模型输出必须保留这些占位符。自闭合 `<opaque slot="S1"/>` 会直接保留；展开式 `<opaque slot="S1">任意文本</opaque>` 只读取 slot 编号并规范化为自闭合标签，内部文本不参与校验或持久化
 
 若输出缺失应保留的占位符，则该次输出非法，进入 retry / fallback 流程。
 
-## 无效模型输出 retry 规则（已实现 / 半实现）
+## 模型链与跨发送 retry 规则（已实现）
 
-当模型输出因 placeholder 缺失、未知 placeholder、顺序错误或 protected-text leakage 等验证失败而被判定为 `DCP_INVALID_MODEL_OUTPUT` 时，运行时可对同一模型尝试做一次窄 retry。
+每次发送按 `compactionModels` 顺序让全部模型各尝试一次。任意模型成功后立即停止并清除已有失败计数；整条模型链耗尽后累计一次失败，不在当前发送中立即重跑。累计三次不同发送均失败后，该 mark 进入 terminal，后续自动调度跳过。
 
 边界：
 
-- retry 只针对模型输出形状/验证失败，不是无限重试机制
-- retry 不应跳过 validator，也不应放宽 placeholder / protected text 规则
-- state mutation 只能发生在验证通过之后
-- transport/provider 级失败仍按模型 fallback chain 处理
+- transport、`<compression_output>` envelope、opaque placeholder 编号与 result-group source-range 映射失败都会继续到本次发送中的下一个模型
+- 每次发送中每个模型最多尝试一次；完整模型链耗尽后只累计一次失败
+- terminal failure 只代表三次不同发送均耗尽完整模型链，不包含 input 构造、SQLite commit、失败计数持久化或其他 operational failure
+- result group 只在 envelope、validator 与 source-range 映射全部通过后写入
 
-默认 compaction prompt 应从第一次尝试起就强调 protected placeholder discipline，而不是把强约束留到 retry-only prompt。
+默认 compaction prompt 从第一次尝试起就强调 protected placeholder discipline，不依赖 retry-only prompt。
 
 ## Provider 推理强度（已实现）
 
@@ -182,7 +182,7 @@ SQLite 只需保存：
 - timeout failure 不得产生部分 result group
 - timeout failure 后应按既定模型 fallback 顺序切换到下一次尝试
 
-当前 docs 先固定 timeout / fallback 契约；具体采用“按模型耗尽后切换”还是“round-robin across models”由后续实现或专门设计文档继续收敛。
+timeout 后继续本次发送中的下一个模型；全部模型尝试失败后累计一次失败，等待下一次发送再重试。
 
 ## 相关文档
 

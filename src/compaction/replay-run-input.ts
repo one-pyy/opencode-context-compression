@@ -16,7 +16,6 @@ export interface BuildCompactionRunInputForMarkOptions {
   readonly streamIdleTimeoutMs?: number;
   readonly signal?: AbortSignal;
   readonly compactionModels?: readonly string[];
-  readonly maxAttemptsPerModel?: number;
   readonly createdAt?: string;
   readonly committedAt?: string;
 }
@@ -52,9 +51,6 @@ export function buildCompactionRunInputForMark(
     },
     ...(options.compactionModels
       ? { compactionModels: options.compactionModels }
-      : {}),
-    ...(options.maxAttemptsPerModel !== undefined
-      ? { maxAttemptsPerModel: options.maxAttemptsPerModel }
       : {}),
     resultGroup: {
       sourceStartSeq: markNode.startSequence,

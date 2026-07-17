@@ -49,7 +49,6 @@ export interface ValidatedCompactionOutput {
 export interface RunCompactionInput {
   readonly build: CompactionBuildInput;
   readonly compactionModels?: readonly string[];
-  readonly maxAttemptsPerModel?: number;
   readonly resultGroup?: {
     readonly sourceStartSeq?: number;
     readonly sourceEndSeq?: number;

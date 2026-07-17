@@ -42,15 +42,14 @@ opencode-context-compression/logs/runtime-events.jsonl
 - `payload.markId`
 - `payload.error`
 - `payload.providerID`
-- `payload.schedulerState`
-- `payload.activeCompactionLock`
-- `payload.pendingMarkCount`
+- `payload.eligibleMarkCount`
+- `payload.projectionMarkCount`
 
 常见有用 scope：
 
 - `background-compaction`：后台压缩任务执行、成功、失败。
 - `direct-llm`：压缩模型请求、provider 解析、fallback 失败。
-- `chat.params`：当前轮是否调度压缩、是否因已有 lock 而排队。
+- `experimental.chat.messages.transform`：projection、eligible mark 评估与后台压缩直启。
 - `seam` / hook 相关 scope：用于确认 hook 输入输出是否进入插件。
 
 ## 记得读尾巴
@@ -76,7 +75,7 @@ opencode-context-compression/logs/debug-snapshots/
 
 读取这类 JSON 时不要整文件塞进上下文。先用 `operator/json-snapshot-trimming.md` 里的脚本截断，再用 `jq` 只看相关字段。
 
-debug snapshot 适合确认投影前后消息结构、模型可见 transcript、prompt 输入和局部 message shape；不适合单独证明后台任务是否完成。排查 token 估算时，可以用 debug snapshot 复算每条消息的 renderer 输出长度或 token，但最终调度判断仍以 runtime log 尾部的 `chat.params` 记录为准。
+debug snapshot 适合确认投影前后消息结构、模型可见 transcript、prompt 输入和局部 message shape；不适合单独证明后台任务是否完成。排查 token 估算时，可以用 debug snapshot 复算每条消息的 renderer 输出长度或 token，但最终执行状态仍以 runtime log 尾部的 `messages.transform` 与 `background-compaction` 记录为准。
 
 ## 压缩未触发时先看什么
 
@@ -84,7 +83,7 @@ debug snapshot 适合确认投影前后消息结构、模型可见 transcript、
 
 1. 在 `runtime-events.jsonl` 里按目标 `sessionID` 过滤，并只看尾部记录。
 2. 找最新 `experimental.chat.messages.transform` completed 记录里的 `payload.projectionDebug`。
-3. 找最新 `chat.params` completed 记录里的 scheduler payload。
+3. 找随后出现的 `background-compaction` 记录，确认 eligible mark 是否开始、完成或失败。
 4. 再查 sidecar 的 result / visible id / toast，确认是否真的有后台压缩完成或卡住。
 
 `messages.transform` 的 `payload.projectionDebug` 用来判断当前投影状态：
@@ -95,15 +94,12 @@ debug snapshot 适合确认投影前后消息结构、模型可见 transcript、
 - `activeMarkTree` / `conflicts`：哪些 mark 真正进入覆盖树，哪些因范围冲突或不可解析被排除。
 - `resultGroups`：当前投影已消费的压缩结果。
 
-`chat.params` 的 scheduler payload 用来判断这一轮为什么调度或不调度：
+`messages.transform` 完成后，`background-compaction` 记录用于确认本轮执行边界：
 
-- `schedulerState` / `scheduled` / `reason`：最终调度决定。
-- `activeCompactionLock`：是否已有后台批次正在运行。
-- `pendingMarkCount`：通过 mark 数阈值后的待处理 mark 数。
-- `diagnostics.queuedMarkIdsBeforeThreshold`：有结果组之前仍待压缩的 mark。
-- `diagnostics.committedResultGroupMarkIds`：已经有 result group 的 mark。
-- `diagnostics.uncompressedMarkedTokenCount`：与自动压缩 token 阈值比较的实际数值。
-- `diagnostics.markedTokenAutoCompactionThreshold`：当前自动压缩 token 阈值。
+- `eligibleMarkCount`：本轮准备计算的 mark 数量。
+- `projectionMarkCount`：projection state 中 replay 出来的 mark 总数。
+- 每个 mark 的 executing / completed / exhausted / operational failure 记录。
+- live lock：是否已有后台批次正在运行；lock 路径和状态按本 runbook 的 lock 章节检查。
 
 “整体会话很长”但不触发，常见原因是 `totalCompressibleTokenCount` 很高，但 `uncompressedMarkedTokenCount` 低；调度器只看后者。也就是说，只有已 mark 且未被 result group 覆盖的范围会推动自动压缩。
 
@@ -115,7 +111,7 @@ sidecar database 是插件的持久状态来源，用于查 result group、visib
 
 读取 sidecar 时，重点查：
 
-- result group 是否已经写入 terminal 状态。
+- result group 是否已经提交，以及 mark 当前的 `failure_count`；达到 3 才属于 terminal。
 - visible id / canonical id 映射是否存在。
 - toast 或 failure 记录是否已经持久化。
 
@@ -125,10 +121,11 @@ sidecar 当前常见表包括：
 - `result_fragments`
 - `toast_events`
 - `visible_sequence_allocations`
+- `compaction_failures`
 
 旧 DB 中可能残留 `pending_compactions`。它是已废弃的调度队列表，不保存 replacement 正文或 fragment range；当前 schema bootstrap 只应清理这张 legacy 表，不应把它当成当前运行状态。
 
-sidecar 不保存 scheduler 的最新 token 统计快照；不要假设存在 scheduler state 表。token 统计、调度原因和阈值判断以 `runtime-events.jsonl` 尾部的 `chat.params` / `messages.transform` 记录为准。
+sidecar 不保存 scheduler 的最新 token 统计快照；不要假设存在 scheduler state 表。token 统计与 eligible mark 判断以 `messages.transform` 的 projection debug 为准，执行结果以其后的 `background-compaction` 记录为准。
 
 不要只凭 assistant prose 或 toast 文案判断 sidecar 已经更新；必须查数据库记录或 runtime event。一个旧 `result_group` 只能证明某个 mark 曾经压缩完成，不代表后续所有 mark 都已处理，也不代表当前没有新的未压范围。
 
@@ -214,7 +211,7 @@ Provider <provider-id> not found in config
 - 最新错误是否仍存在，发生在修复前还是修复后。
 - 当前 lock 是否存在，是否仍是 `running`。
 - 待处理 mark / 成功 mark / 失败 mark 是否交错。
-- sidecar 中是否已有 terminal 状态或失败状态。
+- sidecar 中是否已有失败计数，以及该计数是否已达到 terminal 阈值 3。
 - 下一步该查配置来源链、worker 中断、lock cleanup、还是 sidecar 状态。
 
 ## 相关文档
