@@ -111,7 +111,7 @@ sidecar database 是插件的持久状态来源，用于查 result group、visib
 
 读取 sidecar 时，重点查：
 
-- result group 是否已经提交，以及 mark 当前的 `failure_count`；达到 3 才属于 terminal。
+- result group 是否已经提交，以及 mark 当前的 `failure_count`；只有达到 live config 的 `compressing.maxFailureCount` 才属于 terminal，默认上限为 `99999`。
 - visible id / canonical id 映射是否存在。
 - toast 或 failure 记录是否已经持久化。
 

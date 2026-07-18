@@ -28,6 +28,7 @@
 - `compressing.timeoutSeconds`
 - `compressing.firstTokenTimeoutSeconds`
 - `compressing.streamIdleTimeoutSeconds`
+- `compressing.maxFailureCount`
 - `toast.enabled`
 - `toast.durations.*`
 - `schedulerMarkThreshold`
@@ -50,7 +51,7 @@
   - 总 timeout
   - 单次模型尝试从请求发出到流结束的总时长不得超过该上限
 
-每次发送只执行一轮完整模型链：按 `compactionModels` 顺序让每个模型尝试一次，任意模型成功即停止并清除失败计数；整链失败累计一次，三次不同发送均失败后将 mark 视为 terminal，不再自动调度。
+每次发送只执行一轮完整模型链：按 `compactionModels` 顺序让每个模型尝试一次，任意模型成功即停止并清除失败计数；整链失败累计一次。`compressing.maxFailureCount` 控制停止自动调度的跨发送失败上限，默认值为 `99999`，因此临时 provider、网络或配置故障不会在少量发送后永久冻结 mark。
 
 当前 docs 先定义配置契约与目标语义，不表示仓库运行时已经完成流式 transport 实现。
 

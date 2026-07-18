@@ -83,7 +83,7 @@ send-entry-gate 不完全移除，而是缩小到仅在"替换门槛已满足但
 1. **compute 阶段并行**：每个 mark 独立构造 compaction input、调用模型 transport、执行 retry / fallback / output validation。
 2. **commit 阶段串行**：已验证结果按 eligible mark 顺序写入 result group。
 
-并行边界主要覆盖模型计算与校验；SQLite result group 写入与 lock settle 保持单线程顺序。某个 mark 在当前发送中耗尽完整模型链时立即增加一次持久失败计数，第三次跨发送失败后进入 terminal；input 构造或 result group commit 等 operational failure 不增加失败计数。
+并行边界主要覆盖模型计算与校验；SQLite result group 写入与 lock settle 保持单线程顺序。某个 mark 在当前发送中耗尽完整模型链时立即增加一次持久失败计数，达到 `compressing.maxFailureCount` 后进入 terminal；input 构造或 result group commit 等 operational failure 不增加失败计数。默认上限为 `99999`。
 
 ## Replay-first 主模型
 
@@ -142,13 +142,13 @@ SQLite 只需保存：
 
 ## 模型链与跨发送 retry 规则（已实现）
 
-每次发送按 `compactionModels` 顺序让全部模型各尝试一次。任意模型成功后立即停止并清除已有失败计数；整条模型链耗尽后累计一次失败，不在当前发送中立即重跑。累计三次不同发送均失败后，该 mark 进入 terminal，后续自动调度跳过。
+每次发送按 `compactionModels` 顺序让全部模型各尝试一次。任意模型成功后立即停止并清除已有失败计数；整条模型链耗尽后累计一次失败，不在当前发送中立即重跑。累计失败达到 `compressing.maxFailureCount` 后，该 mark 进入 terminal，后续自动调度跳过。默认值为 `99999`，可按运维需要调整。
 
 边界：
 
 - transport、`<compression_output>` envelope、opaque placeholder 编号与 result-group source-range 映射失败都会继续到本次发送中的下一个模型
 - 每次发送中每个模型最多尝试一次；完整模型链耗尽后只累计一次失败
-- terminal failure 只代表三次不同发送均耗尽完整模型链，不包含 input 构造、SQLite commit、失败计数持久化或其他 operational failure
+- terminal failure 只代表跨发送整链失败已达到配置上限，不包含 input 构造、SQLite commit、失败计数持久化或其他 operational failure
 - result group 只在 envelope、validator 与 source-range 映射全部通过后写入
 
 默认 compaction prompt 从第一次尝试起就强调 protected placeholder discipline，不依赖 retry-only prompt。
@@ -160,6 +160,7 @@ SQLite 只需保存：
 | 请求类型 | 当前参数 |
 |---|---|
 | OpenAI provider 或 `gpt*` 模型 | `reasoning_effort: "medium"` |
+| DeepSeek provider 或名称包含 `deepseek` 的模型 | `reasoning_effort: "medium"` |
 | 其他 OpenAI-compatible provider | `reasoning_effort: "none"` |
 | Gemini | `generationConfig.thinkingConfig.thinkingLevel: "medium"` |
 | Anthropic | `thinking.type: "adaptive"` 与 `output_config.effort: "medium"` |

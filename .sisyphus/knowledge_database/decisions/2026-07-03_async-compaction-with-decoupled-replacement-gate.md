@@ -36,10 +36,16 @@ The execution-path part is now implemented: background compaction starts directl
 
 ### Additional Observations
 
-**2026-07-17**: 失败重试与请求驱动的异步执行边界保持一致：每次发送只执行一轮完整模型链，整链耗尽后持久化增加一次 `failure_count`，等待下一次发送再重试；累计三次不同发送失败后才停止该 mark 的自动压缩。
+**2026-07-17（历史状态，已被下方 UPDATE 取代）**: 失败重试与请求驱动的异步执行边界保持一致：每次发送只执行一轮完整模型链，整链耗尽后持久化增加一次 `failure_count`，等待下一次发送再重试；当时采用累计三次不同发送失败后停止自动压缩。
 
 选择跨发送累计，而不是在一次 background execution 内立即连续跑三轮，原因是后者会把短暂 provider、网络或配置故障放大成同一时刻的请求风暴，也失去两次发送之间恢复的机会。备选的“总共只允许三次模型调用”会在配置模型超过三个时跳过后备模型，因此也不采用。
 
 这项决策要求把模型输出校验和 source-range 映射留在单次模型尝试内：任一步失败都可以 fallback 到本轮下一个模型；SQLite result-group commit、失败计数持久化等 operational failure 不增加 `failure_count`。任意成功提交会清除已有失败计数。
+
+### UPDATE 2026-07-17
+
+硬编码的三次停止上限已被 `compressing.maxFailureCount` 取代，默认值为 `99999`。保留的核心边界仍是“每次发送只执行一轮完整模型链”，避免同一请求内连续重跑造成请求风暴；跨发送失败会持续累计，只有达到配置上限后才停止自动调度。旧 sidecar 的 `compaction_failures` 表带有 `failure_count BETWEEN 1 AND 3` 约束，bootstrap 必须只增量重建该表并保留全部记录；迁移后已有 `failure_count=3` 的 mark 会恢复 eligible。
+
+采用配置化高上限而不删除计数与停止判断，是为了保留运维熔断能力，同时避免短暂 provider、网络或参数故障形成永久高水位。真正无上限会让确定性坏输入永远产生请求；固定小上限则会再次造成无人恢复的 terminal mark。
 
 Tags: #compaction #architecture #runtime #scheduling #async #replacement-gate #retry #failure-handling

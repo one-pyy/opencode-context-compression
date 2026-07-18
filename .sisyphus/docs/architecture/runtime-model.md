@@ -71,7 +71,7 @@ SQLite 不应承担：
 ### `compaction_failures`
 - 保存每次发送完整模型链耗尽后的累计失败状态
 - 记录 `mark_id`、`failure_count`、最近错误与最近失败时间
-- background executor 允许 `failure_count < 3` 的 mark 在后续发送重试，并跳过 `failure_count >= 3` 的 terminal mark
+- background executor 允许 `failure_count < compressing.maxFailureCount` 的 mark 在后续发送重试，并跳过达到配置上限的 terminal mark；默认上限为 `99999`
 
 ### Legacy `pending_compactions`
 - `pending_compactions` 不是当前运行时表
@@ -79,7 +79,7 @@ SQLite 不应承担：
 
 ## Schema bootstrap 约束（已实现）
 
-sidecar bootstrap 可以自动创建缺失的当前表、补齐兼容列，并清理已知 legacy 表。它不得因为出现无关旧表就重建整个数据库；如果关键结果表缺少当前代码必须读取的列，应失败并要求显式迁移，而不是静默丢弃已提交 result group。
+sidecar bootstrap 可以自动创建缺失的当前表、补齐兼容列，并清理已知 legacy 表。旧 `compaction_failures` 若仍带 `failure_count BETWEEN 1 AND 3` 约束，只事务重建该表并保留全部失败记录；不得重置其他 sidecar 表。它不得因为出现无关旧表就重建整个数据库；如果关键结果表缺少当前代码必须读取的列，应失败并要求显式迁移，而不是静默丢弃已提交 result group。
 
 ## 模块职责边界
 

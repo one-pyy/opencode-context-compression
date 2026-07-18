@@ -39,6 +39,7 @@ test("Config Precedence - Env overrides JSONC", async () => {
   assert.equal(config.configPath, resolve(configPath), "Env should set configPath");
   assert.equal(config.allowDelete, true, "Env should override allowDelete");
   assert.equal(config.promptText, "Template Content", "Should load dummy prompt text");
+  assert.equal(config.compressing.maxFailureCount, 99_999);
 });
 
 test("Runtime config accepts zero toast duration as per-toast disable", async () => {
@@ -54,6 +55,9 @@ test("Runtime config accepts zero toast duration as per-toast disable", async ()
     compactionModels: ["model-from-json"],
     runtimeLogPath: "logs/runtime.jsonl",
     seamLogPath: "logs/seam.jsonl",
+    compressing: {
+      maxFailureCount: 7,
+    },
     toast: {
       enabled: true,
       durations: {
@@ -67,4 +71,5 @@ test("Runtime config accepts zero toast duration as per-toast disable", async ()
   });
 
   assert.equal(config.toast.durations.startup, 0);
+  assert.equal(config.compressing.maxFailureCount, 7);
 });

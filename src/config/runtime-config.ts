@@ -61,6 +61,7 @@ interface RuntimeConfigInput {
     readonly timeoutSeconds?: unknown;
     readonly firstTokenTimeoutSeconds?: unknown;
     readonly streamIdleTimeoutSeconds?: unknown;
+    readonly maxFailureCount?: unknown;
   };
   readonly reminder?: {
     readonly hsoft?: unknown;
@@ -137,6 +138,7 @@ export interface LoadedRuntimeConfig {
     readonly firstTokenTimeoutMs: number;
     readonly streamIdleTimeoutSeconds: number;
     readonly streamIdleTimeoutMs: number;
+    readonly maxFailureCount: number;
   };
   readonly reminder: RuntimeConfigReminderThresholds & {
     readonly promptPaths: {
@@ -209,6 +211,7 @@ const DEFAULTS = {
     timeoutSeconds: 600,
     firstTokenTimeoutSeconds: 40,
     streamIdleTimeoutSeconds: 40,
+    maxFailureCount: 99_999,
   },
   toast: {
     enabled: true,
@@ -247,6 +250,7 @@ const ALLOWED_COMPRESSING_KEYS = new Set([
   "timeoutSeconds",
   "firstTokenTimeoutSeconds",
   "streamIdleTimeoutSeconds",
+  "maxFailureCount",
 ]);
 const ALLOWED_REMINDER_KEYS = new Set([
   "hsoft",
@@ -402,6 +406,10 @@ export async function loadRuntimeConfig(
       DEFAULTS.compressing.streamIdleTimeoutSeconds,
     "compressing.streamIdleTimeoutSeconds",
   );
+  const maxFailureCount = readPositiveInteger(
+    parsed.compressing?.maxFailureCount ?? DEFAULTS.compressing.maxFailureCount,
+    "compressing.maxFailureCount",
+  );
 
   const reminderPrompts = {
     compactOnly: {
@@ -478,6 +486,7 @@ export async function loadRuntimeConfig(
       firstTokenTimeoutMs: firstTokenTimeoutSeconds * 1_000,
       streamIdleTimeoutSeconds,
       streamIdleTimeoutMs: streamIdleTimeoutSeconds * 1_000,
+      maxFailureCount,
     },
     reminder: {
       hsoft: readPositiveInteger(parsed.reminder?.hsoft ?? DEFAULTS.reminder.hsoft, "reminder.hsoft"),

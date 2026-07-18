@@ -91,6 +91,10 @@
         },
         "streamIdleTimeoutSeconds": {
           "$ref": "#/$defs/positiveInteger"
+        },
+        "maxFailureCount": {
+          "$ref": "#/$defs/positiveInteger",
+          "description": "Maximum cross-send full-model-chain failures retained for one mark before automatic retries stop."
         }
       }
     },

@@ -5,7 +5,7 @@ import {
   createSqliteDatabase,
   type SqliteDatabase,
 } from "../sqlite-runtime.js";
-import { quoteIdentifier } from "./helpers.js";
+import { quoteIdentifier, runInTransaction } from "./helpers.js";
 import type { BootstrapSessionSidecarOptions } from "./types.js";
 
 export const SIDECAR_TABLE_NAMES = [
@@ -75,6 +75,10 @@ const EXPECTED_TABLE_COLUMNS: Record<AllowedTableName, readonly string[]> = {
 
 interface TableInfoRow extends Record<string, unknown> {
   readonly name: string;
+}
+
+interface TableDefinitionRow extends Record<string, unknown> {
+  readonly sql: string | null;
 }
 
 export async function bootstrapSessionSidecar(
@@ -147,15 +151,9 @@ export function ensureLockedSidecarSchema(database: SqliteDatabase): void {
       processed INTEGER DEFAULT 0
     );
 
-    CREATE TABLE IF NOT EXISTS compaction_failures (
-      mark_id TEXT PRIMARY KEY,
-      failure_count INTEGER NOT NULL CHECK (failure_count BETWEEN 1 AND 3),
-      last_error TEXT NOT NULL,
-      last_failed_at TEXT NOT NULL
-    );
-
     `);
 
+  createCompactionFailuresTable(database);
   recreateLockedIndexes(database);
   validateRequiredTableColumns(database);
   upsertSchemaMeta(database);
@@ -260,37 +258,87 @@ function migrateResultGroupsAppliedColumn(database: SqliteDatabase): void {
 }
 
 function migrateCompactionFailuresTable(database: SqliteDatabase): void {
-  const columns = database
-    .prepare<TableInfoRow>(`PRAGMA table_info(compaction_failures)`)
-    .all()
-    .map((row) => row.name);
-  if (!columns.includes("rounds") || columns.includes("failure_count")) {
+  const columns = listTableColumns(database, "compaction_failures");
+  if (columns.includes("rounds") && !columns.includes("failure_count")) {
+    migrateLegacyCompactionFailureRounds(database);
     return;
   }
 
-  database.exec(`
-    ALTER TABLE compaction_failures RENAME TO compaction_failures_legacy_rounds;
+  if (columns.includes("failure_count") && hasLegacyCompactionFailureLimit(database)) {
+    migrateLegacyCompactionFailureLimit(database);
+  }
+}
 
-    CREATE TABLE compaction_failures (
+function createCompactionFailuresTable(database: SqliteDatabase): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS compaction_failures (
       mark_id TEXT PRIMARY KEY,
-      failure_count INTEGER NOT NULL CHECK (failure_count BETWEEN 1 AND 3),
+      failure_count INTEGER NOT NULL CHECK (failure_count >= 1),
       last_error TEXT NOT NULL,
       last_failed_at TEXT NOT NULL
     );
-
-    INSERT INTO compaction_failures (
-      mark_id,
-      failure_count,
-      last_error,
-      last_failed_at
-    )
-    SELECT
-      mark_id,
-      MIN(MAX(rounds, 1), 3),
-      last_error,
-      failed_at
-    FROM compaction_failures_legacy_rounds;
-
-    DROP TABLE compaction_failures_legacy_rounds;
   `);
+}
+
+function hasLegacyCompactionFailureLimit(database: SqliteDatabase): boolean {
+  const definition = database
+    .prepare<TableDefinitionRow>(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'compaction_failures'`,
+    )
+    .get();
+
+  return (
+    typeof definition?.sql === "string" &&
+    /CHECK\s*\(\s*failure_count\s+BETWEEN\s+1\s+AND\s+3\s*\)/iu.test(definition.sql)
+  );
+}
+
+function migrateLegacyCompactionFailureRounds(database: SqliteDatabase): void {
+  runInTransaction(database, () => {
+    database.exec(
+      `ALTER TABLE compaction_failures RENAME TO compaction_failures_legacy_rounds`,
+    );
+    createCompactionFailuresTable(database);
+    database.exec(`
+      INSERT INTO compaction_failures (
+        mark_id,
+        failure_count,
+        last_error,
+        last_failed_at
+      )
+      SELECT
+        mark_id,
+        MAX(rounds, 1),
+        last_error,
+        failed_at
+      FROM compaction_failures_legacy_rounds;
+
+      DROP TABLE compaction_failures_legacy_rounds;
+    `);
+  });
+}
+
+function migrateLegacyCompactionFailureLimit(database: SqliteDatabase): void {
+  runInTransaction(database, () => {
+    database.exec(
+      `ALTER TABLE compaction_failures RENAME TO compaction_failures_legacy_limit`,
+    );
+    createCompactionFailuresTable(database);
+    database.exec(`
+      INSERT INTO compaction_failures (
+        mark_id,
+        failure_count,
+        last_error,
+        last_failed_at
+      )
+      SELECT
+        mark_id,
+        failure_count,
+        last_error,
+        last_failed_at
+      FROM compaction_failures_legacy_limit;
+
+      DROP TABLE compaction_failures_legacy_limit;
+    `);
+  });
 }

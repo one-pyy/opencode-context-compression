@@ -405,16 +405,14 @@ async function callOpenAI(
       "Content-Type": "application/json",
       "Authorization": `Bearer ${provider.apiKey}`,
     },
-    body: JSON.stringify({
-      model: modelID,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userMessage },
-      ],
-      ...buildOpenAICompatibleReasoningOptions(providerID, modelID),
-      temperature: 0,
-      stream: true,
-    }),
+    body: JSON.stringify(
+      buildOpenAICompatibleRequestBody(
+        providerID,
+        modelID,
+        systemPrompt,
+        userMessage,
+      ),
+    ),
     signal,
   });
 
@@ -426,18 +424,40 @@ async function callOpenAI(
   return readStreamingText(response, runtimeArtifacts, request, parseOpenAISseChunk);
 }
 
-function buildOpenAICompatibleReasoningOptions(
+export function buildOpenAICompatibleRequestBody(
+  providerID: string,
+  modelID: string,
+  systemPrompt: string,
+  userMessage: string,
+): Record<string, unknown> {
+  return {
+    model: modelID,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userMessage },
+    ],
+    ...buildOpenAICompatibleReasoningOptions(providerID, modelID),
+    temperature: 0,
+    stream: true,
+  };
+}
+
+export function buildOpenAICompatibleReasoningOptions(
   providerID: string,
   modelID: string,
 ): Record<string, unknown> {
   const normalizedProvider = providerID.toLowerCase();
   const normalizedModel = modelID.toLowerCase();
+  const usesMediumEffort =
+    normalizedProvider.includes("openai") ||
+    normalizedProvider.includes("deepseek") ||
+    normalizedModel.startsWith("gpt") ||
+    normalizedModel.includes("deepseek");
 
   return {
-    reasoning_effort:
-      normalizedProvider.includes("openai") || normalizedModel.startsWith("gpt")
-        ? OPENAI_REASONING_EFFORT
-        : OPENAI_COMPATIBLE_REASONING_EFFORT,
+    reasoning_effort: usesMediumEffort
+      ? OPENAI_REASONING_EFFORT
+      : OPENAI_COMPATIBLE_REASONING_EFFORT,
   };
 }
 

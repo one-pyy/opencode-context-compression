@@ -434,7 +434,7 @@ test("default runtime services write repo-owned artifacts under runtime config r
   }
 });
 
-test("background compaction shows failed toast after final execution failure", async () => {
+test("background compaction stops retrying at the configured failure limit", async () => {
   const pluginDirectory = await mkdtemp(
     join(tmpdir(), "opencode-context-compression-background-toast-failed-"),
   );
@@ -446,7 +446,7 @@ test("background compaction shows failed toast after final execution failure", a
       await executeBackgroundCompactions({
         pluginInput: createPluginInput(pluginDirectory),
         runtimeConfig: {
-          ...createRuntimeConfig({ repoRoot: pluginDirectory }),
+          ...createRuntimeConfig({ repoRoot: pluginDirectory, maxFailureCount: 3 }),
           transport: {
             async invoke(request) {
               events.push(`transport:${request.markID}`);
@@ -482,7 +482,7 @@ test("background compaction shows failed toast after final execution failure", a
     await executeBackgroundCompactions({
       pluginInput: createPluginInput(pluginDirectory),
       runtimeConfig: {
-        ...createRuntimeConfig({ repoRoot: pluginDirectory }),
+        ...createRuntimeConfig({ repoRoot: pluginDirectory, maxFailureCount: 3 }),
         transport: {
           async invoke(request) {
             events.push(`unexpected-transport:${request.markID}`);
@@ -538,27 +538,29 @@ test("a successful later send clears the persisted model-chain failure count", a
   });
 
   try {
-    await executeBackgroundCompactions({
-      pluginInput: createPluginInput(pluginDirectory),
-      runtimeConfig: {
-        ...createRuntimeConfig({ repoRoot: pluginDirectory }),
-        transport: {
-          async invoke() {
-            throw new Error("temporary model outage");
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await executeBackgroundCompactions({
+        pluginInput: createPluginInput(pluginDirectory),
+        runtimeConfig: {
+          ...createRuntimeConfig({ repoRoot: pluginDirectory }),
+          transport: {
+            async invoke() {
+              throw new Error("temporary model outage");
+            },
           },
         },
-      },
-      runtimeArtifacts,
-      sessionId,
-      projectionState: createProjectedSetWithOneMark(sessionId),
-    });
+        runtimeArtifacts,
+        sessionId,
+        projectionState: createProjectedSetWithOneMark(sessionId),
+      });
+    }
 
     const failedSidecar = await openSessionSidecarRepository({ databasePath });
     try {
       assert.equal(
         createCompactionFailureRepository(failedSidecar).getFailure("mark-1")
           ?.failureCount,
-        1,
+        3,
       );
     } finally {
       failedSidecar.close();
@@ -884,7 +886,10 @@ function createRecordingToastService(events: string[]): ToastService {
   );
 }
 
-function createRuntimeConfig(input: { readonly repoRoot: string }): LoadedRuntimeConfig {
+function createRuntimeConfig(input: {
+  readonly repoRoot: string;
+  readonly maxFailureCount?: number;
+}): LoadedRuntimeConfig {
   return {
     repoRoot: input.repoRoot,
     configPath: join(input.repoRoot, "runtime-config.jsonc"),
@@ -908,6 +913,7 @@ function createRuntimeConfig(input: { readonly repoRoot: string }): LoadedRuntim
       firstTokenTimeoutMs: 1_000,
       streamIdleTimeoutSeconds: 1,
       streamIdleTimeoutMs: 1_000,
+      maxFailureCount: input.maxFailureCount ?? 99_999,
     },
     reminder: {
       hsoft: 1,

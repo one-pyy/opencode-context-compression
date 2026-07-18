@@ -2,7 +2,7 @@
 
 ## 文档定位
 
-本文档描述压缩任务失败时的运行时处理：即时 toast、跨发送累计三次模型链失败后的 terminal failure，以及尚未实现的 user-role notice。
+本文档描述压缩任务失败时的运行时处理：即时 toast、跨发送模型链失败计数、可配置停止上限，以及尚未实现的 user-role notice。
 
 ## 范围澄清
 
@@ -19,7 +19,7 @@
 - `ToastService` 可直接播放：`compressionStart` / `compressionComplete` / `compressionFailed`
 - `toast_events` 表及其消费端已存在
 - projection 已支持按锚点插入 reminder 风格的 `user` 消息
-- sidecar 已保存 result group 状态和 terminal compaction failure
+- sidecar 已保存 result group 状态和 compaction failure count
 
 ### 当前缺口
 
@@ -33,19 +33,20 @@
 - 某个后台 compaction mark 失败时，运行时应产生一条失败提醒
 - 这条提醒至少要让操作员知道“压缩失败了”与“最近错误是什么”
 
-### 2. 跨发送累计三次失败后停止自动重试（已实现）
+### 2. 跨发送累计失败并按配置上限停止（已实现）
 
 - 每次发送触发的后台执行按顺序让全部配置模型各尝试一次
 - 任意模型成功则立即结束并清除已有失败计数
 - 整条模型链失败后，按 `mark_id` 将 `failure_count` 增加一次
-- 第三次不同发送均整链失败后，该 mark 进入 terminal 状态，不再加入后续自动执行
+- 累计失败达到 `compressing.maxFailureCount` 后，该 mark 进入 terminal 状态，不再加入后续自动执行
+- 默认上限为 `99999`，用于避免少量临时故障永久冻结 mark
 
-### 3. 三次失败后写入 user-role notice
+### 3. 达到配置上限后写入 user-role notice
 
 - 当某个 mark 进入 abandoned 状态时，sidecar 应保存一条 notice
 - notice 的用途是在后续 projection 中，按锚点消息后插入一条 `role: "user"` 的提示
 - 这条提示用于告诉后续模型：
-  - 某个 earlier compaction 已连续失败三次
+  - 某个 earlier compaction 已达到配置的失败上限
   - 系统已停止继续自动重试
   - 最近失败原因是什么
 
@@ -57,7 +58,7 @@
 
 ## Sidecar 表设计目标
 
-当前 `compaction_failures` 表承接 terminal failure，字段为：
+当前 `compaction_failures` 表承接跨发送失败计数，字段为：
 
 - `mark_id`
 - `failure_count`
@@ -77,16 +78,16 @@
 
 ### 后台执行前
 
-- 若某个 eligible mark 的 `failure_count >= 3`，则跳过执行
-- `failure_count < 3` 的 mark 在下一次发送时仍可重试
-- 该 mark 不应再次进入自动执行集合，避免无限重试
+- 若某个 eligible mark 的 `failure_count >= compressing.maxFailureCount`，则跳过执行
+- 低于配置上限的 mark 在下一次发送时仍可重试
+- 默认上限为 `99999`
 
 ### 后台执行失败后
 
 - 只有当前发送中的完整模型链确实耗尽时，才将 `failure_count` 增加一次并更新最近错误与失败时间
-- 第三次失败在该 mark 耗尽时立即成为 terminal，不等待同 batch 的其他 mark 完成
+- 达到配置上限的失败在该 mark 耗尽时立即成为 terminal，不等待同 batch 的其他 mark 完成
 - input 构造、SQLite commit、失败计数持久化或其他 operational failure 不增加 `failure_count`
-- 已写入 terminal failure 的 mark 在后续自动执行中直接跳过
+- 已达到配置上限的 mark 在后续自动执行中直接跳过
 
 ### 后台执行成功后
 
@@ -94,7 +95,7 @@
 
 ## Projection 规则
 
-- 目标态 projection 读取 abandoned notice 且锚点仍存在的失败记录
+- 目标态 projection 读取达到配置上限的 notice 且锚点仍存在的失败记录
 - 在锚点 canonical message 后插入一条 `source = synthetic/reminder-like`、`role = user` 的 notice
 - 若锚点不存在，则直接跳过
 
@@ -106,7 +107,7 @@
 
 ## 实现状态
 
-- **已实现**：每次发送执行一轮完整模型链、跨发送累计三次失败、terminal failure sidecar 表、后续自动调度跳过 terminal mark、direct failure toast
+- **已实现**：每次发送执行一轮完整模型链、跨发送累计失败、`compressing.maxFailureCount` 上限、后续自动调度跳过达到上限的 mark、direct failure toast
 - **未实现**：abandoned notice projection
 - **半实现**：toast 消费端与 direct toast 已存在，但后台失败到 database-backed toast 的生产链仍不完整
 

@@ -52,7 +52,8 @@ Common fields:
 - `reminder.softRepeatEveryTokens` / `reminder.hardRepeatEveryTokens`: token-based reminder cadence.
 - `runtimeLogPath`, `seamLogPath`, `debugSnapshotPath`: local diagnostic output paths.
 - `compressing.timeoutSeconds`, `compressing.firstTokenTimeoutSeconds`, `compressing.streamIdleTimeoutSeconds`: compaction timeout settings.
-- Each send tries every configured model once. A mark stops retrying after three cross-send model-chain failures.
+- `compressing.maxFailureCount`: cross-send full-chain failure limit; defaults to `99999`.
+- Each send tries every configured model once. Cross-send model-chain failures remain retryable until `compressing.maxFailureCount` is reached; the default is `99999`.
 - `toast.enabled` and `toast.durations.*`: UI toast behavior.
 
 Environment overrides:

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { bootstrapSessionSidecar, openSessionSidecarRepository } from "../../../src/state/sidecar-store.js";
+import { createCompactionFailureRepository } from "../../../src/state/compaction-failure-repository.js";
 import { createSqliteDatabase } from "../../../src/state/sqlite-runtime.js";
 
 test("sidecar bootstrap drops legacy pending queue without clearing committed result data", async () => {
@@ -126,6 +127,76 @@ test("sidecar bootstrap drops legacy pending queue without clearing committed re
         migratedRepository.readResultGroup("mark-schema-1")?.fragments[0]?.replacementText,
         "Compacted result survives legacy table cleanup.",
       );
+      const incrementedFailure = createCompactionFailureRepository(
+        migratedRepository,
+      ).recordFailure({
+        markId: "mark-legacy-failure",
+        lastError: "new model-chain exhaustion",
+        failedAt: "2026-07-05T00:00:07.000Z",
+      });
+      assert.equal(incrementedFailure.failureCount, 4);
+    } finally {
+      migratedRepository.close();
+    }
+  } finally {
+    await rm(pluginDirectory, { force: true, recursive: true });
+  }
+});
+
+test("sidecar bootstrap removes the legacy three-failure limit without losing current rows", async () => {
+  const pluginDirectory = await mkdtemp(
+    join(tmpdir(), "opencode-context-compression-failure-limit-migration-"),
+  );
+  const databasePath = join(pluginDirectory, "session-failure-limit-migration.db");
+
+  try {
+    await bootstrapSessionSidecar({ databasePath });
+    const legacyDatabase = createSqliteDatabase(databasePath, {
+      enableForeignKeyConstraints: true,
+    });
+    try {
+      legacyDatabase.exec(`
+        DROP TABLE compaction_failures;
+        CREATE TABLE compaction_failures (
+          mark_id TEXT PRIMARY KEY,
+          failure_count INTEGER NOT NULL CHECK (failure_count BETWEEN 1 AND 3),
+          last_error TEXT NOT NULL,
+          last_failed_at TEXT NOT NULL
+        );
+        INSERT INTO compaction_failures (
+          mark_id,
+          failure_count,
+          last_error,
+          last_failed_at
+        ) VALUES (
+          'mark-current-failure',
+          3,
+          'existing model-chain exhaustion',
+          '2026-07-17T00:00:00.000Z'
+        );
+      `);
+    } finally {
+      legacyDatabase.close();
+    }
+
+    await bootstrapSessionSidecar({ databasePath });
+
+    const migratedRepository = await openSessionSidecarRepository({ databasePath });
+    try {
+      const failureRepo = createCompactionFailureRepository(migratedRepository);
+      assert.deepEqual(failureRepo.getFailure("mark-current-failure"), {
+        markId: "mark-current-failure",
+        failureCount: 3,
+        lastError: "existing model-chain exhaustion",
+        lastFailedAt: "2026-07-17T00:00:00.000Z",
+      });
+
+      const incrementedFailure = failureRepo.recordFailure({
+        markId: "mark-current-failure",
+        lastError: "next model-chain exhaustion",
+        failedAt: "2026-07-17T00:01:00.000Z",
+      });
+      assert.equal(incrementedFailure.failureCount, 4);
     } finally {
       migratedRepository.close();
     }

@@ -10,10 +10,7 @@ import {
 import { resolvePluginStateDirectory, resolveSessionDatabasePath } from "./sidecar-layout.js";
 import { bootstrapSessionSidecar, openSessionSidecarRepository } from "../state/sidecar-store.js";
 import { createResultGroupRepository } from "../state/result-group-repository.js";
-import {
-  createCompactionFailureRepository,
-  MAX_COMPACTION_FAILURE_COUNT,
-} from "../state/compaction-failure-repository.js";
+import { createCompactionFailureRepository } from "../state/compaction-failure-repository.js";
 import { buildCompactionRunInputForMark } from "../compaction/replay-run-input.js";
 import {
   computeCompactionAttempt,
@@ -80,10 +77,11 @@ export async function executeBackgroundCompactions(
 
   try {
     const failureRepo = createCompactionFailureRepository(sidecar);
+    const maxFailureCount = runtimeConfig.compressing.maxFailureCount;
     const eligibleMarks = collectEligibleMarks(projectionState).filter(
       (mark) =>
         (failureRepo.getFailure(mark.markId)?.failureCount ?? 0) <
-        MAX_COMPACTION_FAILURE_COUNT,
+        maxFailureCount,
     );
 
     if (eligibleMarks.length === 0) {
@@ -189,7 +187,7 @@ export async function executeBackgroundCompactions(
               lastError: formatError(error),
               failedAt: new Date().toISOString(),
             });
-            if (failure.failureCount >= MAX_COMPACTION_FAILURE_COUNT) {
+            if (failure.failureCount >= maxFailureCount) {
               return {
                 eligible,
                 kind: "terminal" as const,
@@ -256,7 +254,7 @@ export async function executeBackgroundCompactions(
           payload: {
             markId: item.eligible.markId,
             ...(item.kind === "terminal" || item.kind === "retryable"
-              ? { failureCount: item.failureCount }
+              ? { failureCount: item.failureCount, maxFailureCount }
               : {}),
             error: formatError(item.error),
           },

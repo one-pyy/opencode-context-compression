@@ -1,7 +1,5 @@
 import type { SessionSidecarRepositoryWithDatabase } from "./sidecar-store/repository.js";
 
-export const MAX_COMPACTION_FAILURE_COUNT = 3;
-
 export interface CompactionFailure {
   readonly markId: string;
   readonly failureCount: number;
@@ -50,15 +48,14 @@ export function createCompactionFailureRepository(
           `INSERT INTO compaction_failures (mark_id, failure_count, last_error, last_failed_at)
            VALUES (:markId, 1, :lastError, :failedAt)
            ON CONFLICT(mark_id) DO UPDATE SET
-             failure_count = MIN(compaction_failures.failure_count + 1, :maxFailureCount),
-             last_error = excluded.last_error,
-             last_failed_at = excluded.last_failed_at`,
+              failure_count = compaction_failures.failure_count + 1,
+              last_error = excluded.last_error,
+              last_failed_at = excluded.last_failed_at`,
         )
         .run({
           markId: input.markId,
           lastError: input.lastError,
           failedAt: input.failedAt,
-          maxFailureCount: MAX_COMPACTION_FAILURE_COUNT,
         });
 
       const failure = getFailure(input.markId);
