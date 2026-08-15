@@ -6,6 +6,7 @@ export type CompressionInspectErrorCode = "INVALID_RANGE" | "SESSION_NOT_READY";
 
 export interface CompressionInspectInputV1 {
   readonly to: string;
+  readonly mergeAdjacent: boolean;
 }
 
 export interface CompressionInspectPlaceholder {
@@ -18,10 +19,23 @@ export interface CompressionInspectMessageTokenInfo {
   readonly tokens: number;
 }
 
-export interface CompressionInspectResolved {
+export interface CompressionInspectSegment {
+  readonly from: string;
+  readonly to: string;
+  readonly messageCount: number;
+  readonly tokens: number;
+}
+
+export type CompressionInspectResolved =
+  | {
   readonly ok: true;
   readonly messages: readonly CompressionInspectMessageTokenInfo[];
-}
+    }
+  | {
+      readonly ok: true;
+      readonly segments: readonly CompressionInspectSegment[];
+      readonly totalTokens: number;
+    };
 
 export interface CompressionInspectFailure {
   readonly ok: false;
@@ -56,8 +70,8 @@ export type CompressionInspectValidationResult =
 
 export interface CompressionInspectExternalContract {
   readonly toolName: "compression_inspect";
-  readonly inputShape: "{ to }";
-  readonly outputShape: "placeholder first, then JSON-serialized resolved message token array after projection";
+  readonly inputShape: "{ to, mergeAdjacent? }";
+  readonly outputShape: "placeholder first, then JSON-serialized message details or adjacent segments after projection";
   readonly callTiming: "when the model needs to inspect uncompressed compressible messages up to a visible-id endpoint";
   readonly visibleSideEffects: readonly [
     "returns an inspectId placeholder immediately",
@@ -72,9 +86,9 @@ export interface CompressionInspectExternalContract {
 
 export const COMPRESSION_INSPECT_EXTERNAL_CONTRACT = Object.freeze({
   toolName: "compression_inspect",
-  inputShape: "{ to }",
+  inputShape: "{ to, mergeAdjacent? }",
   outputShape:
-    "placeholder first, then JSON-serialized resolved message token array after projection",
+    "placeholder first, then JSON-serialized message details or adjacent segments after projection",
   callTiming:
     "when the model needs to inspect uncompressed compressible messages up to a visible-id endpoint",
   visibleSideEffects: [
@@ -106,9 +120,17 @@ export function validateCompressionInspectInput(
     );
   }
 
+  const mergeAdjacent =
+    record.mergeAdjacent === undefined ? true : readBoolean(record.mergeAdjacent);
+  if (mergeAdjacent === undefined) {
+    return invalidRange(
+      `compression_inspect mergeAdjacent must be a boolean. You provided: mergeAdjacent=${JSON.stringify(record.mergeAdjacent)}`,
+    );
+  }
+
   return {
     ok: true,
-    value: { to },
+    value: { to, mergeAdjacent },
   };
 }
 
@@ -155,6 +177,37 @@ export function deserializeCompressionInspectResult(
           return Object.freeze({ id: item.id, tokens: item.tokens });
         }),
       ),
+    };
+  }
+
+  if (record?.ok === true && Array.isArray(record.segments)) {
+    const totalTokens = record.totalTokens;
+    if (typeof totalTokens !== "number") {
+      throw new Error("Invalid serialized compression_inspect segment payload.");
+    }
+
+    return {
+      ok: true,
+      segments: Object.freeze(
+        record.segments.map((segment) => {
+          const item = asRecord(segment);
+          if (
+            typeof item?.from !== "string" ||
+            typeof item.to !== "string" ||
+            typeof item.messageCount !== "number" ||
+            typeof item.tokens !== "number"
+          ) {
+            throw new Error("Invalid serialized compression_inspect segment payload.");
+          }
+          return Object.freeze({
+            from: item.from,
+            to: item.to,
+            messageCount: item.messageCount,
+            tokens: item.tokens,
+          });
+        }),
+      ),
+      totalTokens,
     };
   }
 
@@ -205,4 +258,8 @@ function readNonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0
     ? value
     : undefined;
+}
+
+function readBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
 }

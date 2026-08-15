@@ -3,6 +3,7 @@ import {
   createCompressionInspectFailure,
   serializeCompressionInspectResult,
   type CompressionInspectMessageTokenInfo,
+  type CompressionInspectSegment,
 } from "../tools/compression-inspect.js";
 import type { CompleteResultGroup } from "../state/result-group-repository.js";
 import type {
@@ -40,7 +41,16 @@ export function buildCompressionInspectOverrides(
           to: call.endVisibleMessageId,
           coveredSequences,
         });
-        output = serializeCompressionInspectResult({ ok: true, messages });
+        if (call.mergeAdjacent !== false) {
+          const segments = mergeAdjacentInspectMessages(messages);
+          output = serializeCompressionInspectResult({
+            ok: true,
+            segments,
+            totalTokens: messages.reduce((sum, message) => sum + message.tokens, 0),
+          });
+        } else {
+          output = serializeCompressionInspectResult({ ok: true, messages });
+        }
       } catch (error) {
         output = serializeCompressionInspectResult(
           createCompressionInspectFailure(
@@ -90,6 +100,39 @@ export function inspectMessagesInRange(input: {
         } satisfies CompressionInspectMessageTokenInfo),
       ),
   );
+}
+
+export function mergeAdjacentInspectMessages(
+  messages: readonly CompressionInspectMessageTokenInfo[],
+): readonly CompressionInspectSegment[] {
+  const segments: CompressionInspectSegment[] = [];
+
+  for (const message of messages) {
+    const previous = segments.at(-1);
+    const messageSequence = parseVisibleId(message.id).visibleSeq;
+    const previousSequence = previous === undefined ? undefined : parseVisibleId(previous.to).visibleSeq;
+
+    if (previous !== undefined && previousSequence !== undefined && messageSequence === previousSequence + 1) {
+      segments[segments.length - 1] = Object.freeze({
+        ...previous,
+        to: message.id,
+        messageCount: previous.messageCount + 1,
+        tokens: previous.tokens + message.tokens,
+      });
+      continue;
+    }
+
+    segments.push(
+      Object.freeze({
+        from: message.id,
+        to: message.id,
+        messageCount: 1,
+        tokens: message.tokens,
+      }),
+    );
+  }
+
+  return Object.freeze(segments);
 }
 
 function parseInclusiveVisibleRange(

@@ -10,7 +10,7 @@
 
 `compression_inspect` 用于查看一段当前可见消息范围内，哪些 compressible 消息还没有被已提交压缩结果覆盖，以及每条消息当前投影阶段计算出的 token 数。
 
-调用 `compression_inspect` 时，应将 `from` 设为候选范围的起始可见消息 id，将 `to` 设为当前最新可见消息 id，使检查范围覆盖从起点到当前末尾的完整跨度。
+调用 `compression_inspect` 时，应将 `to` 设为当前最新可见消息 id；检查范围从当前投影中的首个 compressible 消息开始，覆盖到该端点。
 
 ## 当前公共契约
 
@@ -41,12 +41,29 @@
 
 ```json
 {
-  "from": "compressible_000123_ab",
-  "to": "compressible_000130_q7"
+  "to": "compressible_000130_q7",
+  "mergeAdjacent": true
 }
 ```
 
-返回结果先是占位 `inspectId`，后续投影会替换为按消息顺序排列的数组：
+`mergeAdjacent` 缺省为 `true`。返回结果先是占位 `inspectId`，后续投影会替换为按 visible sequence 连续性聚合的分组：
+
+```json
+{
+  "ok": true,
+  "segments": [
+    {
+      "from": "compressible_000123_ab",
+      "to": "compressible_000125_cd",
+      "messageCount": 3,
+      "tokens": 19467
+    }
+  ],
+  "totalTokens": 19467
+}
+```
+
+设置 `mergeAdjacent=false` 时返回旧的逐消息明细：
 
 ```json
 {
@@ -56,6 +73,8 @@
   ]
 }
 ```
+
+历史调用缺少 `mergeAdjacent` 时按 `true` 处理；这只改变重新投影时的派生 inspect 结果，不改变宿主历史、已有 mark 或压缩结果。
 
 ## 如何选择消息范围
 

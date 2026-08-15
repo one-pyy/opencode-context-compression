@@ -369,6 +369,7 @@ test(
             toolName: "compression_inspect",
             input: {
               to: visibleIds.user2.assignedVisibleId,
+              mergeAdjacent: true,
             },
             result: {
               ok: true,
@@ -395,21 +396,39 @@ test(
     assert.ok(inspectOverride);
     const inspected = JSON.parse(inspectOverride.output) as {
       readonly ok: true;
-      readonly messages: readonly { readonly id: string; readonly tokens: number }[];
+      readonly segments: readonly {
+        readonly from: string;
+        readonly to: string;
+        readonly messageCount: number;
+        readonly tokens: number;
+      }[];
+      readonly totalTokens: number;
     };
     assert.equal(inspected.ok, true);
     assert.deepEqual(
-      inspected.messages.map((message) => message.id),
+      inspected.segments.map((segment) => ({
+        from: segment.from,
+        to: segment.to,
+        messageCount: segment.messageCount,
+      })),
       [
-        visibleIds.user1.assignedVisibleId,
-        visibleIds.tool1.assignedVisibleId,
-        visibleIds.user2.assignedVisibleId,
+        {
+          from: visibleIds.user1.assignedVisibleId,
+          to: visibleIds.user1.assignedVisibleId,
+          messageCount: 1,
+        },
+        {
+          from: visibleIds.tool1.assignedVisibleId,
+          to: visibleIds.user2.assignedVisibleId,
+          messageCount: 2,
+        },
       ],
     );
     assert.equal(
-      inspected.messages.every((message) => Number.isInteger(message.tokens) && message.tokens > 0),
-      true,
+      inspected.segments.reduce((sum, segment) => sum + segment.tokens, 0),
+      inspected.totalTokens,
     );
+    assert.equal(Number.isInteger(inspected.totalTokens) && inspected.totalTokens > 0, true);
   },
 );
 

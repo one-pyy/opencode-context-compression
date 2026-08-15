@@ -105,6 +105,7 @@ export interface ReplayedCompressionInspectToolCall {
   readonly sequence: number;
   readonly sourceMessageId: string;
   readonly outcome: "accepted" | "rejected" | "invalid-input" | "invalid-result";
+  readonly mergeAdjacent?: boolean;
   readonly inspectId?: string;
   readonly startVisibleMessageId?: string;
   readonly endVisibleMessageId?: string;
@@ -261,6 +262,7 @@ export function replayHistoryFromSources(
             sequence: entry.sequence,
             sourceMessageId: entry.sourceMessageId,
             outcome,
+            mergeAdjacent: entry.input.mergeAdjacent,
             startVisibleMessageId: undefined,
             endVisibleMessageId: entry.input.to,
             ...(entry.result.ok === true && "inspectId" in entry.result

@@ -29,17 +29,19 @@
 
 ## Inspect 工具契约
 
-- `compression_inspect` 输入只有 `{ from, to }`
-- `from` 与 `to` 同样是双闭区间端点
+- `compression_inspect` 输入为 `{ to, mergeAdjacent? }`；`mergeAdjacent` 缺省为 `true`
+- inspect 范围从当前投影中的首个 compressible 消息开始，到 `to` 端点结束，端点消息包含在范围内
 - 工具调用当下只返回 `inspectId` 占位结果
 - 后续 `messages.transform` 使用当前 `ProjectionState.messagePolicies` 中已经计算出的 `tokenCount` 生成真实结果
-- 真实结果只包含按消息顺序排列的 compressible 且未被已提交 result 覆盖的消息：`[{"id":"compressible_...","tokens":123}]`
+- `mergeAdjacent=true` 时，真实结果按 visible sequence 严格连续的消息分组，返回每组的起止 visible id、消息数与 token 总数，并返回整个范围的 token 总数
+- `mergeAdjacent=false` 时，真实结果保留按消息顺序排列的明细：`[{"id":"compressible_...","tokens":123}]`
+- protected、referable 或已被 result 覆盖的消息会造成序号缺口；缺口不会被跨越合并
 
-`compression_inspect` 返回的是消息级明细，不是 mark tree 本身：
+`compression_inspect` 的 token 数据来自消息级策略，不是 mark tree 本身：
 
 1. `messagePolicies` 持有每条消息的 `tokenCount`。
 2. mark tree 只决定哪些 sequence range 被 mark 覆盖、哪些 result group 已覆盖。
-3. `compression_inspect` 按输入 visible-id 范围列出未被 result group 覆盖的 compressible 消息及其 token。
+3. `compression_inspect` 按输入 visible-id 范围筛选未被 result group 覆盖的 compressible 消息及其 token，再按 `mergeAdjacent` 决定返回明细或连续分组。
 4. scheduler 则用同一批 message token，按 mark tree range 汇总为 `uncompressedMarkedTokenCount` 后再和自动压缩阈值比较。
 
 因此 inspect 明细之和只有在 inspect 范围与当前待压 mark range 完全一致时，才应等于 scheduler 的 `uncompressedMarkedTokenCount`。

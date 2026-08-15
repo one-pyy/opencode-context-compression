@@ -14,6 +14,7 @@ export {
   type CompressionInspectPlaceholder,
   type CompressionInspectResolved,
   type CompressionInspectResult,
+  type CompressionInspectSegment,
   type CompressionInspectToolInvocationContext,
 } from "./compression-inspect/contract.js";
 export {

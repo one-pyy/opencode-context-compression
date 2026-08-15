@@ -6,15 +6,30 @@ import {
   createCompressionInspectTool,
   deserializeCompressionInspectResult,
   executeCompressionInspect,
+  type CompressionInspectMessageTokenInfo,
+  type CompressionInspectSegment,
   validateCompressionInspectInput,
   type CompressionInspectToolInvocationContext,
 } from "../../../src/tools/compression-inspect.js";
+import { mergeAdjacentInspectMessages } from "../../../src/projection/compression-inspect.js";
 
 test("compression_inspect validates one visible-id range and returns a placeholder", async () => {
   const valid = validateCompressionInspectInput({
     to: "compressible_000004_b2",
   });
   assert.equal(valid.ok, true);
+  if (valid.ok) {
+    assert.equal(valid.value.mergeAdjacent, true);
+  }
+
+  const unmerged = validateCompressionInspectInput({
+    to: "compressible_000004_b2",
+    mergeAdjacent: false,
+  });
+  assert.equal(unmerged.ok, true);
+  if (unmerged.ok) {
+    assert.equal(unmerged.value.mergeAdjacent, false);
+  }
 
   const invalid = validateCompressionInspectInput({
     target: {
@@ -47,6 +62,30 @@ test("compression_inspect validates one visible-id range and returns a placehold
     COMPRESSION_INSPECT_EXTERNAL_CONTRACT.relationToRuntime.tokenCounts,
     "uses ProjectionState.messagePolicies from messages.transform and never recalculates tokens in the tool",
   );
+});
+
+test("compression_inspect merges only strictly adjacent visible sequences", () => {
+  const messages: readonly CompressionInspectMessageTokenInfo[] = [
+    { id: "compressible_000002_b2", tokens: 2 },
+    { id: "compressible_000003_c3", tokens: 3 },
+    { id: "compressible_000005_e5", tokens: 5 },
+  ];
+
+  const segments: readonly CompressionInspectSegment[] = mergeAdjacentInspectMessages(messages);
+  assert.deepEqual(segments, [
+    {
+      from: "compressible_000002_b2",
+      to: "compressible_000003_c3",
+      messageCount: 2,
+      tokens: 5,
+    },
+    {
+      from: "compressible_000005_e5",
+      to: "compressible_000005_e5",
+      messageCount: 1,
+      tokens: 5,
+    },
+  ]);
 });
 
 test("compression_inspect tool serializes the placeholder result", async () => {

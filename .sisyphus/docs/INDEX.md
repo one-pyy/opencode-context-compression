@@ -2,6 +2,7 @@
 
 Project: /root/_/opencode/opencode-context-compression
 Purpose: 记录本子项目当前最新设计与正式实现参考。
+Current Stage: 实现参考与验收
 
 ## Summary
 
