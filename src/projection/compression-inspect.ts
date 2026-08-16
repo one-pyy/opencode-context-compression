@@ -1,29 +1,29 @@
+import type { VisibleKind } from "../identity/visible-id.js";
 import { parseVisibleId } from "../identity/visible-sequence.js";
 import {
   createCompressionInspectFailure,
   serializeCompressionInspectResult,
+  type CompressionInspectAtom,
   type CompressionInspectMessageTokenInfo,
-  type CompressionInspectSegment,
+  type CompressionInspectSection,
 } from "../tools/compression-inspect.js";
-import type { CompleteResultGroup } from "../state/result-group-repository.js";
 import type {
-  MarkTreeNode,
   MessageProjectionPolicy,
+  ProjectedPromptMessage,
   ProjectionState,
   ToolResultOverride,
 } from "./types.js";
 
+export interface CompressionInspectVisibleEntry {
+  readonly id: string;
+  readonly visibleKind: VisibleKind;
+  readonly tokens: number;
+}
+
 export function buildCompressionInspectOverrides(
   state: ProjectionState,
+  projectedMessages: readonly ProjectedPromptMessage[],
 ): readonly ToolResultOverride[] {
-  const resultGroupsByMarkId = new Map(
-    state.resultGroups.map((group) => [group.markId, group]),
-  );
-  const coveredSequences = collectCoveredSequences(
-    state.markTree.marks,
-    resultGroupsByMarkId,
-  );
-
   return Object.freeze(
     (state.history.compressionInspectToolCalls ?? []).flatMap((call) => {
       if (
@@ -35,20 +35,33 @@ export function buildCompressionInspectOverrides(
 
       let output: string;
       try {
-        const messages = inspectMessagesInRange({
+        const entries = inspectVisibleEntriesInRange({
+          projectedMessages,
           policies: state.messagePolicies,
           from: call.startVisibleMessageId,
           to: call.endVisibleMessageId,
-          coveredSequences,
         });
         if (call.mergeAdjacent !== false) {
-          const segments = mergeAdjacentInspectMessages(messages);
+          const sections = groupCompressionInspectEntries(entries);
           output = serializeCompressionInspectResult({
             ok: true,
-            segments,
-            totalTokens: messages.reduce((sum, message) => sum + message.tokens, 0),
+            sections,
+            totalTokens: sections.reduce(
+              (sum, section) => sum + section.totalTokens,
+              0,
+            ),
           });
         } else {
+          const messages = Object.freeze(
+            entries
+              .filter((entry) => entry.visibleKind === "compressible")
+              .map((entry) =>
+                Object.freeze({
+                  id: entry.id,
+                  tokens: entry.tokens,
+                } satisfies CompressionInspectMessageTokenInfo),
+              ),
+          );
           output = serializeCompressionInspectResult({ ok: true, messages });
         }
       } catch (error) {
@@ -76,90 +89,168 @@ export function buildCompressionInspectOverrides(
   );
 }
 
-export function inspectMessagesInRange(input: {
-  readonly policies: readonly MessageProjectionPolicy[];
-  readonly from?: string;
-  readonly to: string;
-  readonly coveredSequences: ReadonlySet<number>;
-}): readonly CompressionInspectMessageTokenInfo[] {
-  const range = parseInclusiveVisibleRange(input.policies, input.from, input.to);
-  return Object.freeze(
-    input.policies
-      .filter(
-        (policy) =>
-          policy.visibleSeq >= range.startVisibleSeq &&
-          policy.visibleSeq <= range.endVisibleSeq &&
-          policy.visibleKind === "compressible" &&
-          !input.coveredSequences.has(policy.sequence),
-      )
-      .sort((left, right) => left.sequence - right.sequence)
-      .map((policy) =>
-        Object.freeze({
-          id: policy.visibleId,
-          tokens: policy.tokenCount,
-        } satisfies CompressionInspectMessageTokenInfo),
-      ),
-  );
-}
+export function groupCompressionInspectEntries(
+  entries: readonly CompressionInspectVisibleEntry[],
+): readonly CompressionInspectSection[] {
+  const sections: CompressionInspectSection[] = [];
+  let atoms: CompressionInspectAtom[] = [];
+  let currentAtom:
+    | {
+        from: string;
+        to: string;
+        messageCount: number;
+        tokens: number;
+      }
+    | undefined;
 
-export function mergeAdjacentInspectMessages(
-  messages: readonly CompressionInspectMessageTokenInfo[],
-): readonly CompressionInspectSegment[] {
-  const segments: CompressionInspectSegment[] = [];
+  const flushAtom = () => {
+    if (currentAtom === undefined) return;
+    atoms.push(Object.freeze(currentAtom));
+    currentAtom = undefined;
+  };
 
-  for (const message of messages) {
-    const previous = segments.at(-1);
-    const messageSequence = parseVisibleId(message.id).visibleSeq;
-    const previousSequence = previous === undefined ? undefined : parseVisibleId(previous.to).visibleSeq;
+  const flushSection = () => {
+    flushAtom();
+    const first = atoms[0];
+    const last = atoms.at(-1);
+    if (first === undefined || last === undefined) return;
 
-    if (previous !== undefined && previousSequence !== undefined && messageSequence === previousSequence + 1) {
-      segments[segments.length - 1] = Object.freeze({
-        ...previous,
-        to: message.id,
-        messageCount: previous.messageCount + 1,
-        tokens: previous.tokens + message.tokens,
-      });
+    sections.push(
+      Object.freeze({
+        from: first.from,
+        to: last.to,
+        totalTokens: atoms.reduce((sum, atom) => sum + atom.tokens, 0),
+        atoms: Object.freeze(atoms),
+      }),
+    );
+    atoms = [];
+  };
+
+  for (const entry of entries) {
+    if (entry.visibleKind === "referable") {
+      flushSection();
       continue;
     }
 
-    segments.push(
-      Object.freeze({
-        from: message.id,
-        to: message.id,
+    if (entry.visibleKind === "protected") {
+      flushAtom();
+      continue;
+    }
+
+    if (currentAtom === undefined) {
+      currentAtom = {
+        from: entry.id,
+        to: entry.id,
         messageCount: 1,
-        tokens: message.tokens,
-      }),
-    );
+        tokens: entry.tokens,
+      };
+      continue;
+    }
+
+    currentAtom = {
+      ...currentAtom,
+      to: entry.id,
+      messageCount: currentAtom.messageCount + 1,
+      tokens: currentAtom.tokens + entry.tokens,
+    };
   }
 
-  return Object.freeze(segments);
+  flushSection();
+  return Object.freeze(sections);
 }
 
-function parseInclusiveVisibleRange(
-  policies: readonly MessageProjectionPolicy[],
-  from: string | undefined,
-  to: string,
-): { readonly startVisibleSeq: number; readonly endVisibleSeq: number } {
-  const visibleSeqByKey = new Map(
-    policies.map((policy) => [
-      toVisibleIdLookupKey(policy.visibleId),
-      policy.visibleSeq,
-    ]),
+function inspectVisibleEntriesInRange(input: {
+  readonly projectedMessages: readonly ProjectedPromptMessage[];
+  readonly policies: readonly MessageProjectionPolicy[];
+  readonly from?: string;
+  readonly to: string;
+}): readonly CompressionInspectVisibleEntry[] {
+  const entries = collectProjectedEntries(input.projectedMessages, input.policies);
+  const range = parseInclusiveVisibleRange({
+    policies: input.policies,
+    entries,
+    from: input.from,
+    to: input.to,
+  });
+
+  return Object.freeze(
+    entries.filter((entry) => {
+      const visibleSeq = parseVisibleId(entry.id).visibleSeq;
+      return (
+        visibleSeq >= range.startVisibleSeq &&
+        visibleSeq <= range.endVisibleSeq
+      );
+    }),
   );
-  const endVisibleSeq = visibleSeqByKey.get(toVisibleIdLookupKey(to));
+}
+
+function collectProjectedEntries(
+  messages: readonly ProjectedPromptMessage[],
+  policies: readonly MessageProjectionPolicy[],
+): readonly CompressionInspectVisibleEntry[] {
+  const policiesByCanonicalId = new Map(
+    policies.map((policy) => [policy.canonicalId, policy]),
+  );
+
+  return Object.freeze(
+    messages.flatMap((message) => {
+      if (message.visibleId === undefined || message.visibleKind === undefined) {
+        return [];
+      }
+
+      const policy =
+        message.canonicalId === undefined
+          ? undefined
+          : policiesByCanonicalId.get(message.canonicalId);
+      return [
+        Object.freeze({
+          id: message.visibleId,
+          visibleKind: message.visibleKind,
+          tokens:
+            message.visibleKind === "compressible"
+              ? (policy?.tokenCount ?? 0)
+              : 0,
+        } satisfies CompressionInspectVisibleEntry),
+      ];
+    }),
+  );
+}
+
+function parseInclusiveVisibleRange(input: {
+  readonly policies: readonly MessageProjectionPolicy[];
+  readonly entries: readonly CompressionInspectVisibleEntry[];
+  readonly from?: string;
+  readonly to: string;
+}): { readonly startVisibleSeq: number; readonly endVisibleSeq: number } {
+  const visibleSeqByKey = new Map([
+    ...input.policies.map(
+      (policy) =>
+        [toVisibleIdLookupKey(policy.visibleId), policy.visibleSeq] as const,
+    ),
+    ...input.entries.map(
+      (entry) =>
+        [
+          toVisibleIdLookupKey(entry.id),
+          parseVisibleId(entry.id).visibleSeq,
+        ] as const,
+    ),
+  ]);
+  const endVisibleSeq = visibleSeqByKey.get(toVisibleIdLookupKey(input.to));
   if (endVisibleSeq === undefined) {
     throw new Error("compression_inspect targets an unknown visible-id range.");
   }
 
   let startVisibleSeq: number;
-  if (from !== undefined) {
-    startVisibleSeq = visibleSeqByKey.get(toVisibleIdLookupKey(from)) ?? -1;
+  if (input.from !== undefined) {
+    startVisibleSeq =
+      visibleSeqByKey.get(toVisibleIdLookupKey(input.from)) ?? -1;
     if (startVisibleSeq < 0) {
       throw new Error("compression_inspect targets an unknown visible-id range.");
     }
   } else {
-    // Default to the first compressible message
-    const firstCompressible = policies.find((p) => p.visibleKind === "compressible");
+    const firstCompressible = input.policies.find(
+      (policy) => policy.visibleKind === "compressible",
+    );
     startVisibleSeq = firstCompressible?.visibleSeq ?? 1;
   }
 
@@ -173,36 +264,4 @@ function parseInclusiveVisibleRange(
 function toVisibleIdLookupKey(visibleId: string): string {
   const parsed = parseVisibleId(visibleId);
   return `${String(parsed.visibleSeq).padStart(6, "0")}_${parsed.suffix}`;
-}
-
-function collectCoveredSequences(
-  marks: readonly MarkTreeNode[],
-  resultGroupsByMarkId: ReadonlyMap<string, CompleteResultGroup>,
-): ReadonlySet<number> {
-  const covered = new Set<number>();
-  collectCoveredSequencesInto(marks, resultGroupsByMarkId, covered);
-  return covered;
-}
-
-function collectCoveredSequencesInto(
-  marks: readonly MarkTreeNode[],
-  resultGroupsByMarkId: ReadonlyMap<string, CompleteResultGroup>,
-  covered: Set<number>,
-): void {
-  marks.forEach((mark) => {
-    const resultGroup = resultGroupsByMarkId.get(mark.markId);
-    if (resultGroup) {
-      resultGroup.fragments.forEach((fragment) => {
-        for (
-          let sequence = fragment.sourceStartSeq;
-          sequence <= fragment.sourceEndSeq;
-          sequence += 1
-        ) {
-          covered.add(sequence);
-        }
-      });
-    }
-
-    collectCoveredSequencesInto(mark.children, resultGroupsByMarkId, covered);
-  });
 }

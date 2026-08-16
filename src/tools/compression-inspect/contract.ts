@@ -19,21 +19,28 @@ export interface CompressionInspectMessageTokenInfo {
   readonly tokens: number;
 }
 
-export interface CompressionInspectSegment {
+export interface CompressionInspectAtom {
   readonly from: string;
   readonly to: string;
   readonly messageCount: number;
   readonly tokens: number;
 }
 
+export interface CompressionInspectSection {
+  readonly from: string;
+  readonly to: string;
+  readonly totalTokens: number;
+  readonly atoms: readonly CompressionInspectAtom[];
+}
+
 export type CompressionInspectResolved =
   | {
-  readonly ok: true;
-  readonly messages: readonly CompressionInspectMessageTokenInfo[];
+      readonly ok: true;
+      readonly messages: readonly CompressionInspectMessageTokenInfo[];
     }
   | {
       readonly ok: true;
-      readonly segments: readonly CompressionInspectSegment[];
+      readonly sections: readonly CompressionInspectSection[];
       readonly totalTokens: number;
     };
 
@@ -71,7 +78,7 @@ export type CompressionInspectValidationResult =
 export interface CompressionInspectExternalContract {
   readonly toolName: "compression_inspect";
   readonly inputShape: "{ to, mergeAdjacent? }";
-  readonly outputShape: "placeholder first, then JSON-serialized message details or adjacent segments after projection";
+  readonly outputShape: "placeholder first, then JSON-serialized message details or referable sections with protected-delimited atoms after projection";
   readonly callTiming: "when the model needs to inspect uncompressed compressible messages up to a visible-id endpoint";
   readonly visibleSideEffects: readonly [
     "returns an inspectId placeholder immediately",
@@ -88,7 +95,7 @@ export const COMPRESSION_INSPECT_EXTERNAL_CONTRACT = Object.freeze({
   toolName: "compression_inspect",
   inputShape: "{ to, mergeAdjacent? }",
   outputShape:
-    "placeholder first, then JSON-serialized message details or adjacent segments after projection",
+    "placeholder first, then JSON-serialized message details or referable sections with protected-delimited atoms after projection",
   callTiming:
     "when the model needs to inspect uncompressed compressible messages up to a visible-id endpoint",
   visibleSideEffects: [
@@ -180,30 +187,48 @@ export function deserializeCompressionInspectResult(
     };
   }
 
-  if (record?.ok === true && Array.isArray(record.segments)) {
+  if (record?.ok === true && Array.isArray(record.sections)) {
     const totalTokens = record.totalTokens;
     if (typeof totalTokens !== "number") {
-      throw new Error("Invalid serialized compression_inspect segment payload.");
+      throw new Error("Invalid serialized compression_inspect section payload.");
     }
 
     return {
       ok: true,
-      segments: Object.freeze(
-        record.segments.map((segment) => {
-          const item = asRecord(segment);
+      sections: Object.freeze(
+        record.sections.map((section) => {
+          const item = asRecord(section);
           if (
             typeof item?.from !== "string" ||
             typeof item.to !== "string" ||
-            typeof item.messageCount !== "number" ||
-            typeof item.tokens !== "number"
+            typeof item.totalTokens !== "number" ||
+            !Array.isArray(item.atoms)
           ) {
-            throw new Error("Invalid serialized compression_inspect segment payload.");
+            throw new Error("Invalid serialized compression_inspect section payload.");
           }
           return Object.freeze({
             from: item.from,
             to: item.to,
-            messageCount: item.messageCount,
-            tokens: item.tokens,
+            totalTokens: item.totalTokens,
+            atoms: Object.freeze(
+              item.atoms.map((atom) => {
+                const atomItem = asRecord(atom);
+                if (
+                  typeof atomItem?.from !== "string" ||
+                  typeof atomItem.to !== "string" ||
+                  typeof atomItem.messageCount !== "number" ||
+                  typeof atomItem.tokens !== "number"
+                ) {
+                  throw new Error("Invalid serialized compression_inspect atom payload.");
+                }
+                return Object.freeze({
+                  from: atomItem.from,
+                  to: atomItem.to,
+                  messageCount: atomItem.messageCount,
+                  tokens: atomItem.tokens,
+                });
+              }),
+            ),
           });
         }),
       ),

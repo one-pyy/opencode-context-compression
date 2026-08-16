@@ -154,7 +154,7 @@ export function createProjectionBuilder(
       } satisfies ProjectionState;
       const toolResultOverrides = Object.freeze([
         ...buildToolResultOverrides(failedToolMessageIds),
-        ...buildCompressionInspectOverrides(state),
+        ...buildCompressionInspectOverrides(state, renderedBaseMessages),
         ...buildCompressionRecallOverrides(state),
       ]);
       const reminders = dependencies.reminderService.compute({

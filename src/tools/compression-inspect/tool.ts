@@ -83,17 +83,17 @@ export function createCompressionInspectTool(
   return tool({
     description:
       "Inspect token counts for a visible message range before deciding whether to call compression_mark. " +
-      "Use this when you need to choose an exact range for compression. Provide the to visible message ID — the range always starts from the first visible message. " +
-      "By default, the result merges visible-sequence-adjacent uncompressed compressible messages into segments with summed token counts. Set mergeAdjacent=false to receive per-message token counts. " +
+      "Use this when you need to choose an exact range for compression. Provide the to visible message ID — the range always starts from the first compressible message. " +
+      "By default, the result groups visible content into sections split by referable replacements; protected messages split each section into contiguous compressible atoms. Sections and atoms contain token counts for semantic analysis and are not automatic mark recommendations. Set mergeAdjacent=false to receive per-message token counts. " +
       "After inspecting a range, either call compression_mark or leave the range unchanged. " +
       "Do not repeatedly inspect the same range unless new visible messages were added or the range boundaries changed. " +
       "compression_mark records a future compaction request; it does not immediately change the current visible context.",
     args: {
       to: tool.schema.string().min(1).describe(
-        "The last visible message ID in the range to inspect (the range starts from the first visible message)"
+        "The last visible message ID in the range to inspect (the range starts from the first compressible message)"
       ),
       mergeAdjacent: tool.schema.boolean().optional().default(true).describe(
-        "Merge strictly adjacent visible-sequence messages into token-summed segments; defaults to true"
+        "Group messages into referable sections and protected-delimited compressible atoms; defaults to true"
       ),
     },
     async execute(args, context) {

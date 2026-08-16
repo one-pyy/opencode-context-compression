@@ -46,22 +46,37 @@
 }
 ```
 
-`mergeAdjacent` 缺省为 `true`。返回结果先是占位 `inspectId`，后续投影会替换为按 visible sequence 连续性聚合的分组：
+`mergeAdjacent` 缺省为 `true`。返回结果先是占位 `inspectId`，后续投影会替换为两级计数结构：referable replacement 切分外层 `sections`，protected 消息在 section 内切分连续 compressible `atoms`。
 
 ```json
 {
   "ok": true,
-  "segments": [
+  "sections": [
     {
       "from": "compressible_000123_ab",
-      "to": "compressible_000125_cd",
-      "messageCount": 3,
-      "tokens": 19467
+      "to": "compressible_000128_ef",
+      "totalTokens": 19467,
+      "atoms": [
+        {
+          "from": "compressible_000123_ab",
+          "to": "compressible_000125_cd",
+          "messageCount": 3,
+          "tokens": 12000
+        },
+        {
+          "from": "compressible_000128_ef",
+          "to": "compressible_000128_ef",
+          "messageCount": 1,
+          "tokens": 7467
+        }
+      ]
     }
   ],
   "totalTokens": 19467
 }
 ```
+
+sections / atoms 只说明当前投影中的结构和 token 数。模型仍需判断任务是否完成、细节是否已外化，以及哪些范围适合调用 `compression_mark`；不要默认逐 atom 标记。
 
 设置 `mergeAdjacent=false` 时返回旧的逐消息明细：
 

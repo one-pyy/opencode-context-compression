@@ -10,11 +10,12 @@ export {
   type CompressionInspectExternalContract,
   type CompressionInspectFailure,
   type CompressionInspectInputV1,
+  type CompressionInspectAtom,
   type CompressionInspectMessageTokenInfo,
   type CompressionInspectPlaceholder,
   type CompressionInspectResolved,
   type CompressionInspectResult,
-  type CompressionInspectSegment,
+  type CompressionInspectSection,
   type CompressionInspectToolInvocationContext,
 } from "./compression-inspect/contract.js";
 export {

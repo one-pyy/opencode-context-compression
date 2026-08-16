@@ -317,13 +317,15 @@ test(
       hostEntry(1, createMessage("msg-user-1", "user", "User one carries enough text for compression.")),
       hostEntry(2, createMessage("msg-assistant-1", "assistant", "Assistant body that is already summarized.")),
       hostEntry(3, createMessage("msg-tool-1", "tool", "Tool result body remains inspectable.")),
-      hostEntry(4, createMessage("msg-user-2", "user", "User two also remains inspectable.")),
+      hostEntry(4, createMessage("msg-user-short", "user", "ok")),
+      hostEntry(5, createMessage("msg-user-2", "user", "User two also remains inspectable.")),
     ] as const;
 
     const visibleIds = {
       user1: await identity.allocateVisibleId("msg-user-1", "compressible"),
       assistant1: await identity.allocateVisibleId("msg-assistant-1", "compressible"),
       tool1: await identity.allocateVisibleId("msg-tool-1", "compressible"),
+      userShort: await identity.allocateVisibleId("msg-user-short", "protected"),
       user2: await identity.allocateVisibleId("msg-user-2", "compressible"),
     };
 
@@ -350,7 +352,7 @@ test(
         hostHistory,
         toolHistory: [
           {
-            sequence: 5,
+            sequence: 6,
             sourceMessageId: "tool-mark-covered",
             toolName: "compression_mark",
             input: {
@@ -364,7 +366,7 @@ test(
             },
           },
           {
-            sequence: 6,
+            sequence: 7,
             sourceMessageId: "tool-inspect-range",
             toolName: "compression_inspect",
             input: {
@@ -396,36 +398,62 @@ test(
     assert.ok(inspectOverride);
     const inspected = JSON.parse(inspectOverride.output) as {
       readonly ok: true;
-      readonly segments: readonly {
+      readonly sections: readonly {
         readonly from: string;
         readonly to: string;
-        readonly messageCount: number;
-        readonly tokens: number;
+        readonly totalTokens: number;
+        readonly atoms: readonly {
+          readonly from: string;
+          readonly to: string;
+          readonly messageCount: number;
+          readonly tokens: number;
+        }[];
       }[];
       readonly totalTokens: number;
     };
     assert.equal(inspected.ok, true);
     assert.deepEqual(
-      inspected.segments.map((segment) => ({
-        from: segment.from,
-        to: segment.to,
-        messageCount: segment.messageCount,
+      inspected.sections.map((section) => ({
+        from: section.from,
+        to: section.to,
+        atoms: section.atoms.map((atom) => ({
+          from: atom.from,
+          to: atom.to,
+          messageCount: atom.messageCount,
+        })),
       })),
       [
         {
           from: visibleIds.user1.assignedVisibleId,
           to: visibleIds.user1.assignedVisibleId,
-          messageCount: 1,
+          atoms: [
+            {
+              from: visibleIds.user1.assignedVisibleId,
+              to: visibleIds.user1.assignedVisibleId,
+              messageCount: 1,
+            },
+          ],
         },
         {
           from: visibleIds.tool1.assignedVisibleId,
           to: visibleIds.user2.assignedVisibleId,
-          messageCount: 2,
+          atoms: [
+            {
+              from: visibleIds.tool1.assignedVisibleId,
+              to: visibleIds.tool1.assignedVisibleId,
+              messageCount: 1,
+            },
+            {
+              from: visibleIds.user2.assignedVisibleId,
+              to: visibleIds.user2.assignedVisibleId,
+              messageCount: 1,
+            },
+          ],
         },
       ],
     );
     assert.equal(
-      inspected.segments.reduce((sum, segment) => sum + segment.tokens, 0),
+      inspected.sections.reduce((sum, section) => sum + section.totalTokens, 0),
       inspected.totalTokens,
     );
     assert.equal(Number.isInteger(inspected.totalTokens) && inspected.totalTokens > 0, true);
