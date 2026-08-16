@@ -402,7 +402,8 @@ test(
         readonly from: string;
         readonly to: string;
         readonly totalTokens: number;
-        readonly atoms: readonly {
+        readonly atomCount: number;
+        readonly atoms?: readonly {
           readonly from: string;
           readonly to: string;
           readonly messageCount: number;
@@ -412,43 +413,38 @@ test(
       readonly totalTokens: number;
     };
     assert.equal(inspected.ok, true);
+    assert.equal(inspected.sections.length, 2);
+    assert.equal(
+      inspected.sections[0]!.totalTokens >= inspected.sections[1]!.totalTokens,
+      true,
+    );
+    const userSection = inspected.sections.find(
+      (section) => section.from === visibleIds.user1.assignedVisibleId,
+    );
+    const toolSection = inspected.sections.find(
+      (section) => section.from === visibleIds.tool1.assignedVisibleId,
+    );
+    assert.equal(userSection?.to, visibleIds.user1.assignedVisibleId);
+    assert.equal(userSection?.atomCount, 1);
+    assert.equal("atoms" in (userSection ?? {}), false);
+    assert.equal(toolSection?.to, visibleIds.user2.assignedVisibleId);
+    assert.equal(toolSection?.atomCount, 2);
     assert.deepEqual(
-      inspected.sections.map((section) => ({
-        from: section.from,
-        to: section.to,
-        atoms: section.atoms.map((atom) => ({
-          from: atom.from,
-          to: atom.to,
-          messageCount: atom.messageCount,
-        })),
+      toolSection?.atoms?.map((atom) => ({
+        from: atom.from,
+        to: atom.to,
+        messageCount: atom.messageCount,
       })),
       [
         {
-          from: visibleIds.user1.assignedVisibleId,
-          to: visibleIds.user1.assignedVisibleId,
-          atoms: [
-            {
-              from: visibleIds.user1.assignedVisibleId,
-              to: visibleIds.user1.assignedVisibleId,
-              messageCount: 1,
-            },
-          ],
+          from: visibleIds.tool1.assignedVisibleId,
+          to: visibleIds.tool1.assignedVisibleId,
+          messageCount: 1,
         },
         {
-          from: visibleIds.tool1.assignedVisibleId,
+          from: visibleIds.user2.assignedVisibleId,
           to: visibleIds.user2.assignedVisibleId,
-          atoms: [
-            {
-              from: visibleIds.tool1.assignedVisibleId,
-              to: visibleIds.tool1.assignedVisibleId,
-              messageCount: 1,
-            },
-            {
-              from: visibleIds.user2.assignedVisibleId,
-              to: visibleIds.user2.assignedVisibleId,
-              messageCount: 1,
-            },
-          ],
+          messageCount: 1,
         },
       ],
     );

@@ -67,47 +67,43 @@ test("compression_inspect validates one visible-id range and returns a placehold
 
 test("compression_inspect groups referable sections with protected-delimited atoms", () => {
   const entries: readonly CompressionInspectVisibleEntry[] = [
-    { id: "compressible_000002_b2", visibleKind: "compressible", tokens: 2 },
-    { id: "compressible_000003_c3", visibleKind: "compressible", tokens: 3 },
-    { id: "protected_000004_d4", visibleKind: "protected", tokens: 0 },
-    { id: "compressible_000005_e5", visibleKind: "compressible", tokens: 5 },
-    { id: "referable_000006_f6", visibleKind: "referable", tokens: 0 },
-    { id: "compressible_000007_g7", visibleKind: "compressible", tokens: 7 },
+    { id: "compressible_000001_a1", visibleKind: "compressible", tokens: 0 },
+    { id: "compressible_000002_b2", visibleKind: "compressible", tokens: 7 },
+    { id: "protected_000003_c3", visibleKind: "protected", tokens: 0 },
+    { id: "referable_000004_d4", visibleKind: "referable", tokens: 0 },
+    { id: "compressible_000005_e5", visibleKind: "compressible", tokens: 2 },
+    { id: "compressible_000006_f6", visibleKind: "compressible", tokens: 3 },
+    { id: "protected_000007_g7", visibleKind: "protected", tokens: 0 },
+    { id: "compressible_000008_h8", visibleKind: "compressible", tokens: 5 },
   ];
 
   const sections = groupCompressionInspectEntries(entries);
   assert.deepEqual(sections, [
     {
-      from: "compressible_000002_b2",
-      to: "compressible_000005_e5",
+      from: "compressible_000005_e5",
+      to: "compressible_000008_h8",
       totalTokens: 10,
+      atomCount: 2,
       atoms: [
         {
-          from: "compressible_000002_b2",
-          to: "compressible_000003_c3",
+          from: "compressible_000005_e5",
+          to: "compressible_000006_f6",
           messageCount: 2,
           tokens: 5,
         },
         {
-          from: "compressible_000005_e5",
-          to: "compressible_000005_e5",
+          from: "compressible_000008_h8",
+          to: "compressible_000008_h8",
           messageCount: 1,
           tokens: 5,
         },
       ],
     },
     {
-      from: "compressible_000007_g7",
-      to: "compressible_000007_g7",
+      from: "compressible_000002_b2",
+      to: "compressible_000002_b2",
       totalTokens: 7,
-      atoms: [
-        {
-          from: "compressible_000007_g7",
-          to: "compressible_000007_g7",
-          messageCount: 1,
-          tokens: 7,
-        },
-      ],
+      atomCount: 1,
     },
   ]);
 });

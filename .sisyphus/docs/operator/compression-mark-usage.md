@@ -56,6 +56,7 @@
       "from": "compressible_000123_ab",
       "to": "compressible_000128_ef",
       "totalTokens": 19467,
+      "atomCount": 2,
       "atoms": [
         {
           "from": "compressible_000123_ab",
@@ -75,6 +76,8 @@
   "totalTokens": 19467
 }
 ```
+
+sections 按 `totalTokens` 从高到低排列。`tokens <= 0` 的 compressible 消息不会生成 atom；`atomCount=1` 时省略 `atoms` 字段，避免重复 outer `from/to`。
 
 sections / atoms 只说明当前投影中的结构和 token 数。模型仍需判断任务是否完成、细节是否已外化，以及哪些范围适合调用 `compression_mark`；不要默认逐 atom 标记。
 

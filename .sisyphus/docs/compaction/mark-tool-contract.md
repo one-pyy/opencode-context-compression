@@ -34,7 +34,8 @@
 - 工具调用当下只返回 `inspectId` 占位结果
 - 后续 `messages.transform` 使用当前 `ProjectionState.messagePolicies` 中已经计算出的 `tokenCount` 生成真实结果
 - `mergeAdjacent=true` 时，真实结果返回两级结构：referable replacement 切分外层 `sections`，protected 消息在 section 内切分连续 compressible `atoms`
-- 每个 atom 返回起止 visible id、消息数与 token 数；每个 section 返回首尾 atom 的 visible id 与 atom token 总数；顶层同时返回所有 section 的 token 总数
+- 每个 atom 返回起止 visible id、消息数与 token 数；每个 section 返回首尾 atom 的 visible id、`atomCount` 与 atom token 总数；`atomCount=1` 时省略 `atoms` 字段，避免重复范围
+- sections 按 `totalTokens` 降序排列；`tokens <= 0` 的 compressible 消息不生成 atom；顶层同时返回所有 section 的 token 总数
 - `mergeAdjacent=false` 时，真实结果保留按消息顺序排列的明细：`[{"id":"compressible_...","tokens":123}]`
 - sections / atoms 只提供确定性的范围与计数结构，不判断内容是否已完成，也不构成自动 mark 建议；语义选择由调用模型完成
 

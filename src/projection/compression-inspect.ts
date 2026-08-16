@@ -120,13 +120,20 @@ export function groupCompressionInspectEntries(
         from: first.from,
         to: last.to,
         totalTokens: atoms.reduce((sum, atom) => sum + atom.tokens, 0),
-        atoms: Object.freeze(atoms),
+        atomCount: atoms.length,
+        ...(atoms.length === 1
+          ? {}
+          : { atoms: Object.freeze(atoms) }),
       }),
     );
     atoms = [];
   };
 
   for (const entry of entries) {
+    if (entry.visibleKind === "compressible" && entry.tokens <= 0) {
+      continue;
+    }
+
     if (entry.visibleKind === "referable") {
       flushSection();
       continue;
@@ -156,7 +163,9 @@ export function groupCompressionInspectEntries(
   }
 
   flushSection();
-  return Object.freeze(sections);
+  return Object.freeze(
+    sections.sort((left, right) => right.totalTokens - left.totalTokens),
+  );
 }
 
 function inspectVisibleEntriesInRange(input: {
@@ -202,6 +211,12 @@ function collectProjectedEntries(
         message.canonicalId === undefined
           ? undefined
           : policiesByCanonicalId.get(message.canonicalId);
+      if (
+        message.visibleKind === "compressible" &&
+        (policy === undefined || policy.tokenCount <= 0)
+      ) {
+        return [];
+      }
       return [
         Object.freeze({
           id: message.visibleId,

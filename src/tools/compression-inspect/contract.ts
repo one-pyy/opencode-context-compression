@@ -30,7 +30,8 @@ export interface CompressionInspectSection {
   readonly from: string;
   readonly to: string;
   readonly totalTokens: number;
-  readonly atoms: readonly CompressionInspectAtom[];
+  readonly atomCount: number;
+  readonly atoms?: readonly CompressionInspectAtom[];
 }
 
 export type CompressionInspectResolved =
@@ -202,16 +203,13 @@ export function deserializeCompressionInspectResult(
             typeof item?.from !== "string" ||
             typeof item.to !== "string" ||
             typeof item.totalTokens !== "number" ||
-            !Array.isArray(item.atoms)
+            typeof item.atomCount !== "number" ||
+            (item.atoms !== undefined && !Array.isArray(item.atoms))
           ) {
             throw new Error("Invalid serialized compression_inspect section payload.");
           }
-          return Object.freeze({
-            from: item.from,
-            to: item.to,
-            totalTokens: item.totalTokens,
-            atoms: Object.freeze(
-              item.atoms.map((atom) => {
+          const atoms = Array.isArray(item.atoms)
+            ? item.atoms.map((atom) => {
                 const atomItem = asRecord(atom);
                 if (
                   typeof atomItem?.from !== "string" ||
@@ -227,8 +225,14 @@ export function deserializeCompressionInspectResult(
                   messageCount: atomItem.messageCount,
                   tokens: atomItem.tokens,
                 });
-              }),
-            ),
+              })
+            : undefined;
+          return Object.freeze({
+            from: item.from,
+            to: item.to,
+            totalTokens: item.totalTokens,
+            atomCount: item.atomCount,
+            ...(atoms === undefined ? {} : { atoms: Object.freeze(atoms) }),
           });
         }),
       ),
