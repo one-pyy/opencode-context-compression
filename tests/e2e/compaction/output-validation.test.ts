@@ -61,7 +61,10 @@ test(
       {
         kind: "success",
         rawPayload: {
-          contentText: "<compression_output>Compact summary that illegally drops the opaque block.</compression_output>",
+          contentText: JSON.stringify({
+            plan: "Check the required opaque slot.",
+            compression_output: "Compact summary that illegally drops the opaque block.",
+          }),
         },
       },
     ]);
@@ -100,8 +103,11 @@ test(
       {
         kind: "success",
         rawPayload: {
-          contentText:
-            '<plan>Keep the lead summary and the opaque slot.</plan><compression_output>Lead summary.\n<opaque slot="S1">Model-added text is ignored.</opaque></compression_output><explanation>This optional prose is not persisted.</explanation>',
+          contentText: JSON.stringify({
+            plan: "Keep the lead summary and the opaque slot.",
+            compression_output: 'Lead summary.\n<opaque slot="S1">Model-added text is ignored.</opaque>',
+            explanation: "This optional prose is not persisted.",
+          }),
         },
       },
     ]);
@@ -135,11 +141,12 @@ test(
     );
 
     for (const [markId, contentText] of [
-      ["mark-missing-output", "Unwrapped response."],
-      ["mark-duplicate-output", "<compression_output>First.</compression_output><compression_output>Second.</compression_output>"],
-      ["mark-extra-prose", "Preface.<compression_output>Wrapped.</compression_output>"],
-      ["mark-wrong-order", "<explanation>Early.</explanation><compression_output>Wrapped.</compression_output>"],
-      ["mark-duplicate-plan", "<plan>One.</plan><plan>Two.</plan><compression_output>Wrapped.</compression_output>"],
+      ["mark-missing-output", "not JSON"],
+      ["mark-duplicate-output", '{"plan":"One","compression_output":"First","compression_output":"Second"}'],
+      ["mark-extra-prose", 'prefix {"plan":"Plan","compression_output":"Wrapped"}'],
+      ["mark-wrong-order", '{"explanation":"Early","plan":"Plan","compression_output":"Wrapped"}'],
+      ["mark-duplicate-plan", '{"plan":"One","plan":"Two","compression_output":"Wrapped"}'],
+      ["mark-extra-field", '{"plan":"Plan","compression_output":"Wrapped","extra":"Unexpected"}'],
     ] as const) {
       const protocolTransport = createScriptedCompactionTransport([
         { kind: "success", rawPayload: { contentText } },
@@ -155,7 +162,7 @@ test(
           protocolRunner.run({
             build: compactBuild(fixture.sessionID, markId),
           }),
-        /optional <plan>, exactly one <compression_output>, and optional <explanation>|protocol sections must not be nested/u,
+        /JSON object with fields plan, compression_output/u,
       );
       protocolTransport.assertConsumed();
     }
@@ -163,12 +170,12 @@ test(
     for (const [markId, contentText, expectedError] of [
       [
         "mark-duplicate-placeholder",
-        '<compression_output>Lead.\n<opaque slot="S1"/>\n<opaque slot="S1"/>\nTail.</compression_output>',
+         JSON.stringify({ plan: "Plan", compression_output: 'Lead.\n<opaque slot="S1"/>\n<opaque slot="S1"/>\nTail.' }),
         /exactly the expected opaque placeholders/u,
       ],
       [
         "mark-unknown-placeholder",
-        '<compression_output>Lead.\n<opaque slot="S1"/>\n<opaque slot="S2"/>\nTail.</compression_output>',
+         JSON.stringify({ plan: "Plan", compression_output: 'Lead.\n<opaque slot="S1"/>\n<opaque slot="S2"/>\nTail.' }),
         /exactly the expected opaque placeholders/u,
       ],
     ] as const) {
@@ -229,7 +236,10 @@ test(
       {
         kind: "success",
         rawPayload: {
-          contentText: "<compression_output>[deleted span notice]</compression_output>",
+          contentText: JSON.stringify({
+            plan: "Identify the selected span.",
+            compression_output: "[deleted span notice]",
+          }),
         },
       },
     ]);

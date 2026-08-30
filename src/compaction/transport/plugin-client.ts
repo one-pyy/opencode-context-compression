@@ -10,6 +10,7 @@ import type {
   CompactionTransportRequest,
   CompactionTransportTranscriptEntry,
 } from "./types.js";
+import { parseCompactionJsonPayload } from "./validation.js";
 
 export function createPluginClientCompactionTransport(
   pluginInput: PluginInput,
@@ -70,7 +71,7 @@ export function createPluginClientCompactionTransport(
 
           const contentText = extractContentText(response.data.parts);
 
-          return { contentText };
+          return parseCompactionJsonPayload(contentText, request);
         } catch (error) {
           clearTimeout(timeoutId);
 

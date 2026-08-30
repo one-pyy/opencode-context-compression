@@ -40,7 +40,10 @@ test(
       {
         kind: "success",
         rawPayload: {
-          contentText: "<compression_output>Lead summary without the required opaque block.</compression_output>",
+          contentText: JSON.stringify({
+            plan: "Check the protected block.",
+            compression_output: "Lead summary without the required opaque block.",
+          }),
         },
         assertRequest(request, callIndex) {
           assert.equal(callIndex, 0);
@@ -50,7 +53,10 @@ test(
       {
         kind: "success",
         rawPayload: {
-          contentText: "<compression_output>Still invalid because the opaque block vanished again.</compression_output>",
+          contentText: JSON.stringify({
+            plan: "Check the protected block again.",
+            compression_output: "Still invalid because the opaque block vanished again.",
+          }),
         },
         assertRequest(request, callIndex) {
           assert.equal(callIndex, 1);
@@ -60,8 +66,10 @@ test(
       {
         kind: "success",
         rawPayload: {
-          contentText:
-            '<compression_output>Lead summary.\n<opaque slot="S1">Ignored model prose.</opaque>\nTail summary.</compression_output>',
+          contentText: JSON.stringify({
+            plan: "Preserve the protected block.",
+            compression_output: 'Lead summary.\n<opaque slot="S1">Ignored model prose.</opaque>\nTail summary.',
+          }),
         },
         assertRequest(request, callIndex) {
           assert.equal(callIndex, 2);
@@ -205,7 +213,10 @@ test(
       {
         kind: "success",
         rawPayload: {
-          contentText: "<compression_output>Recovered summary after arbitrary failed attempts.</compression_output>",
+          contentText: JSON.stringify({
+            plan: "Use the first valid fallback result.",
+            compression_output: "Recovered summary after arbitrary failed attempts.",
+          }),
         },
         assertRequest(request, callIndex) {
           assert.equal(callIndex, 3);

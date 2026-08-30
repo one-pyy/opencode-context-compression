@@ -16,6 +16,7 @@ import type {
   CompactionTransportRequest,
   CompactionTransportTranscriptEntry,
 } from "./types.js";
+import { parseCompactionJsonPayload } from "./validation.js";
 
 const OPENAI_REASONING_EFFORT = "medium";
 const OPENAI_COMPATIBLE_REASONING_EFFORT = "none";
@@ -68,7 +69,7 @@ export function createDirectLLMCompactionTransport(
 
         clearTimeout(totalTimeoutId);
 
-        return { contentText };
+        return parseCompactionJsonPayload(contentText, request);
       } catch (error) {
         clearTimeout(totalTimeoutId);
 
@@ -329,6 +330,7 @@ async function callGemini(
       contents: [{ role: "user", parts: [{ text: userMessage }] }],
       generationConfig: {
         temperature: 0,
+        responseMimeType: "application/json",
         thinkingConfig: {
           thinkingLevel: GEMINI_THINKING_LEVEL,
         },
@@ -438,6 +440,7 @@ export function buildOpenAICompatibleRequestBody(
     ],
     ...buildOpenAICompatibleReasoningOptions(providerID, modelID),
     temperature: 0,
+    response_format: { type: "json_object" },
     stream: true,
   };
 }

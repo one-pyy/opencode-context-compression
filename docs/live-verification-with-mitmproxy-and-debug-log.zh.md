@@ -46,7 +46,7 @@
 
 ### 2.4 mitmproxy
 
-- 监听地址：`127.0.0.1:41641`
+- 监听地址：`0.0.0.0:41641`
 - 配置文件：`~/.mitmproxy/config.yaml`
 
 mitmproxy 在这里是辅助观察面，不是替代 SQLite、seam 日志或自动化测试的单一真相源。
@@ -176,7 +176,7 @@ sqlite3 "/root/_/opencode/opencode-context-compression/state/<session-id>.db" "S
 如果系统上还没有正在监听的实例，可以启动：
 
 ```bash
-mitmproxy --listen-host 127.0.0.1 --listen-port 41641
+mitmproxy --listen-host 0.0.0.0 --listen-port 41641
 ```
 
 这一步的正确用法是：

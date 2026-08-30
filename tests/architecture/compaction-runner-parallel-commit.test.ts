@@ -38,6 +38,7 @@ import {
   type CanonicalHostMessage,
 } from "../../src/history/history-replay-reader.js";
 import { ToastService } from "../../src/services/toast-service.js";
+import { CompactionTransportMalformedPayloadError } from "../../src/compaction/transport/errors.js";
 
 test("compaction compute can run independently and commit remains ordered", async () => {
   const events: string[] = [];
@@ -280,6 +281,139 @@ test("compaction compute records model request and raw payload only", async () =
     },
     { suffix: "out", payload: rawPayload },
   ]);
+});
+
+test("compaction error records preserve returned response and error", async () => {
+  const records: Array<{ suffix: "in" | "out" | "err"; payload: unknown }> = [];
+  const responsePayload = {
+    contentText: JSON.stringify({
+      plan: "Plan was generated.",
+      compression_output: "Invalid because the opaque slot is missing.",
+    }),
+  };
+  const runtimeArtifacts = {
+    async recordEvent() {
+      return;
+    },
+    async writeMessagesTransformSnapshot() {
+      return;
+    },
+    async writeDiagnostic() {
+      return;
+    },
+    async writeCompactionRecord(input) {
+      records.push({ suffix: input.suffix, payload: input.payload });
+    },
+  } satisfies RuntimeArtifactRecorder;
+
+  const dependencies: InternalCompactionRunnerDependencies = {
+    inputBuilder: {
+      async build(input) {
+        return {
+          sessionID: input.sessionId,
+          markID: input.markId,
+          model: input.model,
+          executionMode: "compact",
+          promptText: input.promptText,
+          transcript: [],
+          timeoutMs: input.timeoutMs,
+        };
+      },
+    } as CompactionInputBuilder,
+    transport: {
+      async execute() {
+        return { rawPayload: responsePayload };
+      },
+    } as SafeTransportAdapter,
+    outputValidator: {
+      async validate() {
+        throw new InvalidCompactionOutputError({
+          markId: "mark-error-record",
+          model: "model-a",
+          executionMode: "compact",
+          detail: "opaque slot missing",
+        });
+      },
+    } as OutputValidator,
+    resultGroupRepository: createUnusedResultGroupRepository(),
+    runtimeArtifacts,
+  };
+
+  await assert.rejects(
+    () => computeCompactionAttempt(dependencies, createRunInput("mark-error-record")),
+    /opaque slot missing/u,
+  );
+
+  const errorRecord = records.at(-1);
+  assert.equal(errorRecord?.suffix, "err");
+  assert.deepEqual(errorRecord?.payload, {
+    name: "InvalidCompactionOutputError",
+    message: "Invalid compaction output for mark 'mark-error-record' on model 'model-a' (compact): opaque slot missing",
+    response: responsePayload,
+  });
+});
+
+test("compaction error records preserve malformed response payload", async () => {
+  const records: Array<{ suffix: "in" | "out" | "err"; payload: unknown }> = [];
+  const responsePayload = { contentText: "not valid JSON" };
+  const runtimeArtifacts = {
+    async recordEvent() {
+      return;
+    },
+    async writeMessagesTransformSnapshot() {
+      return;
+    },
+    async writeDiagnostic() {
+      return;
+    },
+    async writeCompactionRecord(input) {
+      records.push({ suffix: input.suffix, payload: input.payload });
+    },
+  } satisfies RuntimeArtifactRecorder;
+
+  const dependencies: InternalCompactionRunnerDependencies = {
+    inputBuilder: {
+      async build(input) {
+        return {
+          sessionID: input.sessionId,
+          markID: input.markId,
+          model: input.model,
+          executionMode: "compact",
+          promptText: input.promptText,
+          transcript: [],
+          timeoutMs: input.timeoutMs,
+        };
+      },
+    } as CompactionInputBuilder,
+    transport: {
+      async execute(request) {
+        throw new CompactionTransportMalformedPayloadError(
+          request,
+          responsePayload,
+          "response is not valid JSON",
+        );
+      },
+    } as SafeTransportAdapter,
+    outputValidator: {} as OutputValidator,
+    resultGroupRepository: createUnusedResultGroupRepository(),
+    runtimeArtifacts,
+  };
+
+  await assert.rejects(
+    () => computeCompactionAttempt(dependencies, createRunInput("mark-malformed-record")),
+    /response is not valid JSON/u,
+  );
+
+  const errorRecord = records.at(-1);
+  assert.equal(errorRecord?.suffix, "err");
+  const errorPayload = errorRecord?.payload as {
+    name: string;
+    message: string;
+    response: unknown;
+  };
+  assert.equal(errorPayload.name, "CompactionTransportMalformedPayloadError");
+  assert.match(errorPayload.message, /response is not valid JSON/u);
+  assert.deepEqual(errorPayload.response, responsePayload);
 });
 
 test("diagnostic write failures surface when compaction record writes fail", async () => {
@@ -573,8 +707,10 @@ test("a successful later send clears the persisted model-chain failure count", a
         transport: {
           async invoke() {
             return {
-              contentText:
-                "<compression_output>Recovered compact summary.</compression_output>",
+              contentText: JSON.stringify({
+                plan: "Recover the compact summary.",
+                compression_output: "Recovered compact summary.",
+              }),
             };
           },
         },
@@ -675,7 +811,12 @@ test("terminal failure persistence errors release the lock and leave the mark re
         transport: {
           async invoke() {
             events.push("recovery-attempt");
-            return { contentText: "<compression_output>Recovered summary.</compression_output>" };
+            return {
+              contentText: JSON.stringify({
+                plan: "Recover the summary.",
+                compression_output: "Recovered summary.",
+              }),
+            };
           },
         },
       },

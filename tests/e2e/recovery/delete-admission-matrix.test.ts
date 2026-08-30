@@ -195,7 +195,10 @@ test(
       {
         kind: "success",
         rawPayload: {
-          contentText: "<compression_output>Delete notice: assistant reasoning and tool details were removed because they are no longer needed.</compression_output>",
+          contentText: JSON.stringify({
+            plan: "Prepare a concise delete notice.",
+            compression_output: "Delete notice: assistant reasoning and tool details were removed because they are no longer needed.",
+          }),
         },
       },
     ]);

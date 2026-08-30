@@ -146,7 +146,7 @@ SQLite 只需保存：
 
 边界：
 
-- transport、`<compression_output>` envelope、opaque placeholder 编号与 result-group source-range 映射失败都会继续到本次发送中的下一个模型
+- transport、JSON `compression_output` envelope、opaque placeholder 编号与 result-group source-range 映射失败都会继续到本次发送中的下一个模型
 - 每次发送中每个模型最多尝试一次；完整模型链耗尽后只累计一次失败
 - terminal failure 只代表跨发送整链失败已达到配置上限，不包含 input 构造、SQLite commit、失败计数持久化或其他 operational failure
 - result group 只在 envelope、validator 与 source-range 映射全部通过后写入

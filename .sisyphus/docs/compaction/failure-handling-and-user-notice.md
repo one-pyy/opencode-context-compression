@@ -73,7 +73,7 @@
 
 - 模型链顺序来自 `compactionModels`
 - 每次发送中每个模型最多尝试一次
-- transport、`<compression_output>` 协议、opaque 校验和 result-group source-range 映射任一失败，都会继续尝试本次发送中的下一个模型
+- transport、JSON `compression_output` 协议、opaque 校验和 result-group source-range 映射任一失败，都会继续尝试本次发送中的下一个模型
 - 整条模型链耗尽后累计一次失败；不会在同一次发送中立即启动第二轮
 
 ### 后台执行前

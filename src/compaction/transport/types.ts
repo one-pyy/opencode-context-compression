@@ -30,6 +30,13 @@ export interface CompactionTransport {
   invoke(request: CompactionTransportRequest): Promise<unknown>;
 }
 
+export interface CompactionTransportPayload {
+  readonly plan: string;
+  readonly compression_output: string;
+  readonly explanation?: string;
+  readonly rawContentText?: string;
+}
+
 export interface RecordedCompactionTransportRequest {
   readonly sessionID: string;
   readonly markID: string;
@@ -75,4 +82,8 @@ export interface RecordedCompactionTransportCall {
 
 export interface ValidatedCompactionTransportPayload {
   readonly contentText: string;
+  readonly plan: string;
+  readonly compression_output: string;
+  readonly explanation?: string;
+  readonly rawContentText?: string;
 }

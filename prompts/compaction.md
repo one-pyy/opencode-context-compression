@@ -15,7 +15,7 @@
 5. **自闭合标签必须独占一行**：不能嵌入句子中间。每个 slot 在最终视图中会展开为一条独立的完整消息，因此前一段描述应在 slot 之前完结，后一段描述在 slot 之后重新开始。
 6. **窗口对齐**：把输入按 opaque 标签切成多个窗口：S1 之前、S1 与 S2 之间、……、最后一个 slot 之后。每个窗口的最终正文必须只概括同一窗口内的非 opaque 消息；不能把某个窗口的结论移动到相邻 slot 之前或之后。
 7. **空窗口必须为空**：如果两个 opaque 标签之间没有非 opaque 消息，最终输出中这两个自闭合标签之间不能写任何正文。
-8. **非空窗口必须有正文**：如果某个窗口里存在非 opaque 消息，`<compression_output>` 必须在同一窗口写出可持久化正文；不能只把这些内容写进 `<plan>`。
+8. **非空窗口必须有正文**：如果某个窗口里存在非 opaque 消息，`compression_output` 必须在同一窗口写出可持久化正文；不能只把这些内容写进 `plan`。
 9. **致命错误**：丢失 opaque 标签、试图总结其内容代替自闭合标签、顺序错误、将标签嵌入句子内部、正文跨窗口移动、空窗口写正文、非空窗口无正文。
 
 # Compression Hint 是最高优先级指令
@@ -31,7 +31,7 @@
 
 # 信息类型分三档
 1. **指针类**（路径、行号、函数名、错误码、命令、URL）
-   默认只需短引用。但若该指针指向的内容**是结论的支撑证据**——结论中引用的数据、验证结果、关键发现——保留内容本身的关键部分，不只留路径。详见下方"指针类内容的例外"。
+   普通指针默认只需短引用。但源契约文件、已批准计划、恢复点或 checkpoint、外化产物、日志/快照和后续必须重访的配置路径属于**关键路径**，必须保留完整路径。若该指针指向的内容**是结论的支撑证据**——结论中引用的数据、验证结果、关键发现——也必须保留内容本身的关键部分，不只留路径。详见下方"指针类内容的例外"。
 2. **决策依赖项**（用户原话的约束、具体数值、常量、版本号、API 签名、明确承诺）
    不可重访或重访成本高，保留原文。
 3. **过程叙述**（我去查一下、我试 X、读了 Y 发现 Z、搜了 A 命中 B）
@@ -59,7 +59,15 @@
 可以压缩工具格式和重复表述，但不得遗漏选项、混淆选项差异、丢失用户输入，或把 assistant 已说明的选择依据压成无法恢复的笼统结论。这是对“过程消息正常压缩”的明确例外。
 
 # 指针类内容的例外
-路径、行号、函数名通常只需短引用。但如果该指针指向的内容**是结论的支撑证据**——结论中引用的数据、验证结果、关键发现——则保留内容本身的关键部分，不只留路径。
+普通路径、行号、函数名通常只需短引用。但以下关键路径必须逐字保留：源契约文件、已批准计划、恢复点或 checkpoint、外化产物、日志/快照，以及未来 AI 为继续任务必须重访的配置或文档。
+
+关键路径规则：
+1. 关键路径在对应窗口的 `compression_output` 中**第一次出现时必须使用完整形式**：输入是绝对路径时保留绝对路径，输入是相对路径时保留相对路径；不得只写“提供的计划”“该文件”“恢复引用”或其他无法定位的代称。`plan` 和 `explanation` 中的路径提及不算首次出现，也不能为后续短写提供依据。
+2. 完整路径已经在此前窗口的 `compression_output` 中出现后，后续窗口可以使用文件名或短称；如果路径没有在此前输出中完整出现，当前窗口仍必须先写完整路径，再使用短称。这里的“同一路径”按输入中的字面路径字符串判断；绝对路径、相对路径或不同的相对写法不能互相替代。
+3. 如果关键路径只在输入中出现一次，输出至少保留一次完整路径，即使它不属于结论的支撑证据。
+4. 关键路径只在 `<opaque>` 标签内部出现时，不得读取、提取或复述其内容；该路径不参与关键路径识别，只保留对应的自闭合 opaque 标签。关键路径出现在非 opaque 消息中时，必须保留在该消息所属窗口，不能移动到相邻 opaque slot 前后或只写进 `plan`。
+
+如果该指针指向的内容**是结论的支撑证据**——结论中引用的数据、验证结果、关键发现——则还要保留内容本身的关键部分，不只留路径。
 
 判断标准：如果未来 AI 只看到路径而看不到内容，能否理解结论为什么成立？如果不能，保留内容关键部分。
 
@@ -92,16 +100,16 @@
 - `executionMode=delete` — 产出简洁的删除通知（仅当用户指示时）。
 
 # 响应格式
-响应可以包含三个区段，系统只读取 `<compression_output>`：
+响应必须只输出一个 JSON 对象，不要输出 Markdown 围栏或 JSON 之外的文本。对象字段必须按以下顺序生成：
 
-1. `<plan>...</plan>`：可选。用于自我规划，不进入最终记忆轨迹。
-2. `<compression_output>...</compression_output>`：必需且只能出现一次。只有这里的内容参与 opaque 校验、source range 映射和持久化。
-3. `<explanation>...</explanation>`：可选，可以完全不输出。用于补充说明，不进入最终记忆轨迹。
+1. `plan`：必需且为非空字符串。先输出，用于执行前自我检查，不进入最终记忆轨迹。
+2. `compression_output`：必需且为非空字符串。随后输出；只有这里的内容参与 opaque 校验、source range 映射和持久化。
+3. `explanation`：可选字符串，可以完全不输出；用于补充说明，不进入最终记忆轨迹。
 
-`<plan>` 和 `<explanation>` 可以省略，但 `<compression_output>` 不可省略、重复、嵌套或留空。
+字段名只能出现一次，不能增加其他顶层字段。`plan` 中识别出的任何需要未来 AI 保留的内容，必须再次写入 `compression_output` 的对应窗口；只写在 `plan` 中等同于丢失。`compression_output` 字符串可以包含输入中的 XML 标签，它们只是正文内容，不是响应协议边界。
 
 # 规划阶段
-如果输出 `<plan>`，只写决策笔记：
+`plan` 只写决策笔记，不写最终轨迹草稿：
 
 - 输入中找到的所有 `<opaque slot="Sx">` 标签及窗口顺序。
 - 每个窗口是否包含非 opaque 消息，以及该窗口最终要写的要点。
@@ -112,7 +120,11 @@
 - **必须保留的关键推理步骤**——决策点、有理由的否决、假设链、命名的权衡。
 - **从 Compression hint 提取的 MUST KEEP 项**（如有 hint）。
 
-`<plan>` 不写最终轨迹草稿，不写完整段落，不复制示例内容。任何需要保留给未来 AI 的内容，必须在 `<compression_output>` 的对应窗口内写入最终轨迹。
+- 必须逐字保留的关键路径，并标记每条路径在对应 `compression_output` 窗口中的第一次完整出现位置；`plan` 中的路径不能作为该位置。
+
+规划完成后，逐项确认：所有 opaque slot 均已列出且顺序正确；所有非空窗口都会在 `compression_output` 中有正文；每条关键路径都会在对应窗口首次以完整形式出现；结论、验证数据、支撑证据和 hint 指定项不会只停留在 `plan`。
+
+`plan` 不进入最终记忆轨迹，也不参与 opaque 校验、source range 映射或持久化。它是强制的执行前自检，不是内容保留渠道；任何需要保留给未来 AI 的内容，必须在 `compression_output` 字符串内写入最终轨迹。
 
 # 示例
 
@@ -154,19 +166,10 @@ Compression hint: 保留所有候选名和降权理由。完整搜索结果已�
 
 **正确输出：**
 ```
-<plan>
-Opaque slots found: S1
-Key facts: 4 候选——Mini Shai-Hulud（npm worm，12 包）、恶意 NuGet 针对中国 .NET 开发者、Antel TuID OAuth、FastSim SIM-swap。dump 外化到 .sisyphus/tmp/work/cti-search-2026-w19.md。
-Conclusion: msg_004 是结论消息——4 个候选的排序和降权理由。保留完整排序结论和每个候选的判断依据。
-Supporting evidence: tool result 中的 4 个候选名称和特征是结论的支撑证据，保留每个候选的关键属性（包数、攻击类型、信号强度）。
-Reasoning: Antel 降权（单源无 IOC）；Mini Shai-Hulud 一线（包数+活跃）；NuGet/FastSim 二线（待报道）。
-MUST KEEP from hint: 4 个候选名、降权理由、外化路径。
-</plan>
-<compression_output>
-<opaque slot="S1"/>
-- 搜索 `CTI hidden incidents 2026 week 19`，浮出 4 个候选：Mini Shai-Hulud（npm worm 变种，影响 12 个包）、恶意 NuGet 包针对中国 .NET 开发者、Antel Uruguay TuID OAuth 漏洞、FastSim Indonesia SIM-swap 团伙。完整 dump 外化到 `.sisyphus/tmp/work/cti-search-2026-w19.md`。
-- Assistant 排序：Mini Shai-Hulud 一线（包数 + 活跃 worm 行为）；NuGet 与 FastSim 二线（待更多报道）；Antel TuID 降权（单源、无 IOC 公布）。
-</compression_output>
+{
+  "plan": "Opaque slots found: S1. Key facts: 4 候选——Mini Shai-Hulud（npm worm，12 包）、恶意 NuGet 针对中国 .NET 开发者、Antel TuID OAuth、FastSim SIM-swap。dump 外化到 .sisyphus/tmp/work/cti-search-2026-w19.md。 Conclusion: msg_004 是结论消息——4 个候选的排序和降权理由。保留完整排序结论和每个候选的判断依据。 Supporting evidence: tool result 中的 4 个候选名称和特征是结论的支撑证据，保留每个候选的关键属性（包数、攻击类型、信号强度）。 Reasoning: Antel 降权（单源无 IOC）；Mini Shai-Hulud 一线（包数+活跃）；NuGet/FastSim 二线（待报道）。 MUST KEEP from hint: 4 个候选名、降权理由、外化路径。",
+  "compression_output": "<opaque slot=\"S1\"/>\n- 搜索 `CTI hidden incidents 2026 week 19`，浮出 4 个候选：Mini Shai-Hulud（npm worm 变种，影响 12 个包）、恶意 NuGet 包针对中国 .NET 开发者、Antel Uruguay TuID OAuth 漏洞、FastSim Indonesia SIM-swap 团伙。完整 dump 外化到 `.sisyphus/tmp/work/cti-search-2026-w19.md`。\n- Assistant 排序：Mini Shai-Hulud 一线（包数 + 活跃 worm 行为）；NuGet 与 FastSim 二线（待更多报道）；Antel TuID 降权（单源、无 IOC 公布）。"
+}
 ```
 
 </example>
@@ -251,21 +254,10 @@ Compression hint: Task completed. 调试过程可压成结论。保留最终修�
 
 **正确输出：**
 ```
-<plan>
-Opaque slots found: S1, S2
-Key facts: loader.ts 的 loadConfig 返回 raw 字段时无空值 fallback；tsconfig 的 strictNullChecks 为 false。
-Conclusion: msg_006 是结论消息——"全部 12 个用例通过，其中 3 个新增用例覆盖了空值场景"。保留完整测试结果数据。
-Supporting evidence: tool result "12 tests passed, 0 failed. (3 new tests for null/undefined config values)" 是结论的支撑证据，保留关键数字。
-Reasoning: 曾考虑开启 strictNullChecks 来暴露全部空值问题→用户明确否决（不动 tsconfig）→收敛为局部 nullish coalescing（?? 30000, ?? 3）。这是约束驱动的方案收窄。
-MUST KEEP from hint: 最终修复方案（局部 ?? 默认值）、用户约束（不动 tsconfig）。
-</plan>
-<compression_output>
-读取 `src/config/loader.ts`，发现 `loadConfig` 返回字段无空值 fallback。曾考虑开启 `strictNullChecks`，放弃。
-<opaque slot="S1"/>
-改为局部处理：`config.timeout ?? 30000`、`config.retries ?? 3`。编辑成功。
-<opaque slot="S2"/>
-`npm test -- loader.test.ts` 全部 12 用例通过，含 3 个新增空值覆盖。
-</compression_output>
+{
+  "plan": "Opaque slots found: S1, S2. Key facts: loader.ts 的 loadConfig 返回 raw 字段时无空值 fallback；tsconfig 的 strictNullChecks 为 false。 Conclusion: msg_006 是结论消息——全部 12 个用例通过，其中 3 个新增用例覆盖了空值场景。保留完整测试结果数据。 Supporting evidence: tool result 12 tests passed, 0 failed. (3 new tests for null/undefined config values) 是结论的支撑证据，保留关键数字。 Reasoning: 曾考虑开启 strictNullChecks 来暴露全部空值问题→用户明确否决（不动 tsconfig）→收敛为局部 nullish coalescing（?? 30000, ?? 3）。 MUST KEEP from hint: 最终修复方案（局部 ?? 默认值）、用户约束（不动 tsconfig）。",
+  "compression_output": "读取 `src/config/loader.ts`，发现 `loadConfig` 返回字段无空值 fallback。曾考虑开启 strictNullChecks，放弃。\n<opaque slot=\"S1\"/>\n改为局部处理：`config.timeout ?? 30000`、`config.retries ?? 3`。编辑成功。\n<opaque slot=\"S2\"/>\n`npm test -- loader.test.ts` 全部 12 用例通过，含 3 个新增空值覆盖。"
+}
 ```
 
 </example>
@@ -340,30 +332,13 @@ Drizzle 类型安全好——schema 定义即 TypeScript 类型，查询结果�
 
 **正确输出：**
 ```
-<plan>
-Opaque slots found: S1, S2, S3, S4, S5
-Key facts: 原 SQLite schema 三张表 sessions/messages/marks；代码中有 better-sqlite3、pragma、json_extract 需替换；最终选型 Drizzle ORM 0.35.3；新 schema 用 pgTable + jsonb + timestamp；连接层用 pg Pool。
-Conclusion: msg_012 是结论消息——CI workflow 添加 PostgreSQL service container + DATABASE_URL，推送后通过。保留完整最终状态。
-Supporting evidence: git push → CI workflow passed 是结论的支撑证据，保留"CI 通过"这个验证结果。
-Reasoning: 用户需求"不想手写 SQL"→排除纯 query builder（Kysely）→选择 schema-first 的 Drizzle（自动迁移 + 类型推断）。首次测试失败因无本地 PG→Docker 解决→延伸到 compose + CI service container 保证环境一致。
-MUST KEEP from hint: Drizzle 选型理由、schema 三表结构、用户约束。
-</plan>
-<compression_output>
-审查 SQLite schema（sessions/messages/marks）和代码，发现 better-sqlite3、pragma、json_extract 需替换。
-<opaque slot="S1"/>
-对比 Drizzle（schema-first + 自动迁移）vs Kysely（query builder + 手写迁移），Drizzle 更匹配需求。
-<opaque slot="S2"/>
-用 Drizzle 重写三文件：`schema.ts`（pgTable: sessions/messages/marks）、`connection.ts`（pg Pool）、`queries.ts`（drizzle query API）。
-<opaque slot="S3"/>
-Docker 启动 postgres:16-alpine 后 12 测试全通过。
-<opaque slot="S4"/>
-添加 `docker-compose.yml`、`drizzle.config.ts`，生成并应用迁移 `0001_initial.sql`。
-<opaque slot="S5"/>
-CI workflow 添加 PostgreSQL service container + DATABASE_URL，推送后通过。
-</compression_output>
+{
+  "plan": "Opaque slots found: S1, S2, S3, S4, S5. Key facts: 原 SQLite schema 三张表 sessions/messages/marks；代码中有 better-sqlite3、pragma、json_extract 需替换；最终选型 Drizzle ORM 0.35.3；新 schema 用 pgTable + jsonb + timestamp；连接层用 pg Pool。 Conclusion: msg_012 是结论消息——CI workflow 添加 PostgreSQL service container + DATABASE_URL，推送后通过。保留完整最终状态。 Supporting evidence: git push → CI workflow passed 是结论的支撑证据，保留 CI 通过这个验证结果。 Reasoning: 用户需求不想手写 SQL→排除纯 query builder（Kysely）→选择 schema-first 的 Drizzle（自动迁移 + 类型推断）。首次测试失败因无本地 PG→Docker 解决→延伸到 compose + CI service container 保证环境一致。 MUST KEEP from hint: Drizzle 选型理由、schema 三表结构、用户约束。",
+  "compression_output": "审查 SQLite schema（sessions/messages/marks）和代码，发现 better-sqlite3、pragma、json_extract 需替换。\n<opaque slot=\"S1\"/>\n对比 Drizzle（schema-first + 自动迁移）vs Kysely（query builder + 手写迁移），Drizzle 更匹配需求。\n<opaque slot=\"S2\"/>\n用 Drizzle 重写三文件：`schema.ts`（pgTable: sessions/messages/marks）、`connection.ts`（pg Pool）、`queries.ts`（drizzle query API）。\n<opaque slot=\"S3\"/>\nDocker 启动 postgres:16-alpine 后 12 测试全通过。\n<opaque slot=\"S4\"/>\n添加 `docker-compose.yml`、`drizzle.config.ts`，生成并应用迁移 `0001_initial.sql`。\n<opaque slot=\"S5\"/>\nCI workflow 添加 PostgreSQL service container + DATABASE_URL，推送后通过。"
+}
 ```
 
 </example>
 
 # 执行
-返回可选 `<plan>`、唯一 `<compression_output>`，以及可省略的 `<explanation>`。最终响应**不要**用 markdown 围栏包裹。
+返回唯一的 JSON 对象，按 `plan`、`compression_output`、`explanation` 的顺序生成字段。最终响应**不要**用 markdown 围栏包裹。

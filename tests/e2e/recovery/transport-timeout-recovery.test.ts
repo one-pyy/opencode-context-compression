@@ -260,7 +260,10 @@ test(
       {
         kind: "success",
         rawPayload: {
-          contentText: "<compression_output>Assistant and tool context were compacted into one stable summary.</compression_output>",
+          contentText: JSON.stringify({
+            plan: "Combine assistant and tool context.",
+            compression_output: "Assistant and tool context were compacted into one stable summary.",
+          }),
         },
       },
     ]);

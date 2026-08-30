@@ -42,7 +42,6 @@ export function createOutputValidator(): OutputValidator {
 
       const cleanValidated = {
         ...validated,
-        contentText: extractOutputSection(validated.contentText, input.request),
       };
 
       if (input.request.executionMode === "delete") {
@@ -55,47 +54,6 @@ export function createOutputValidator(): OutputValidator {
       };
     },
   } satisfies OutputValidator;
-}
-
-function extractOutputSection(
-  contentText: string,
-  request: CompactionValidationInput["request"],
-): string {
-  const match = contentText.match(
-    /^\s*(?:<plan>([\s\S]*?)<\/plan>\s*)?<compression_output>([\s\S]*?)<\/compression_output>\s*(?:<explanation>([\s\S]*?)<\/explanation>\s*)?$/u,
-  );
-  if (!match) {
-    throw new InvalidCompactionOutputError({
-      markId: request.markID,
-      model: request.model,
-      executionMode: request.executionMode,
-      detail:
-        "compaction response must contain optional <plan>, exactly one <compression_output>, and optional <explanation> sections in that order.",
-    });
-  }
-
-  for (const section of match.slice(1)) {
-    if (section && /<\/?(?:plan|compression_output|explanation)>/u.test(section)) {
-      throw new InvalidCompactionOutputError({
-        markId: request.markID,
-        model: request.model,
-        executionMode: request.executionMode,
-        detail: "compaction response protocol sections must not be nested.",
-      });
-    }
-  }
-
-  const output = match[2]!.trim();
-  if (output.length === 0) {
-    throw new InvalidCompactionOutputError({
-      markId: request.markID,
-      model: request.model,
-      executionMode: request.executionMode,
-      detail: "compaction response <compression_output> section must not be empty.",
-    });
-  }
-
-  return output;
 }
 
 function normalizeOpaqueOutput(

@@ -11,7 +11,10 @@ import type { ToastService } from "../../services/toast-service.js";
 import { TokenCounter } from "../../utils/token-counter.js";
 import type { CompactionRequest } from "../types.js";
 import { markCompactionModelChainExhausted } from "../errors.js";
-import { CompactionTransportEmptyResponseError } from "../transport/errors.js";
+import {
+  CompactionTransportEmptyResponseError,
+  CompactionTransportMalformedPayloadError,
+} from "../transport/errors.js";
 import type { CompleteResultGroupInput } from "../../state/result-group-repository.js";
 
 export interface ContractLevelCompactionRunnerOptions {
@@ -93,6 +96,7 @@ export async function computeCompactionAttempt(
       model,
     });
     const recordCreatedAt = new Date().toISOString();
+    let response: RunCompactionResult["response"] | undefined;
 
     try {
       await writeCompactionRecordSafely(dependencies, input, request, {
@@ -101,7 +105,7 @@ export async function computeCompactionAttempt(
         payload: request,
         attemptIndex,
       });
-      const response = await dependencies.transport.execute(request);
+      response = await dependencies.transport.execute(request);
       await writeCompactionRecordSafely(dependencies, input, request, {
         createdAt: recordCreatedAt,
         suffix: "out",
@@ -130,7 +134,7 @@ export async function computeCompactionAttempt(
       await writeCompactionRecordSafely(dependencies, input, request, {
         createdAt: recordCreatedAt,
         suffix: "err",
-        payload: buildCompactionErrorRecord(error),
+        payload: buildCompactionErrorRecord(error, response?.rawPayload),
         attemptIndex,
       });
       lastAttemptError = error;
@@ -217,12 +221,19 @@ async function writeCompactionRecordSafely(
   }
 }
 
-function buildCompactionErrorRecord(error: unknown): unknown {
+function buildCompactionErrorRecord(error: unknown, rawPayload?: unknown): unknown {
+  const response = rawPayload !== undefined
+    ? { response: rawPayload }
+    : error instanceof CompactionTransportMalformedPayloadError
+      ? { response: error.rawPayload }
+      : {};
+
   if (error instanceof CompactionTransportEmptyResponseError) {
     return {
       name: error.name,
       message: error.message,
       diagnostic: error.diagnosticPayload,
+      ...response,
     };
   }
 
@@ -230,12 +241,14 @@ function buildCompactionErrorRecord(error: unknown): unknown {
     return {
       name: error.name,
       message: error.message,
+      ...response,
     };
   }
 
   return {
     name: "NonErrorThrown",
     message: String(error),
+    ...response,
   };
 }
 

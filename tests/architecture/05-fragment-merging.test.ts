@@ -64,7 +64,10 @@ test("Output Validator - Missing Placeholder Throws Error (15.34 & 15.35)", asyn
 
   // LLM hallucinated and dropped S1
   const badPayload = {
-          contentText: "<compression_output>I completely summarized it but forgot the XML tag!</compression_output>"
+          contentText: JSON.stringify({
+            plan: "Summarize the source windows.",
+            compression_output: "I completely summarized it but forgot the opaque tag!",
+          })
   };
 
   let errorOccurred = false;
@@ -99,7 +102,10 @@ test("Output Validator - Delete Mode Skips Placeholder Check (15.19)", async () 
 
   // Even if S1 is missing, it's fine because mode is delete
   const payload = {
-          contentText: "<compression_output>[Deleted]</compression_output>"
+          contentText: JSON.stringify({
+            plan: "Prepare the delete notice.",
+            compression_output: "[Deleted]",
+          })
   };
 
   const validated = await validator.validate({ request, response: { rawPayload: payload } });
