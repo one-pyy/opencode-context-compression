@@ -62,3 +62,42 @@ test("compaction JSON payload is split into fields while retaining raw text", ()
     rawContentText,
   });
 });
+
+test("compaction JSON payload accepts a JSON code fence", () => {
+  const rawContentText = `\n\`\`\`json
+{"plan":"Plan","compression_output":"Summary"}
+\`\`\``;
+
+  const parsed = parseCompactionJsonPayload(rawContentText, {
+    sessionID: "session-1",
+    markID: "mark-1",
+    model: "model-1",
+    executionMode: "compact",
+    promptText: "prompt",
+    transcript: [],
+    timeoutMs: 1_000,
+  });
+
+  assert.equal(parsed.plan, "Plan");
+  assert.equal(parsed.compression_output, "Summary");
+  assert.equal(parsed.rawContentText, rawContentText);
+});
+
+test("compaction JSON payload accepts explanatory text around JSON", () => {
+  const rawContentText =
+    'Here is the result:\n{"plan":"Plan","compression_output":"Summary"}\nDone.';
+
+  const parsed = parseCompactionJsonPayload(rawContentText, {
+    sessionID: "session-1",
+    markID: "mark-1",
+    model: "model-1",
+    executionMode: "compact",
+    promptText: "prompt",
+    transcript: [],
+    timeoutMs: 1_000,
+  });
+
+  assert.equal(parsed.plan, "Plan");
+  assert.equal(parsed.compression_output, "Summary");
+  assert.equal(parsed.rawContentText, rawContentText);
+});

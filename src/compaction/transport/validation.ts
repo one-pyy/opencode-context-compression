@@ -13,6 +13,31 @@ export function parseCompactionJsonPayload(
   rawContentText: string,
   request: CompactionTransportRequest,
 ): CompactionTransportPayload {
+  const candidates = [
+    rawContentText,
+    stripJsonCodeFence(rawContentText),
+    extractJsonObject(rawContentText),
+  ].filter((candidate, index, all): candidate is string =>
+    candidate !== undefined && all.indexOf(candidate) === index,
+  );
+
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      return parseStrictCompactionJsonPayload(candidate, request, rawContentText);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError;
+}
+
+function parseStrictCompactionJsonPayload(
+  candidateText: string,
+  request: CompactionTransportRequest,
+  originalContentText: string,
+): CompactionTransportPayload {
   let envelope: unknown;
   const parseErrors: ParseError[] = [];
   const topLevelKeys: string[] = [];
@@ -20,7 +45,7 @@ export function parseCompactionJsonPayload(
   let rootWasObject = false;
 
   visit(
-    rawContentText,
+    candidateText,
     {
       onObjectBegin() {
         objectDepth += 1;
@@ -44,7 +69,7 @@ export function parseCompactionJsonPayload(
   );
 
   try {
-    envelope = JSON.parse(rawContentText) as unknown;
+    envelope = JSON.parse(candidateText) as unknown;
   } catch {
     envelope = undefined;
   }
@@ -76,7 +101,7 @@ export function parseCompactionJsonPayload(
   if (!hasValidShape) {
     throw new CompactionTransportMalformedPayloadError(
       summarizeCompactionTransportRequest(request),
-      { contentText: rawContentText },
+      { contentText: candidateText },
       "response must be a JSON object with fields plan, compression_output, and optional explanation in that order; plan and compression_output must be non-empty strings.",
     );
   }
@@ -86,7 +111,7 @@ export function parseCompactionJsonPayload(
   if (plan.trim().length === 0 || compressionOutput.trim().length === 0) {
     throw new CompactionTransportMalformedPayloadError(
       summarizeCompactionTransportRequest(request),
-      { contentText: rawContentText },
+      { contentText: candidateText },
       "response plan and compression_output fields must not be empty.",
     );
   }
@@ -97,8 +122,22 @@ export function parseCompactionJsonPayload(
     ...(typeof parsed.explanation === "string"
       ? { explanation: parsed.explanation }
       : {}),
-    rawContentText,
+    rawContentText: originalContentText,
   });
+}
+
+function stripJsonCodeFence(value: string): string {
+  const match = value.trim().match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return match?.[1] ?? value;
+}
+
+function extractJsonObject(value: string): string | undefined {
+  const start = value.indexOf("{");
+  const end = value.lastIndexOf("}");
+  if (start < 0 || end <= start) {
+    return undefined;
+  }
+  return value.slice(start, end + 1);
 }
 
 export function validateCompactionTransportPayload(
