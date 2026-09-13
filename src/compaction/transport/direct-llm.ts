@@ -8,6 +8,7 @@ import {
   CompactionTransportAbortedError,
   CompactionTransportEmptyResponseError,
   CompactionTransportFatalError,
+  CompactionTransportMalformedPayloadError,
   CompactionTransportRetryableError,
   CompactionTransportTimeoutError,
 } from "./errors.js";
@@ -823,6 +824,10 @@ function combineAbortSignals(
 function mapApiError(error: unknown): Error {
     if (error instanceof Error) {
     if (error instanceof CompactionTransportEmptyResponseError) {
+      return error;
+    }
+
+    if (error instanceof CompactionTransportMalformedPayloadError) {
       return error;
     }
 
