@@ -26,6 +26,8 @@
 - `from` 与 `to` 的公共输入形态是 `<visible-type>_<seq6>_<base62>`；replay 定位端点时使用稳定的 `seq6 + base62`，不把 `visible-type` 当作长期身份字段
 - 成功调用时立即返回随机 `mark id`
 - `mode=delete` 且当前策略不允许 delete 时，返回错误结果
+- 主 agent 使用 delete 须遵循 [用户授权](allow-delete.md#用户授权)，工具描述持续展示该限制；普通 reminder 和 cpmark 使用 compact。
+- `mode=delete` 的目标范围可包含用户消息；是否从投影移除用户原文由 [删除契约](allow-delete.md#目标与保留标准) 定义，不由 `smallUserMessageThreshold` 单独决定
 
 ## Inspect 工具契约
 

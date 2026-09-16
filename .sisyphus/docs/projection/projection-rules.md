@@ -6,6 +6,8 @@
 
 ## 消息分类总表
 
+下表的可压缩性与原文保护描述 compact；delete 消费 [删除契约](../compaction/allow-delete.md#目标与保留标准)，不能仅凭分类表判定用户消息必然留在投影中。
+
 | 消息类型 | visibleState | 是否参与 reminder token 计数 | 是否可被压缩 |
 |---|---|---|---|
 | `system` | `protected` | 否 | 否 |
@@ -18,8 +20,8 @@
 
 - `allowDelete=false`：replacement 作为可引用块留在 projection 中，原始源跨度被隐藏
 - `allowDelete=true` 且执行普通压缩：replacement 作为可引用块留在 projection 中，之后仍可进入 delete 路径
-- `allowDelete=true` 且执行直接删除：projection 渲染为极简 delete notice，原始源跨度被移除
-- 已压缩内容不再进入下一轮内部重写
+- `allowDelete=true` 且执行 delete：projection 渲染完整结果并接管来源范围；结果内容按 [输出与替换](../compaction/allow-delete.md#输出与替换) 定义，实施状态见该文档。
+- compact 结果的再次处理边界按 [输入选择](../compaction/allow-delete.md#输入选择) 执行；投影不能同时暴露已被接管的旧摘要与新结果。
 
 已提交 replacement 必须通过最终 prompt-visible projection seam 生效；仅在调度侧或 providerOptions 中写入 side-channel context，不足以证明模型实际看到了缩短后的 transcript。
 

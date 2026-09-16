@@ -45,14 +45,15 @@ export function createCompactionInputBuilder(): CompactionInputBuilder {
         firstTokenTimeoutMs: input.firstTokenTimeoutMs,
         streamIdleTimeoutMs: input.streamIdleTimeoutMs,
         signal: input.signal,
+        hint: input.hint,
         transcript: input.transcript.map((entry) => ({
           role: entry.role,
           hostMessageID: entry.hostMessageId,
           sourceStartSeq: entry.sourceStartSeq,
           sourceEndSeq: entry.sourceEndSeq,
-          opaquePlaceholderSlot: entry.opaquePlaceholder?.slot,
+          opaquePlaceholderSlot: input.executionMode === "compact" ? entry.opaquePlaceholder?.slot : undefined,
           contentText:
-            entry.opaquePlaceholder === undefined
+            input.executionMode === "delete" || entry.opaquePlaceholder === undefined
               ? entry.contentText
               : renderOpaquePlaceholder(
                   entry.opaquePlaceholder.slot,

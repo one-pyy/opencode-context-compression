@@ -88,8 +88,9 @@ reminder 锚定在实际跨过 milestone 的那条 compressible 消息之后。
 
 ## `allowDelete` 对措辞的影响
 
-- `allowDelete=false`：提醒 AI 可以压缩，但不把对象当作当前可直接删除目标
-- `allowDelete=true`：提醒 AI 可以选择普通压缩，也可以在适合时直接删除
+- 所有 reminder 都引导 `mode=compact`，soft/hard 阈值及重复 cadence 保持不变。
+- `allowDelete=true` 的正文额外说明 [用户授权边界](allow-delete.md#用户授权)：只有用户明确要求使用 `context-retire` skill 的本次任务可以调用 delete。reminder 本身不授予该权限。
+- 四个配置路径与内部 kind 标识保持兼容；其中 delete-allowed 表示能力已开启时采用的提醒正文，不表示提醒建议执行 delete。delete 的文件留存与选区流程由 skill 承载。
 
 ## 压缩完成后的 reminder 清理
 

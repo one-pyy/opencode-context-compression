@@ -2,7 +2,7 @@
 
 ## 文档定位
 
-本文档固定压缩输入、token 估算、mark 覆盖统计共享的模型可见消息渲染口径。
+本文档固定原始消息在压缩输入、token 估算与 mark 覆盖统计中的共享渲染口径。delete 的输入选材与实施状态见 [删除契约](allow-delete.md#输入选择)；选材和单条原文的渲染是不同层次。
 
 ## 已修复问题
 
@@ -16,7 +16,7 @@
 
 ## 目标契约（已实现）
 
-压缩输入、mark token 统计、未压缩 marked token 统计、相关 debug 体积估算必须使用同一个模型可见 transcript renderer。
+原始消息在压缩输入、mark token 统计、未压缩 marked token 统计及相关 debug 体积估算中必须使用同一个模型可见 transcript renderer。
 
 renderer 的目标不是复原宿主内部对象，而是模拟上游模型在正常会话中能看到的语义层内容。
 

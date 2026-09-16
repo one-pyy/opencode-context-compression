@@ -29,6 +29,12 @@
       "minLength": 1,
       "description": "Repo-relative or absolute path to the compaction prompt asset."
     },
+    "deletePromptPath": {
+      "type": "string",
+      "minLength": 1,
+      "default": "prompts/delete.md",
+      "description": "Repo-relative or absolute path to the independent delete prompt asset."
+    },
     "leadingUserPromptPath": {
       "type": "string",
       "minLength": 1,

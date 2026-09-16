@@ -18,6 +18,7 @@ function parseJsonc(source: string): unknown {
 export const RUNTIME_CONFIG_ENV = {
   configPath: "OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH",
   promptPath: "OPENCODE_CONTEXT_COMPRESSION_PROMPT_PATH",
+  deletePromptPath: "OPENCODE_CONTEXT_COMPRESSION_DELETE_PROMPT_PATH",
   models: "OPENCODE_CONTEXT_COMPRESSION_MODELS",
   runtimeLogPath: "OPENCODE_CONTEXT_COMPRESSION_RUNTIME_LOG_PATH",
   seamLogPath: "OPENCODE_CONTEXT_COMPRESSION_SEAM_LOG",
@@ -45,6 +46,7 @@ interface RuntimeConfigInput {
   readonly version?: unknown;
   readonly allowDelete?: unknown;
   readonly promptPath?: unknown;
+  readonly deletePromptPath?: unknown;
   readonly leadingUserPromptPath?: unknown;
   readonly compactionModels?: unknown;
   readonly markedTokenAutoCompactionThreshold?: unknown;
@@ -118,6 +120,8 @@ export interface LoadedRuntimeConfig {
   readonly allowDelete: boolean;
   readonly promptPath: string;
   readonly promptText: string;
+  readonly deletePromptPath?: string;
+  readonly deletePromptText?: string;
   readonly leadingUserPromptPath: string;
   readonly leadingUserPromptText: string;
   readonly models: readonly string[];
@@ -183,6 +187,7 @@ const DEFAULT_RUNTIME_CONFIG_PATH = join(
 
 const DEFAULTS = {
   allowDelete: false,
+  deletePromptPath: "prompts/delete.md",
   leadingUserPromptPath: "prompts/projection-leading-user.md",
   markedTokenAutoCompactionThreshold: 20_000,
   idleThresholdMs: 5 * 60 * 1000,
@@ -231,6 +236,7 @@ const ALLOWED_ROOT_KEYS = new Set([
   "version",
   "allowDelete",
   "promptPath",
+  "deletePromptPath",
   "leadingUserPromptPath",
   "compactionModels",
   "markedTokenAutoCompactionThreshold",
@@ -301,6 +307,11 @@ export async function loadRuntimeConfig(
     ),
     { repoRoot, fieldPath: "leadingUserPromptPath" },
   );
+  const deletePromptPath = resolveRuntimePathFromRepoRoot(
+    readOptionalEnv(env, RUNTIME_CONFIG_ENV.deletePromptPath) ??
+      readRequiredString(parsed.deletePromptPath ?? DEFAULTS.deletePromptPath, "deletePromptPath"),
+    { repoRoot, fieldPath: "deletePromptPath" },
+  );
   const modelsOverride = readOptionalEnv(env, RUNTIME_CONFIG_ENV.models);
   const runtimeLogOverride = readOptionalEnv(env, RUNTIME_CONFIG_ENV.runtimeLogPath);
   const seamLogOverride = readOptionalEnv(env, RUNTIME_CONFIG_ENV.seamLogPath);
@@ -343,6 +354,10 @@ export async function loadRuntimeConfig(
     kind: "leading user prompt asset",
     templateMode: "plain-text",
     allowEmpty: true,
+  });
+  const deletePrompt = resolvePromptAsset(deletePromptPath, {
+    kind: "delete prompt asset",
+    templateMode: "plain-text",
   });
 
   const reminderPromptPaths = {
@@ -445,6 +460,8 @@ export async function loadRuntimeConfig(
         ),
     promptPath: prompt.path,
     promptText: prompt.text,
+    deletePromptPath: deletePrompt.path,
+    deletePromptText: deletePrompt.text,
     leadingUserPromptPath: leadingUserPrompt.path,
     leadingUserPromptText: leadingUserPrompt.text,
     models,

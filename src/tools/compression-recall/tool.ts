@@ -87,7 +87,7 @@ export function createCompressionRecallTool(
 ): ToolDefinition {
   return tool({
     description:
-      "Recall the original host history content behind a visible message range.\n\n" +
+      "Recall original host history from ranges still eligible for recall. A request overlapping an effective delete range returns RANGE_RETIRED; read preserved project-local files for retired information.\n\n" +
       "## When to use:\n" +
       "- You see a [referable_xxx~yyy] compressed summary and need the original details it was compressed from\n" +
       "- You need to verify what was actually said before compression\n" +
@@ -104,7 +104,7 @@ export function createCompressionRecallTool(
       "- The recalled content stays in context and consumes tokens\n" +
       "- Extract key information into your reply rather than relying on persistent access\n" +
       "- When done, you can compression_mark the recall result to compress it again\n" +
-      "- You can recall any visible range, not just compressed summaries\n\n" +
+      "- Compact summaries and uncompressed ranges remain recallable unless covered by an effective delete; partial overlap rejects the whole request\n\n" +
       "## Example:\n" +
       '```json\n' +
       '{\n' +

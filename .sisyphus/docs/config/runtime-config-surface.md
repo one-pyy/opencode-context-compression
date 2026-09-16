@@ -16,6 +16,8 @@
 - `version`
 - `allowDelete`
 - `promptPath`
+- `deletePromptPath`
+- `leadingUserPromptPath`
 - `compactionModels`
 - `markedTokenAutoCompactionThreshold`
 - `smallUserMessageThreshold`
@@ -34,6 +36,13 @@
 - `schedulerMarkThreshold`
 - `runtimeLogPath`
 - `seamLogPath`
+- `debugSnapshotPath`
+
+## 模式对应的提示词
+
+`allowDelete` 只控制运行时能力准入；本次调用的 [用户授权](../compaction/allow-delete.md#用户授权) 由工具说明与 skill 约束。现有 reminder 配置路径保持不变，均提醒 compact，启用 delete 时的正文附带显式 skill 授权要求。
+
+`promptPath` 用于 compact；`deletePromptPath` 用于 delete，省略时加载仓库资产 `prompts/delete.md`。两者路径都相对插件仓库根目录解析，也接受绝对路径。delete 文件缺失、空白或包含未展开模板变量时加载失败，不使用 compact prompt 替代。新增字段不改变 `allowDelete` 的值。
 
 ## 流式 compaction transport timeout 契约
 
@@ -69,6 +78,8 @@
 
 TypeScript 侧如果服务不可用、超时或返回异常，会自动回退到字符数 / 4 的估算口径，避免阻塞 projection / scheduler。服务地址可用 `OPENCODE_CONTEXT_COMPRESSION_TOKEN_COUNTER_URL` 覆盖；Python 服务端口可用 `OPENCODE_CONTEXT_COMPRESSION_TOKEN_COUNTER_PORT` 覆盖。
 
+delete 的发送前预算检查见 [输入选择](../compaction/allow-delete.md#输入选择)。它在计数服务不可用时使用 UTF-8 字节数作保守估计，不使用调度器的字符数 / 4 回退。
+
 ## Env 覆盖
 
 环境变量优先级高于默认 live 配置文件，包括：
@@ -76,6 +87,7 @@ TypeScript 侧如果服务不可用、超时或返回异常，会自动回退到
 - `OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH`
 - `OPENCODE_CONTEXT_COMPRESSION_ALLOW_DELETE`
 - `OPENCODE_CONTEXT_COMPRESSION_PROMPT_PATH`
+- `OPENCODE_CONTEXT_COMPRESSION_DELETE_PROMPT_PATH`
 - `OPENCODE_CONTEXT_COMPRESSION_MODELS`
 - `OPENCODE_CONTEXT_COMPRESSION_RUNTIME_LOG_PATH`
 - `OPENCODE_CONTEXT_COMPRESSION_SEAM_LOG`

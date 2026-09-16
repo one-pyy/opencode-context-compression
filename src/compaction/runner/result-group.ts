@@ -18,7 +18,10 @@ export function buildCompactionResultGroup(
   const sourceEndSeq = resolveSourceEndSeq(input);
   const createdAt = input.runInput.resultGroup?.createdAt ?? input.now();
   const committedAt = input.runInput.resultGroup?.committedAt ?? createdAt;
-  const fragments = buildFragments(input, sourceStartSeq, sourceEndSeq);
+  const fragments = [
+    ...buildFragments(input, sourceStartSeq, sourceEndSeq),
+    ...(input.request.executionMode === "compact" ? input.runInput.resultGroup?.preservedFragments ?? [] : []),
+  ].sort((a, b) => a.sourceStartSeq - b.sourceStartSeq);
 
   return {
     markId: input.request.markID,
@@ -135,7 +138,7 @@ function buildFragments(
     request: input.request,
   });
 
-  if (fragments.length === 0) {
+  if (fragments.length === 0 && !input.runInput.resultGroup?.preservedFragments?.length) {
     throw new InvalidCompactionOutputError({
       markId: input.request.markID,
       model: input.request.model,

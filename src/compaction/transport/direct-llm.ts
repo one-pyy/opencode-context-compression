@@ -18,6 +18,7 @@ import type {
   CompactionTransportTranscriptEntry,
 } from "./types.js";
 import { parseCompactionJsonPayload } from "./validation.js";
+import { checkCompactionInputBudget, resolveCompactionInputBudget } from "./input-budget.js";
 
 const OPENAI_REASONING_EFFORT = "medium";
 const OPENAI_COMPATIBLE_REASONING_EFFORT = "none";
@@ -90,7 +91,7 @@ export function createDirectLLMCompactionTransport(
   };
 }
 
-function buildUserMessage(
+export function buildUserMessage(
   transcript: readonly CompactionTransportTranscriptEntry[],
   executionMode: "compact" | "delete",
   hint?: string,
@@ -111,9 +112,10 @@ function buildUserMessage(
     const canonicalId = entry.hostMessageID;
 
     message += `### ${entry.sequenceNumber}. ${role} ${hostId} (${canonicalId})\n`;
+    message += `source_range=${entry.sourceStartSeq}..${entry.sourceEndSeq}\n`;
     message += `${entry.contentText}\n\n`;
 
-    if (entry.opaquePlaceholderSlot) {
+    if (executionMode === "compact" && entry.opaquePlaceholderSlot) {
       opaqueSlots.push(entry.opaquePlaceholderSlot);
     }
   }
@@ -141,7 +143,14 @@ async function callLLM(
     runtimeArtifacts,
     sessionID,
     providerID,
+    modelID,
   );
+  if (request.executionMode === "delete") {
+    await checkCompactionInputBudget({
+      model: request.model, systemPrompt, userMessage,
+      inputTokenLimit: resolveCompactionInputBudget(provider.modelLimit),
+    });
+  }
 
   if (provider.type === "gemini") {
     return callGemini(provider, runtimeArtifacts, modelID, systemPrompt, userMessage, request, signal);
@@ -164,6 +173,7 @@ interface LLMProviderConfig {
   type: "gemini" | "anthropic" | "openai";
   baseURL: string;
   apiKey: string;
+  modelLimit?: { input?: number; context?: number; output?: number };
 }
 
 async function getProviderConfig(
@@ -171,6 +181,7 @@ async function getProviderConfig(
   runtimeArtifacts: RuntimeArtifactRecorder,
   sessionID: string,
   providerID: string,
+  modelID: string,
 ): Promise<LLMProviderConfig> {
   try {
     const configPath = path.join(os.homedir(), ".config/opencode/opencode.jsonc");
@@ -295,7 +306,10 @@ async function getProviderConfig(
       message: "Resolved provider type for direct LLM transport.",
       payload: { providerID, providerType: type, hasBaseURL: true },
     });
-    return { type, baseURL, apiKey };
+    return {
+      type, baseURL, apiKey,
+      modelLimit: providerData.models?.[modelID]?.limit,
+    };
   } catch (error) {
     await runtimeArtifacts.writeDiagnostic({
       sessionID,

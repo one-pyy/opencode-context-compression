@@ -2,7 +2,7 @@
 
 ## 文档定位
 
-本文档描述 `compression_recall` tool 的实现：让模型召回已压缩内容背后的原始 host history transcript。
+本文档描述 `compression_recall` tool 的实现：让模型召回未被生效 delete 覆盖的原始 host history transcript。
 
 ## 背景问题
 
@@ -24,12 +24,12 @@ interface CompressionRecallInputV1 {
 - `from` / `to` 是双闭区间端点，与 `compression_mark` / `compression_inspect` 一致
 - **不校验 visible-type 与 suffix**，只提取 `visibleSeq` 数字
 - 接受任意合法 visible id 形态（`compressible_000123_ab`、`referable_000130_q7` 等均可）
-- 唯一硬约束：`from.seq ≤ to.seq`
+- 范围顺序要求：`from.seq ≤ to.seq`；可回查范围遵循下述删除边界。
 
 ## 输出
 
 ```typescript
-type CompressionRecallErrorCode = "INVALID_RANGE" | "TARGET_NOT_FOUND" | "SESSION_NOT_READY";
+type CompressionRecallErrorCode = "INVALID_RANGE" | "TARGET_NOT_FOUND" | "SESSION_NOT_READY" | "RANGE_RETIRED";
 
 interface CompressionRecallSuccess {
   readonly ok: true;
@@ -41,7 +41,15 @@ tool 调用当下只返回 `recallId` 占位符。真实内容由 `messages.tran
 
 ## 准入
 
-无 `allowDelete` gate。recall 是只读操作，不改变任何状态。只有 session-ready 检查（同 inspect）。
+无 `allowDelete` gate。调用时检查 session-ready；投影填充时检查删除边界。调用返回占位符不代表范围可回查。
+
+## 删除边界
+
+请求范围与任一已生效 delete 来源范围相交时，整次请求返回 `RANGE_RETIRED`，不返回未重叠部分。错误详情的 `retiredRanges` 列出相交 delete 组的来源范围，调用者可缩小查询范围；已退役内容通过事先留存的项目文件取得。
+
+生效依据是 result group 的持久 `applied` 状态，或本次实际渲染的 replacement 集合。替换门槛打开但未被投影采用的结果不触发拒绝；仅有 mark、执行失败或门槛关闭且尚未应用的结果也不触发拒绝。已应用的 delete 边界在门槛关闭及后续覆盖后仍有效。
+
+每轮投影重新检查历史中的 accepted recall，因此早先成功的 recall 在目标随后被 delete 覆盖时也返回该错误。宿主档案仍保留，此规则限制的是插件的 recall 通道，不是物理擦除档案或清理其他工具、助手文本中已有的副本。compact 覆盖范围保持可回查。
 
 ## 填充机制
 
@@ -58,14 +66,14 @@ tool 调用当下只返回 `recallId` 占位符。真实内容由 `messages.tran
 
 1. 遍历 `state.history` 中已 replay 的 `compressionRecallToolCalls`
 2. 对每个 accepted call，解析 `from` / `to` 的 `visibleSeq`
-3. 从 `state.history.messages` 读 `[fromSeq, toSeq]` 范围内的原始消息
+3. 检查范围顺序和删除边界，通过后从 `state.history.messages` 读 `[fromSeq, toSeq]` 范围内的原始消息
 4. 用 `renderModelVisiblePartsText` 渲染每条消息（同 compaction input builder 口径）
 5. 格式化为 transcript blocks
 6. 产出 `ToolResultOverride { sourceMessageId, toolName: "compression_recall", output }`
 
 ### 定位逻辑
 
-**不查 result group、不匹配 fragment、不校验 referable 类型**。`visibleSeq` 范围直接映射到 host history sequence range。
+先根据 result group 与实际渲染结果检查删除边界，再将 `visibleSeq` 范围直接映射到 host history sequence range；不匹配 fragment 或校验 referable 类型。
 
 对 referable 编号：`visibleSeq` 就是 fragment 的 `sourceStartSeq` / `sourceEndSeq`，seq range 自然等于原始 source range。
 
@@ -96,13 +104,14 @@ tool 调用当下只返回 `recallId` 占位符。真实内容由 `messages.tran
 | visible state | `compressible`，分配 `compressible` visible id |
 | 可压缩 | 是。模型可对它打 `compression_mark`，压缩后变 replacement |
 | 覆盖树 | recall tool result 不在覆盖树中（它不是 mark），但可被 mark 覆盖 |
-| 再次 recall | 压缩后如果模型还想看，可以再 recall 同一个 range（host history 不变） |
-| delete 结果 | delete 结果无 referable visible id，但模型仍可传 compressible 编号召回 delete 背后的原文 |
+| 再次 recall | 每次按当前删除边界重新检查；允许范围仍返回原始内容 |
+| delete 结果 | 已生效 delete 来源范围不可回查，改读已留存的项目文件 |
 
 ## 边界情况
 
 - **`from` / `to` 无法解析为有效 seq** → `INVALID_RANGE`
 - **`from.seq > to.seq`** → `INVALID_RANGE`
+- **范围与生效 delete 相交** → `RANGE_RETIRED`，不输出任何原始内容
 - **seq 超出 host history 范围** → 返回存在的部分，不报错。host history 是动态增长的，模型可能引用了刚出现但尚未被 replay 读取的 seq
 - **范围内一条消息都没有** → `TARGET_NOT_FOUND`
 - **source range 内有消息已被删除 from host history** → 跳过缺失消息，返回存在的部分，不 crash
@@ -126,7 +135,7 @@ tool 调用当下只返回 `recallId` 占位符。真实内容由 `messages.tran
 
 - referable 的 seq range 天然等于原始 source range，不需要特殊处理
 - 允许任意编号让 tool 语义更通用：召回指定 seq 范围的原始 host history
-- 实现更简单——不需要查 result group、匹配 fragment、校验类型
+- 编号类型不影响定位；删除边界统一由结果组的生效覆盖判断
 - 模型不需要记住"这个 tool 只能对 referable 用"
 
 ### 为什么不做轮数限制或永久展开状态管理

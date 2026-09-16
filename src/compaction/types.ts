@@ -54,6 +54,11 @@ export interface RunCompactionInput {
     readonly sourceEndSeq?: number;
     readonly createdAt?: string;
     readonly committedAt?: string;
+    readonly preservedFragments?: readonly {
+      readonly sourceStartSeq: number;
+      readonly sourceEndSeq: number;
+      readonly replacementText: string;
+    }[];
   };
 }
 

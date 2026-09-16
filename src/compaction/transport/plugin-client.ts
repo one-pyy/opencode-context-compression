@@ -44,6 +44,7 @@ export function createPluginClientCompactionTransport(
           request.transcript,
           request.promptText,
           request.executionMode,
+          request.hint,
         );
 
         const timeoutController = new AbortController();
@@ -104,6 +105,7 @@ function buildMessagesFromTranscript(
   transcript: readonly CompactionTransportTranscriptEntry[],
   promptText: string,
   executionMode: "compact" | "delete",
+  hint?: string,
 ): Array<{ type: "text"; text: string }> {
   const messages: Array<{ type: "text"; text: string }> = [];
 
@@ -112,6 +114,7 @@ function buildMessagesFromTranscript(
     type: "text",
     text: promptText,
   });
+  if (hint) messages.push({ type: "text", text: `Compression hint: ${hint}` });
 
   // Add transcript entries
   for (const entry of transcript) {
@@ -124,7 +127,7 @@ function buildMessagesFromTranscript(
 
     messages.push({
       type: "text",
-      text: `${rolePrefix}: ${entry.contentText}`,
+      text: `${rolePrefix} (${entry.hostMessageID}; source_range=${entry.sourceStartSeq}..${entry.sourceEndSeq}): ${entry.contentText}`,
     });
   }
 
@@ -132,7 +135,7 @@ function buildMessagesFromTranscript(
   const instruction =
     executionMode === "compact"
       ? "Please compress the above conversation into a concise summary."
-      : "Please acknowledge that the above content should be deleted.";
+      : "Extract still-valid information with its scope, attribution, and uncertainties. Retire obsolete process. Return the required JSON envelope.";
 
   messages.push({
     type: "text",

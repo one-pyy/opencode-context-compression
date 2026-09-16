@@ -8,6 +8,7 @@
   "version": 1,
   "allowDelete": false,
   "promptPath": "prompts/compaction.md",
+  "deletePromptPath": "prompts/delete.md",
   "leadingUserPromptPath": "prompts/projection-leading-user.md",
   "compactionModels": [
     "google.cctq/gemini-3-flash-preview",

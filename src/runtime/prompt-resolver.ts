@@ -1,4 +1,4 @@
-import { resolveReminderPrompt } from "../config/runtime-config.js";
+import { OpencodeContextCompressionRuntimeConfigError, resolveReminderPrompt } from "../config/runtime-config.js";
 import { defineInternalModuleContract } from "../internal/module-contract.js";
 import type {
   ResolvedRuntimeConfig,
@@ -13,7 +13,7 @@ export type ReminderPromptKind =
 
 export interface PromptResolver {
   resolveReminder(kind: ReminderPromptKind): Promise<string>;
-  resolveCompactionPrompt(): Promise<string>;
+  resolveCompactionPrompt(mode?: "compact" | "delete"): Promise<string>;
 }
 
 export const PROMPT_RESOLVER_INTERNAL_CONTRACT = defineInternalModuleContract({
@@ -44,8 +44,12 @@ export function createPromptResolver(
         allowDelete,
       }).text;
     },
-    async resolveCompactionPrompt() {
-      return config.promptText;
+    async resolveCompactionPrompt(mode = "compact") {
+      const prompt = mode === "delete" ? config.deletePromptText : config.promptText;
+      if (!prompt?.trim()) {
+        throw new OpencodeContextCompressionRuntimeConfigError(`Missing ${mode} prompt text.`);
+      }
+      return prompt;
     },
   } satisfies PromptResolver;
 }

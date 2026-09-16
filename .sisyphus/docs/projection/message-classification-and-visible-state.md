@@ -11,7 +11,7 @@
 | 消息类型 | visibleState | 说明 |
 |---|---|---|
 | `system` | `protected` | 系统消息永远受保护，不可压缩 |
-| `user` 且文本长度 ≤ `smallUserMessageThreshold` | `protected` | 短用户消息永久保护 |
+| `user` 且文本长度 ≤ `smallUserMessageThreshold` | `protected` | compact 保留短用户消息原文 |
 | `user` 且文本长度 > `smallUserMessageThreshold` | `compressible` | 长用户消息可被压缩 |
 | `assistant` | `compressible` | 助手消息可被压缩 |
 | `tool` | `compressible` | 工具结果可被压缩 |
@@ -19,7 +19,8 @@
 ## 关键含义
 
 - `tool` 消息参与 reminder token 计数
-- 用户消息不是一律不可压缩；只有短用户消息永久保护
+- compact 按上表保护短用户消息；delete 对用户原文的处理及有效信息继承遵守 [删除契约](../compaction/allow-delete.md#目标与保留标准)，实施状态见该文档。
+- `protected` 分类不单独证明 delete 的运行行为，不能将其解释为跨模式永久保留用户原文。
 - 分类发生在 policy 层，projection 只消费分类结果
 
 ## Tool-only assistant 的合成 shell

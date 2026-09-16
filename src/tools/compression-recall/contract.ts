@@ -5,6 +5,7 @@ export const COMPRESSION_RECALL_TOOL_NAME = "compression_recall";
 export type CompressionRecallErrorCode =
   | "INVALID_RANGE"
   | "TARGET_NOT_FOUND"
+  | "RANGE_RETIRED"
   | "SESSION_NOT_READY";
 
 export interface CompressionRecallInputV1 {
@@ -64,7 +65,7 @@ export interface CompressionRecallExternalContract {
   ];
   readonly relationToRuntime: {
     readonly replay: "tool result becomes a replayable recall request for later projection";
-    readonly history: "uses ReplayedHistory.messages to render original content, never reads sidecar result groups";
+    readonly history: "checks effective delete coverage before rendering original ReplayedHistory.messages";
     readonly scheduler: "tool never schedules compaction directly";
   };
 }
@@ -84,7 +85,7 @@ export const COMPRESSION_RECALL_EXTERNAL_CONTRACT = Object.freeze({
     replay:
       "tool result becomes a replayable recall request for later projection",
     history:
-      "uses ReplayedHistory.messages to render original content, never reads sidecar result groups",
+      "checks effective delete coverage before rendering original ReplayedHistory.messages",
     scheduler: "tool never schedules compaction directly",
   },
 } satisfies CompressionRecallExternalContract);

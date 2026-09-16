@@ -54,7 +54,7 @@ export async function estimateEnvelopeTokensWithService(
   };
 }
 
-async function estimateTextTokensWithService(input: {
+export async function estimateTextTokensWithService(input: {
   readonly text: string;
   readonly modelName?: string;
   readonly endpoint?: string;

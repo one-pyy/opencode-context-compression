@@ -97,7 +97,6 @@
 
 # 运行模式与删除许可
 - `executionMode=compact` — 产出结构化记忆轨迹。
-- `executionMode=delete` — 产出简洁的删除通知（仅当用户指示时）。
 
 # 响应格式
 响应必须只输出一个 JSON 对象，不要输出 Markdown 围栏或 JSON 之外的文本。对象字段必须按以下顺序生成：

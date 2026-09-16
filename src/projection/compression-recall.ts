@@ -5,11 +5,16 @@ import {
   serializeCompressionRecallResult,
 } from "../tools/compression-recall.js";
 import type { ReplayedHistoryMessage } from "../history/history-replay-reader.js";
-import type { ProjectionState, ToolResultOverride } from "./types.js";
+import type { ProjectedPromptMessage, ProjectionState, ToolResultOverride } from "./types.js";
 
 export function buildCompressionRecallOverrides(
   state: ProjectionState,
+  projectedMessages: readonly ProjectedPromptMessage[] = [],
 ): readonly ToolResultOverride[] {
+  const visibleResultIds = new Set(projectedMessages.map((message) => message.sourceMarkId));
+  const retiredGroups = state.resultGroups.filter(
+    (group) => group.mode === "delete" && (group.applied || visibleResultIds.has(group.markId)),
+  );
   const messagesBySequence = new Map(
     state.history.messages.map((message) => [message.sequence, message]),
   );
@@ -26,6 +31,28 @@ export function buildCompressionRecallOverrides(
 
       let output: string;
       try {
+        const fromSeq = extractVisibleSeq(call.startVisibleMessageId);
+        const toSeq = extractVisibleSeq(call.endVisibleMessageId);
+        if (fromSeq > toSeq) {
+          throw new Error("compression_recall from/to range is reversed.");
+        }
+        const overlaps = retiredGroups.filter(
+          (group) => group.sourceStartSeq <= toSeq && group.sourceEndSeq >= fromSeq,
+        );
+        if (overlaps.length > 0) {
+          return [Object.freeze({
+            sourceMessageId: call.sourceMessageId,
+            toolName: "compression_recall",
+            output: serializeCompressionRecallResult(createCompressionRecallFailure(
+              "RANGE_RETIRED",
+              "The requested range overlaps history retired by delete. Read the preserved project-local files instead.",
+              { retiredRanges: overlaps.map((group) => ({
+                fromSeq: group.sourceStartSeq,
+                toSeq: group.sourceEndSeq,
+              })) },
+            )),
+          } satisfies ToolResultOverride)];
+        }
         const transcript = recallMessagesInRange({
           messagesBySequence,
           from: call.startVisibleMessageId,

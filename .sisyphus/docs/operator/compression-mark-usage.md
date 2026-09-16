@@ -29,7 +29,7 @@
 
 - `mode`
   - `"compact"`：压缩成信息更密集的保留块
-  - `"delete"`：请求删除风格处理；是否允许取决于当前运行时 delete permission
+  - `"delete"`：请求删除风格处理；是否允许取决于当前运行时 delete permission。目标行为与实施状态见 [删除契约](../compaction/allow-delete.md#实施状态)，选区前按 [主 agent 与本地文档职责](../compaction/allow-delete.md#主-agent-与本地文档职责) 核对信息保留和必要落盘。
 - `from`
   - 起始可见消息 id，格式为 `<visible-type>_<seq6>_<base62>`；运行时按 `seq6 + base62` 定位端点
 - `to`

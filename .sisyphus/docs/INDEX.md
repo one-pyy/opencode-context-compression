@@ -25,9 +25,9 @@ Current Stage: 实现参考与验收
 ## Compaction
 
 [compaction/reminder-system.md] — 已实现：reminder 语义、token 口径、cadence、prompt 选择与 no-op 工具载体
-[compaction/allow-delete.md] — 已实现：delete permission 的语义与准入边界
+[compaction/allow-delete.md] — delete 准入、有效信息提炼、混合输入与保留标准
 [compaction/mark-tool-contract.md] — 已实现：`compression_mark` / `compression_inspect` 公共契约与 replay 入口语义
-[compaction/recall-tool-contract.md] — 已实现：`compression_recall` tool 契约，按 seq 范围召回原始 host history transcript
+[compaction/recall-tool-contract.md] — `compression_recall` 原始内容回查、delete 生效覆盖拒绝与错误契约
 [compaction/compaction-lifecycle.md] — 半实现：压缩生命周期、replay-first 模型与 fallback 行为；压缩执行已 N+1 直接启动，替换门槛解耦仍未实现
 [compaction/model-visible-transcript.md] — 已实现：压缩输入、token 估算与 tool 渲染共享的模型可见 transcript 契约
 [compaction/lock-and-send-gate.md] — 当前实现，部分待调整：lock 保留、send-entry-gate 缩小到仅在"该替换但压缩未完成"时阻塞
@@ -36,7 +36,7 @@ Current Stage: 实现参考与验收
 ## Config
 
 [config/runtime-config-surface.md] — 已实现：配置字段、env 覆盖与 metadata 边界
-[config/prompt-assets.md] — 已实现：prompt 资产清单与硬约束
+[config/prompt-assets.md] — prompt 资产、compact / delete 职责与硬约束
 
 ## Operator
 

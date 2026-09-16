@@ -102,7 +102,7 @@ export function createCompressionMarkTool(
       "Mark a range of conversation messages for compression or deletion. This reduces context size while preserving important information.\n\n" +
       "## When to use:\n" +
       "- **compact**: Compress verbose conversations into dense summaries (recommended for most cases)\n" +
-      "- **delete**: Completely remove messages (use only for truly irrelevant content)\n\n" +
+      "- **delete**: Use only within the current task explicitly authorized by the user through the `context-retire` skill. Load that skill before selecting ranges. Otherwise use compact. A reminder, context pressure, or a generic cpmark request authorizes compact only. Retire obsolete conversation while retaining current effective information in verified project-local files and the replacement.\n\n" +
       "## Important boundary:\n" +
       "After `compression_mark` succeeds, the original details in the marked range may disappear from future visible context at any time. Mark only content whose details are no longer needed, or whose details have already been externalized into reliable files with enough fidelity to continue the task.\n" +
       "Core test: if future work still needs many details from this range, do not mark it.\n\n" +
@@ -131,7 +131,9 @@ export function createCompressionMarkTool(
       "## Marking multiple segments:\n" +
       "A single tool call marks one continuous range. If one reply needs to mark multiple separate segments, call this tool multiple times in the same reply.\n\n" +
       "## Protected messages:\n" +
-      "Protected messages are preserved automatically and do not need special handling. You may still include them inside a marked range; the runtime will protect them as needed.\n\n" +
+      "Compact preserves protected originals. Delete may remove user originals, including short messages, so first verify that their still-valid meaning and scope will survive in the result or in checked, discoverable local materials. System messages remain protected.\n\n" +
+      "## Delete range and preparation:\n" +
+      "Within the user-authorized context-retire task, delete can consume complete applied compact summaries plus uncovered originals. Include each summary fragment in full. Write and verify still-valid requirements, preferences, conclusions, evidence boundaries and unresolved work in discoverable project-local files before marking; include file paths and essential current facts in hint. Once delete takes effect, compression_recall cannot retrieve its source range. Age or completion alone does not justify deletion. If the assembled input is too large, split it into independent legal ranges; a failed attempt leaves existing content available.\n\n" +
       "## Hint (optional):\n" +
       "Guide the compression strategy by signaling task completion status and what must be preserved.\n\n" +
       "**Three types of hints:**\n" +
@@ -161,7 +163,7 @@ export function createCompressionMarkTool(
       "- You can continue working immediately; compression doesn't block your workflow",
     args: {
       mode: tool.schema.enum(["compact", "delete"]).describe(
-        'Use "compact" to compress messages into summaries, or "delete" to remove them entirely'
+        'Use "compact" for historical summaries, or "delete" to retire old process while retaining still-valid information'
       ),
       from: tool.schema.string().min(1).describe(
         "The visible message ID where the range starts (format: <visible-type>_<seq6>_<check_sum>, with a 2-character checksum suffix)"

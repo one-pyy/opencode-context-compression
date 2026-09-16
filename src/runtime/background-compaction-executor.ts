@@ -155,6 +155,10 @@ export async function executeBackgroundCompactions(
           markId: eligible.markId,
           model: runtimeConfig.models[0],
           promptText: runtimeConfig.promptText,
+          deletePromptText: runtimeConfig.deletePromptText,
+          appliedResultGroupIds: new Set(projectionState.messages.flatMap(
+            (message) => message.source === "result-group" && message.sourceMarkId ? [message.sourceMarkId] : [],
+          )),
           timeoutMs: runtimeConfig.compressing.timeoutMs,
           firstTokenTimeoutMs: runtimeConfig.compressing.firstTokenTimeoutMs,
           streamIdleTimeoutMs: runtimeConfig.compressing.streamIdleTimeoutMs,
