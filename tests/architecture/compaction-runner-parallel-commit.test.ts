@@ -39,6 +39,80 @@ import {
 } from "../../src/history/history-replay-reader.js";
 import { ToastService } from "../../src/services/toast-service.js";
 import { CompactionTransportMalformedPayloadError } from "../../src/compaction/transport/errors.js";
+import { createCanonicalIdentityService } from "../../src/identity/canonical-identity.js";
+import { createFlatPolicyEngine } from "../../src/projection/policy-engine.js";
+import { createProjectionBuilder } from "../../src/projection/projection-builder.js";
+import { createStaticReminderService } from "../../src/projection/reminder-service.js";
+import { createResultGroupRepository } from "../../src/state/result-group-repository.js";
+
+test("delete containment conflicts rewrite accepted mark results and never retry in the background", async (t) => {
+  const pluginDirectory = await mkdtemp(join(tmpdir(), "retired-mark-replay-"));
+  const sessionId = `retired-mark-${Date.now()}`;
+  const databasePath = resolveSessionDatabasePath(resolvePluginStateDirectory(pluginDirectory), sessionId);
+  t.after(async () => {
+    await rm(pluginDirectory, { recursive: true, force: true });
+    await rm(databasePath, { force: true });
+  });
+  await bootstrapSessionSidecar({ databasePath });
+  const sidecar = await openSessionSidecarRepository({ databasePath });
+  t.after(() => sidecar.close());
+  const resultGroups = createResultGroupRepository(sidecar);
+  const identity = createCanonicalIdentityService({ visibleIds: resultGroups });
+  const hostHistory = ["Before", "Retired original", "After", "accepted delete", "accepted compact"].map((text, i) => ({
+    sequence: i + 1,
+    message: { info: { id: `msg-${i + 1}`, role: "assistant" as const }, parts: [{ type: "text" as const, text }] },
+  }));
+  const ids = await Promise.all(hostHistory.map((entry) => identity.allocateVisibleId(entry.message.info.id, "compressible")));
+  const history = replayHistoryFromSources({
+    sessionId, hostHistory,
+    toolHistory: [
+      { sequence: 4, sourceMessageId: "msg-4", toolName: "compression_mark", input: {
+        mode: "delete", from: ids[1].assignedVisibleId, to: ids[1].assignedVisibleId,
+      }, result: { ok: true, markId: "retired" } },
+      { sequence: 5, sourceMessageId: "msg-5", toolName: "compression_mark", input: {
+        mode: "compact", from: ids[0].assignedVisibleId, to: ids[2].assignedVisibleId,
+      }, result: { ok: true, markId: "invalid" } },
+    ],
+  });
+  await resultGroups.upsertCompleteGroup({
+    markId: "retired", mode: "delete", executionMode: "delete", sourceStartSeq: 2, sourceEndSeq: 2,
+    createdAt: "2026-09-18T00:00:00.000Z",
+    fragments: [{ sourceStartSeq: 2, sourceEndSeq: 2, replacementText: "Retained requirement" }],
+  });
+  const builder = createProjectionBuilder({
+    historyReplayReader: { async read() { return history; } },
+    policyEngine: createFlatPolicyEngine(), resultGroupRepository: resultGroups,
+    canonicalIdentityService: identity, reminderService: createStaticReminderService(),
+  });
+  const events: string[] = [];
+  for (const replacementGateOpen of [true, false]) {
+    const projection = await builder.build({ sessionId, replacementGateOpen });
+    assert.deepEqual(projection.state.markTree.marks.map((mark) => mark.markId), ["retired"]);
+    const override = projection.toolResultOverrides.find((item) => item.sourceMessageId === "msg-5");
+    assert.ok(override);
+    assert.equal(JSON.parse(override.output).ok, false);
+    assert.equal(JSON.parse(override.output).errorCode, "OVERLAP_CONFLICT");
+    assert.match(override.output, /contains delete mark/);
+    assert.match(projection.messages.find((message) => message.canonicalId === "msg-5")!.contentText, /"ok":false/);
+    assert.ok(projection.messages.some((message) => message.contentText === "Retained requirement"));
+    assert.ok(!projection.messages.some((message) => message.contentText.includes("Retired original")));
+    await executeBackgroundCompactions({
+      pluginInput: createPluginInput(pluginDirectory), sessionId, projectionState: projection,
+      runtimeConfig: { ...createRuntimeConfig({ repoRoot: pluginDirectory }), transport: {
+        async invoke() { events.push("unexpected-model-call"); throw new Error("must not execute"); },
+      } },
+      runtimeArtifacts: createFileBackedRuntimeArtifactRecorder({
+        pluginDirectory, runtimeLogPath: "logs/runtime-events.jsonl", seamLogPath: "logs/seams.jsonl", loggingLevel: "off",
+      }),
+      toastService: createRecordingToastService(events),
+    });
+    await resultGroups.markApplied("retired");
+  }
+  assert.deepEqual(events, []);
+  assert.equal(history.marks.length, 2);
+  assert.equal(await resultGroups.getCompleteGroup("invalid"), null);
+  assert.equal((await resultGroups.getCompleteGroup("retired"))!.fragments[0].replacementText, "Retained requirement");
+});
 
 test("compaction compute can run independently and commit remains ordered", async () => {
   const events: string[] = [];

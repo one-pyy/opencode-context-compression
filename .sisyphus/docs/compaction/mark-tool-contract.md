@@ -57,6 +57,14 @@
 - 确定性失败结果在最终投影中会被改写为 `{"ok":false,"errorCode":"...","message":"...","details":{...}}` 格式的结构化 tool result，保留原始错误码、具体失败原因与可定位的失败详情
 - 已 accepted 但暂无 pending / result 的 mark 仍是正常悬挂状态，不属于失败结果
 
+### 标记包含冲突
+
+mark 按调用先后重放。compact 可以被 compact 或 delete 完整包含；delete 不能被任何 mark 包含，即 delete 只能作为覆盖树根节点。相同范围按包含处理，由后来的 mark 作为候选父节点。部分交叉继续按重叠冲突拒绝。
+
+后来的 mark 若包住已有 delete，或后来的 delete 严格落在已有 mark 内部，该后来标记被作为 `OVERLAP_CONFLICT` 排除出覆盖树，工具调用的投影返回改写为结构化错误。先有 compact、后有包含它的 delete 仍允许，前提是范围内没有其他 delete。拒绝发生在修改覆盖树之前，不影响已有合法标记及后续选区的判定。
+
+该规则不依赖压缩结果是否存在或替换是否生效，既有历史标记也按同一规则重放。后台只执行合法覆盖树中的标记，因此被拒绝的标记不再调度；原始宿主历史及已存储结果不被改写，替换只消费合法覆盖树上的结果。
+
 ## Mark 与 replacement 的关系
 
 mark 是 lookup hint，不是 source of truth：

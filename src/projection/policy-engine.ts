@@ -186,6 +186,14 @@ function insertMarkTreeNode(
       return `Mark '${nextNode.markId}' partially overlaps '${sibling.markId}' without containment.`;
     }
 
+    // Delete marks must stay at the root; reject the later mark before mutating the tree.
+    if ((relation === "contains" || relation === "equal") && sibling.mode === "delete") {
+      return `Mark '${nextNode.markId}' contains delete mark '${sibling.markId}' and is excluded from the coverage tree. Delete marks cannot be contained by another mark.`;
+    }
+    if (relation === "inside" && nextNode.mode === "delete") {
+      return `Delete mark '${nextNode.markId}' is inside mark '${sibling.markId}' and is excluded from the coverage tree. Delete marks cannot be contained by another mark.`;
+    }
+
     if (relation === "inside") {
       if (
         container === undefined ||
