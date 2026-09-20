@@ -57,7 +57,7 @@ test("model-visible transcript drops host metadata and keeps generic tool fields
   assert.doesNotMatch(rendered, /call-1/u);
 });
 
-test("model-visible transcript truncates large input and output by head and tail", () => {
+test("model-visible transcript keeps large input and output in full", () => {
   const input = `input-head-${"a".repeat(24_000)}-input-tail`;
   const output = `output-head-${"b".repeat(24_000)}-output-tail`;
 
@@ -69,8 +69,8 @@ test("model-visible transcript truncates large input and output by head and tail
   assert.match(rendered, /input-tail/u);
   assert.match(rendered, /output-head/u);
   assert.match(rendered, /output-tail/u);
-  assert.match(rendered, /omitted \d+ chars from \d+ total/u);
-  assert.ok(rendered.length < input.length + output.length);
+  assert.doesNotMatch(rendered, /omitted/u);
+  assert.ok(rendered.length >= input.length + output.length);
 });
 
 test("compaction run input uses the same model-visible renderer for text and tool parts", () => {

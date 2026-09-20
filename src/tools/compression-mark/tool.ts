@@ -126,14 +126,14 @@ export function createCompressionMarkTool(
       "Question format: `Should I compress {process name}?` Description: briefly explain what the process contains, what direct compression may lose, and what would be preserved before compression. Options: `Directly compress`, `Write to file then compress`, `Explain in detail`; leave custom input available.\n" +
       "If the user chooses `Write to file then compress`, first write a continuation file under `.sisyphus/tmp/compression/` with enough detail to resume: user constraints, unfinished work, target files, confirmed design, key original wording, irrecoverable details, and next step. Writing this file does not mean the task is complete; after marking, return to the original task immediately.\n\n" +
       "## How to identify message IDs:\n" +
-      "Look for visible message IDs in the conversation history. They use the format `<visible-type>_<seq6>_<check_sum>`, where `<visible-type>` must be one of `protected`, `compressible`, or `referable`, and `<check_sum>` is a 2-character checksum suffix. Examples: `protected_000001_q7`, `compressible_000002_m2`, `referable_000003_w1`.\n" +
-      "The range is inclusive: both from and to messages are included. Example: To compress messages from compressible_000123_ab to referable_000130_q7, use those as start/end IDs. If from and to are the same ID, that single visible message is targeted.\n\n" +
+      "Look for visible message IDs in the conversation history. They use the format `<visible-type>_<seq6>_<check_sum>`, where `<check_sum>` is a 2-character checksum suffix. The `<visible-type>_` segment is display-only and may be omitted: a bare `<seq6>_<check_sum>` id such as `000002_m2` resolves to the same host message. Mark endpoints may be host message IDs (`protected` or `compressible`) or the `referable_...~referable_...` range markers you currently see for applied compression results; a referable marker must match a current result and resolves to the source messages it covers. Examples: `protected_000001_q7`, `compressible_000002_m2`, `referable_000015_ab`.\n" +
+      "The range is inclusive: both from and to messages are included. Example: To compress messages from compressible_000123_ab to compressible_000130_q7, use those as start/end IDs. If from and to are the same ID, that single visible message is targeted.\n\n" +
       "## Marking multiple segments:\n" +
       "A single tool call marks one continuous range. If one reply needs to mark multiple separate segments, call this tool multiple times in the same reply.\n\n" +
       "## Protected messages:\n" +
       "Compact preserves protected originals. Delete may remove user originals, including short messages, so first verify that their still-valid meaning and scope will survive in the result or in checked, discoverable local materials. System messages remain protected.\n\n" +
       "## Delete range and preparation:\n" +
-      "Within the user-authorized context-retire task, delete can consume complete applied compact summaries plus uncovered originals. Include each summary fragment in full. Write and verify still-valid requirements, preferences, conclusions, evidence boundaries and unresolved work in discoverable project-local files before marking; include file paths and essential current facts in hint. Once delete takes effect, compression_recall cannot retrieve its source range. Age or completion alone does not justify deletion. If the assembled input is too large, split it into independent legal ranges; a failed attempt leaves existing content available.\n\n" +
+      "Within the user-authorized context-retire task, delete can consume complete applied compact summaries plus uncovered originals. Include each summary fragment in full. A summary fragment shows up in context as a `[referable_...~referable_...]` range: pass those two markers as the range endpoints to consume it, or use host visible IDs that bracket the whole fragment (the nearest visible messages before and after it). Either way the fragment must be covered completely. Write and verify still-valid requirements, preferences, conclusions, evidence boundaries and unresolved work in discoverable project-local files before marking; include file paths and essential current facts in hint. Once delete takes effect, compression_recall cannot retrieve its source range. Age or completion alone does not justify deletion. If the assembled input is too large, split it into independent legal ranges; a failed attempt leaves existing content available.\n\n" +
       "## Hint (optional):\n" +
       "Guide the compression strategy by signaling task completion status and what must be preserved.\n\n" +
       "**Three types of hints:**\n" +
@@ -152,7 +152,7 @@ export function createCompressionMarkTool(
       "{\n" +
       '  "mode": "compact",\n' +
       '  "from": "compressible_000123_ab",\n' +
-      '  "to": "referable_000130_q7",\n' +
+      '  "to": "compressible_000130_q7",\n' +
       '  "hint": "Task completed and final conclusion externalized. Compress exploration to file paths. Preserve final solution, verification evidence, reusable rationale, and user-stated constraints."\n' +
       "}\n" +
       "```\n\n" +

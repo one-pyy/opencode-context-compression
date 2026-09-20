@@ -56,9 +56,11 @@ sidecar 应至少持久化：
 
 ## Mark 端点匹配规则
 
-`compression_mark` 的 `from` / `to` 可以使用完整渲染 id，例如 `protected_000001_q7` 或 `compressible_000001_q7`，但运行时定位端点时只使用 bare 部分：`seq6 + base62`。
+`compression_mark` 的 `from` / `to` 可以使用完整渲染 id，例如 `protected_000001_q7` 或 `compressible_000001_q7`，但运行时定位端点时只使用 bare 部分：`seq6 + base62`。因此 `from` / `to` 也接受省略状态前缀的裸 id，例如 `000001_q7` 与 `compressible_000001_q7` 等价；裸 id 只按宿主消息端点解析，不会被当作 `referable` 区间标记。
 
 因此，如果同一条消息在后续 projection 中因为分类变化从 `protected` 变为 `compressible`，或反向变化，只要 `000001_q7` 仍然对应同一条消息，mark replay 仍应命中。`visible-type` 是当前可见状态，不是长期稳定身份的一部分。
+
+`referable` 区间标记不是宿主消息 id，没有可供匹配的宿主 checksum：端点带 `referable` 前缀时，必须与某个当前结果组片段的标记 id 精确相等且唯一匹配，再按该标记的 `seq6` 映射到宿主消息，进入同一套覆盖树与校验流程。过期、伪造或无法唯一确定的标记按端点解析失败处理；解析结果在树节点中归一化为宿主 visible id，覆盖树本身不携带 referable 标记。
 
 ## Provider 形态边界
 

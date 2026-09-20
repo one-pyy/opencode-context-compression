@@ -4,10 +4,12 @@ import type { VisibleIdAllocation } from "../identity/visible-id.js";
 import type { HistoryReplayReader } from "../history/history-replay-reader.js";
 import type { ResultGroupRepository } from "../state/result-group-repository.js";
 import type { PolicyEngine } from "./policy-engine.js";
+import { buildStableVisibleId, parseVisibleId } from "../identity/visible-sequence.js";
 import { renderProjectionMessages } from "./rendering.js";
 import { buildCompressionInspectOverrides } from "./compression-inspect.js";
 import { buildCompressionRecallOverrides } from "./compression-recall.js";
 import { CONTEXT_COMPRESSION_NOTICE_TOOL_NAME } from "../tools/context-compression-notice.js";
+import { COMPRESSION_INSPECT_TOOL_NAME } from "../tools/compression-inspect.js";
 import type { ReminderService } from "./reminder-service.js";
 import type {
   MessageProjectionPolicy,
@@ -75,13 +77,6 @@ export function createProjectionBuilder(
       const visibleIdAllocations = Object.freeze(
         messagePolicies.map(toVisibleIdAllocation),
       );
-      const markTree = dependencies.policyEngine.buildMarkTree({
-        history,
-        visibleIdsByCanonicalId: new Map(
-          messagePolicies.map((policy) => [policy.canonicalId, policy.visibleId]),
-        ),
-      });
-      const conflicts = dependencies.policyEngine.detectConflicts(markTree);
       const rangeStart = history.messages[0]?.sequence ?? 1;
       const rangeEnd = history.messages.at(-1)?.sequence ?? 0;
       const resultGroups =
@@ -91,6 +86,14 @@ export function createProjectionBuilder(
               rangeEnd,
             )
           : [];
+      const markTree = dependencies.policyEngine.buildMarkTree({
+        history,
+        visibleIdsByCanonicalId: new Map(
+          messagePolicies.map((policy) => [policy.canonicalId, policy.visibleId]),
+        ),
+        resultGroups,
+      });
+      const conflicts = dependencies.policyEngine.detectConflicts(markTree);
 
       const failedToolMessageIds = new Map<string, ToolMessageFailure>();
       
@@ -267,6 +270,24 @@ function injectReminderArtifacts(
           reminderToolName: CONTEXT_COMPRESSION_NOTICE_TOOL_NAME,
         } satisfies ProjectedPromptMessage),
       );
+
+      if (reminder.inspectListing !== undefined) {
+        // Ship the inspect listing as a separate synthetic call pair right after
+        // the reminder so the model gets exact ranges without an extra round trip.
+        projected.push(
+          Object.freeze({
+            source: "synthetic",
+            role: "assistant",
+            visibleId: buildStableVisibleId(
+              "reminder",
+              parseVisibleId(reminder.anchorVisibleId).visibleSeq,
+              `${reminder.visibleId}:inspect`,
+            ),
+            contentText: reminder.inspectListing,
+            reminderToolName: COMPRESSION_INSPECT_TOOL_NAME,
+          } satisfies ProjectedPromptMessage),
+        );
+      }
     });
   });
 

@@ -23,6 +23,25 @@ import {
   openSessionSidecarRepository,
 } from "../../../src/state/sidecar-store.js";
 import { createHermeticE2EFixture } from "../harness/fixture.js";
+import { parseVisibleId } from "../../../src/identity/visible-sequence.js";
+
+function bareId(visibleId: string): string {
+  return visibleId.replace(/^[a-z]+_/u, "");
+}
+
+test("bare seq6_base62 ids parse as host endpoints without becoming referable", () => {
+  const prefixed = parseVisibleId("compressible_000123_ab");
+  const bare = parseVisibleId("000123_ab");
+
+  assert.deepEqual(
+    { visibleSeq: bare.visibleSeq, suffix: bare.suffix },
+    { visibleSeq: prefixed.visibleSeq, suffix: prefixed.suffix },
+  );
+  assert.notEqual(bare.kind, "referable");
+  assert.throws(() => parseVisibleId("ab_cd"));
+  assert.throws(() => parseVisibleId("000123_"));
+  assert.throws(() => parseVisibleId("compressible_0_ab"));
+});
 
 test(
   "visible ids stay stable for assistant and tool output while reminders render as no-op tool results",
@@ -107,6 +126,18 @@ test(
       `[${expectedIds.system.assignedVisibleId}] System guidance.`,
       `[${expectedIds.assistant.assignedVisibleId}] I can help with that.`,
       "Soft compact reminder.",
+      JSON.stringify({
+        ok: true,
+        sections: [
+          {
+            from: bareId(expectedIds.assistant.assignedVisibleId),
+            to: bareId(expectedIds.assistant.assignedVisibleId),
+            totalTokens: 6,
+            atomCount: 1,
+          },
+        ],
+        totalTokens: 6,
+      }),
       `[${expectedIds.tool.assignedVisibleId}] Search results arrive here.`,
     ]);
     assert.match(expectedIds.assistant.assignedVisibleId, /^compressible_000002_[0-9A-Za-z]{2}$/u);
@@ -134,6 +165,24 @@ test(
       /^reminder_000002_[0-9A-Za-z]{2}$/u,
     );
     assert.equal(secondProjection.reminders[0]?.contentText, "Soft compact reminder.");
+
+    assert.equal(secondProjection.messages.length, 6);
+    assert.equal(secondProjection.messages[3]?.source, "reminder");
+    assert.equal(
+      secondProjection.messages[3]?.reminderToolName,
+      "opencode_context_compression_notice",
+    );
+    assert.equal(secondProjection.messages[4]?.source, "synthetic");
+    assert.equal(secondProjection.messages[4]?.reminderToolName, "compression_inspect");
+    assert.match(
+      secondProjection.messages[4]?.visibleId ?? "",
+      /^reminder_000002_[0-9A-Za-z]{2}$/u,
+    );
+    assert.notEqual(
+      secondProjection.messages[4]?.visibleId,
+      secondProjection.reminders[0]?.visibleId,
+    );
+    assert.match(secondProjection.messages[4]?.contentText ?? "", /"atomCount":1/u);
 
     const evidencePath = await fixture.evidence.writeJson(
       "visible-sequence-rendering",

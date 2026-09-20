@@ -73,10 +73,41 @@ export function prependVisibleIdRange(
   return contentText.trim().length === 0 ? prefix : `${prefix} ${contentText}`;
 }
 
+export interface ReferableMarkerIds {
+  readonly stableKey: string;
+  readonly startId: string;
+  readonly endId: string;
+}
+
+// Shared by rendering and mark endpoint resolution so both sides derive the
+// same referable marker ids for a result fragment.
+export function buildReferableMarkerIds(input: {
+  readonly markId: string;
+  readonly fragmentIndex: number;
+  readonly sourceStartSeq: number;
+  readonly sourceEndSeq: number;
+}): ReferableMarkerIds {
+  const stableKey = `${input.markId}:${input.fragmentIndex}`;
+  return Object.freeze({
+    stableKey,
+    startId: buildStableVisibleId("referable", input.sourceStartSeq, stableKey),
+    endId: buildStableVisibleId("referable", input.sourceEndSeq, stableKey),
+  } satisfies ReferableMarkerIds);
+}
+
+const DEFAULT_BARE_VISIBLE_KIND = "compressible";
+
 export function parseVisibleId(visibleId: string): ParsedVisibleId {
-  const [kind, seq, ...suffixParts] = visibleId.split("_");
-  const visibleSeq = Number.parseInt(seq ?? "", 10);
-  const suffix = suffixParts.join("_");
+  const segments = visibleId.split("_");
+  const firstSegment = segments[0];
+  // A bare `<seq6>_<base62>` id omits the visible-type segment. For host
+  // endpoints the type is display-only, so a bare id resolves to the same
+  // `seq6 + base62` key. It must not default to `referable`, which is the only
+  // kind that selects a different resolution path.
+  const isBare = firstSegment !== undefined && /^\d+$/u.test(firstSegment);
+  const kind = isBare ? DEFAULT_BARE_VISIBLE_KIND : (firstSegment ?? "");
+  const visibleSeq = Number.parseInt((isBare ? firstSegment : segments[1]) ?? "", 10);
+  const suffix = (isBare ? segments.slice(1) : segments.slice(2)).join("_");
 
   if (!kind || !Number.isInteger(visibleSeq) || visibleSeq < 1 || !suffix) {
     throw new Error(`Invalid visible id '${visibleId}'.`);

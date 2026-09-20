@@ -60,17 +60,13 @@ output: <compact JSON or string>
 - `callID`、`messageID`、`sessionID`、provider item id 等运行时身份字段
 - diagnostics、重复 diff、重复 patch cache、加密 reasoning metadata、宿主调度状态
 
-## JSON 与截断规则（已实现）
+## JSON 规则（已实现）
 
 非字符串 input / output 使用紧凑 JSON：不带缩进，不 pretty-print。中文等 Unicode 字符保持可读输出；不要主动转成 `\uXXXX`。
 
-input 和 output 各自应用 head-tail 上限：
+input 和 output 按模型可见内容完整渲染，不做字符数截断。压缩输入必须等于模型可见内容，否则压缩模型看到的范围与主模型不一致。
 
-- 前 10,000 字符
-- 后 10,000 字符
-- 中间用明确省略标记连接，标记必须包含原始字符数与省略字符数
-
-截断只应用于单个 input 或 output 字段，不应用于整条 transcript 的最终拼接结果；这样可以避免一个超大工具结果吞掉同条消息其他信息。
+体积控制只靠字段白名单：`metadata` / diagnostics / diff 等宿主内部字段直接丢弃，不进入 transcript。历史上的百万 token 膨胀来自这些内部字段，不来自 input/output 本身，因此不需要对 input/output 设上限。
 
 ## 消费方约束（已实现）
 
@@ -90,8 +86,8 @@ input 和 output 各自应用 head-tail 上限：
 1. 同一 assistant message 同时包含 text 和 tool part：渲染结果必须同时包含文本、tool input、tool output。
 2. `reasoning` 不计入；`patch` / `file` 不再通过额外入口计入，只能随 tool input/output 计入。
 3. tool-only assistant message：渲染结果不得包含 `metadata` / diagnostics / runtime id。
-4. 大型 `state.metadata.diagnostics`：即使 metadata 达到 1MB，渲染结果也必须保持在 input/output 上限内。
-5. 大型 `state.input` 或 `state.output`：保留前 10,000 字符与后 10,000 字符，并包含省略标记。
+4. 大型 `state.metadata.diagnostics`：即使 metadata 达到 1MB，渲染结果也不受影响。
+5. 大型 `state.input` 或 `state.output`：必须完整渲染，不做截断。
 6. 非字符串 input / output：使用紧凑 JSON，不能因 pretty JSON 产生额外体积膨胀。
 
 ## 相关文档

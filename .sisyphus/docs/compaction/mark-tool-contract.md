@@ -23,7 +23,9 @@
 - `mode` 是 `"compact" | "delete"`
 - `from` 与 `to` 来自当前 projected visible view
 - `from` 与 `to` 是双闭区间端点，端点消息自身也包含在目标范围内
-- `from` 与 `to` 的公共输入形态是 `<visible-type>_<seq6>_<base62>`；replay 定位端点时使用稳定的 `seq6 + base62`，不把 `visible-type` 当作长期身份字段
+- `from` 与 `to` 解析到目标范围：宿主消息端点按 `seq6 + base62` 定位；`referable` 区间标记必须唯一匹配当前结果组的片段标记，再按 `seq6` 解析到它覆盖的来源消息，可直接用于跨已压缩范围选区。两种端点都必须完整覆盖范围内的摘要片段
+- `from` 与 `to` 的书写形态是 `<visible-type>_<seq6>_<base62>`；replay 不把 `visible-type` 当作长期身份字段：宿主消息端点按稳定的 `seq6 + base62` 定位，`referable` 端点先按标记 id 匹配当前结果组、再按 `seq6` 定位。身份层规则见 [visible id 系统](../projection/visible-id-system.md#mark-端点匹配规则)
+- 端点无法解析到宿主消息、或 `referable` 端点匹配不到当前结果组片段（含过期与多义）时，该次调用不创建 mark，并按失败结果呈现
 - 成功调用时立即返回随机 `mark id`
 - `mode=delete` 且当前策略不允许 delete 时，返回错误结果
 - 主 agent 使用 delete 须遵循 [用户授权](allow-delete.md#用户授权)，工具描述持续展示该限制；普通 reminder 和 cpmark 使用 compact。
@@ -36,9 +38,11 @@
 - 工具调用当下只返回 `inspectId` 占位结果
 - 后续 `messages.transform` 使用当前 `ProjectionState.messagePolicies` 中已经计算出的 `tokenCount` 生成真实结果
 - `mergeAdjacent=true` 时，真实结果返回两级结构：referable replacement 切分外层 `sections`，protected 消息在 section 内切分连续 compressible `atoms`
-- 每个 atom 返回起止 visible id、消息数与 token 数；每个 section 返回首尾 atom 的 visible id、`atomCount` 与 atom token 总数；`atomCount=1` 时省略 `atoms` 字段，避免重复范围
+- 每个 atom 返回起止 visible id 与 token 数；atom id 省略 `compressible_` 前缀，形如 `<seq6>_<base62>`，因为 atom 按定义都是 compressible。每个 section 返回首尾 atom 的 visible id、`atomCount` 与 atom token 总数；`atomCount=1` 时省略 `atoms` 字段，避免重复范围
 - sections 按 `totalTokens` 降序排列；`tokens <= 0` 的 compressible 消息不生成 atom；顶层同时返回所有 section 的 token 总数
 - `mergeAdjacent=false` 时，真实结果保留按消息顺序排列的明细：`[{"id":"compressible_...","tokens":123}]`
+- 结果只描述当前投影中仍可见的 compressible 消息；已应用压缩结果只作为 section 边界出现，不作为条目返回。因此“未出现在结果中”不代表该范围不在窗口内或不可删除
+- `compression_inspect` 的 `to` 端点按 `seq6` 定位，`referable` 区间 id 可以用于 inspect；mark 的端点规则见 [工具契约](#工具契约)
 - sections / atoms 只提供确定性的范围与计数结构，不判断内容是否已完成，也不构成自动 mark 建议；语义选择由调用模型完成
 
 `compression_inspect` 的 token 数据来自消息级策略，不是 mark tree 本身：

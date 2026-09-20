@@ -426,16 +426,16 @@ async function collectEligibleMarkIds(input: {
     })),
   );
 
+  const resultGroupsByMarkId = new Map(
+    input.committedResultGroups.map((group) => [group.markId, group]),
+  );
   const tree = input.policyEngine.buildMarkTree({
     history: input.history,
     visibleIdsByCanonicalId: new Map(
       messagePolicies.map((policy) => [policy.canonicalId, policy.visibleId]),
     ),
+    resultGroups: input.committedResultGroups,
   });
-
-  const resultGroupsByMarkId = new Map(
-    input.committedResultGroups.map((group) => [group.markId, group]),
-  );
   const tokenCountBySequence = new Map(
     messagePolicies.map((policy) => [policy.sequence, policy.tokenCount]),
   );

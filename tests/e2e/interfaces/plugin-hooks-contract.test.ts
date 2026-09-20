@@ -277,7 +277,7 @@ test("chat.params scheduler metadata includes mark eligibility diagnostics", asy
               markId: "mark_missing_visible_id",
               errorCode: "OVERLAP_CONFLICT",
               message:
-                "Mark targets an unknown or reversed visible-id range and is excluded from the coverage tree.",
+                "Mark targets an unknown or reversed visible-id range and is excluded from the coverage tree. Mark endpoints must resolve to a host message or to a referable range marker of a current compression result.",
             },
           ],
           queuedMarkIdsBeforeThreshold: [],

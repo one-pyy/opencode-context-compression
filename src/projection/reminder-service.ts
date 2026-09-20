@@ -1,5 +1,6 @@
 import { defineInternalModuleContract } from "../internal/module-contract.js";
 import { buildStableVisibleId } from "../identity/visible-sequence.js";
+import { buildCompressionInspectListing } from "./compression-inspect.js";
 import type {
   ProjectedPromptMessage,
   ProjectionState,
@@ -75,12 +76,24 @@ export function createConfiguredReminderService(
 
         compressibleTokens += policy.tokenCount;
 
+        let inspectListing: string | undefined;
+        let hasInspectListing = false;
+
         while (true) {
           const softMilestone = nextSoft < options.hhard ? nextSoft : Number.POSITIVE_INFINITY;
           const hardMilestone = nextHard;
           const nextMilestone = Math.min(softMilestone, hardMilestone);
           if (compressibleTokens < nextMilestone) {
             break;
+          }
+
+          if (!hasInspectListing) {
+            inspectListing = buildCompressionInspectListing({
+              messages,
+              policies: state.messagePolicies,
+              to: policy.visibleId,
+            });
+            hasInspectListing = true;
           }
 
           const kind =
@@ -98,6 +111,7 @@ export function createConfiguredReminderService(
                 `${kind}:${policy.canonicalId}:${nextMilestone}`,
               ),
               contentText: options.promptTextByKind[kind],
+              ...(inspectListing === undefined ? {} : { inspectListing }),
             } satisfies ReminderArtifact),
           );
 

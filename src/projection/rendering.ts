@@ -1,4 +1,4 @@
-import { buildStableVisibleId, prependVisibleId, prependVisibleIdRange } from "../identity/visible-sequence.js";
+import { buildReferableMarkerIds, prependVisibleId, prependVisibleIdRange } from "../identity/visible-sequence.js";
 import type { ReplayedHistory, ReplayedHistoryMessage } from "../history/history-replay-reader.js";
 import type { CompleteResultGroup } from "../state/result-group-repository.js";
 import type {
@@ -200,16 +200,17 @@ function renderResultGroupFragment(
     } satisfies ProjectedPromptMessage);
   }
 
-  const stableKey = `${resultGroup.markId}:${fragment.fragmentIndex}`;
-  const visibleId = buildStableVisibleId(
-    "referable",
-    fragment.sourceStartSeq,
-    stableKey,
-  );
+  const markers = buildReferableMarkerIds({
+    markId: resultGroup.markId,
+    fragmentIndex: fragment.fragmentIndex,
+    sourceStartSeq: fragment.sourceStartSeq,
+    sourceEndSeq: fragment.sourceEndSeq,
+  });
+  const visibleId = markers.startId;
   const contentText = prependVisibleIdRange(
     fragment.sourceStartSeq,
     fragment.sourceEndSeq,
-    stableKey,
+    markers.stableKey,
     fragment.replacementText,
   );
 

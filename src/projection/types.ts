@@ -73,6 +73,7 @@ export interface ReminderArtifact {
   readonly anchorVisibleId: string;
   readonly visibleId: string;
   readonly contentText: string;
+  readonly inspectListing?: string;
 }
 
 export interface ProjectionState {

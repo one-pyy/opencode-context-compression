@@ -99,7 +99,7 @@ export function validateCompressionMarkInput(
   const record = asRecord(input);
   if (record === undefined) {
     return invalidRange(
-      'compression_mark input must be a JSON object. Example: {"mode":"compact","from":"compressible_000123_ab","to":"referable_000130_q7"}',
+      'compression_mark input must be a JSON object. Example: {"mode":"compact","from":"compressible_000123_ab","to":"compressible_000130_q7"}',
     );
   }
 

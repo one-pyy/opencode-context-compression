@@ -1,9 +1,6 @@
 const LEADING_VISIBLE_ID_PREFIX_PATTERN =
   /^\[(?:protected|compressible|referable)_\d{6}_[0-9A-Za-z]{2}\]\s?/u;
 
-const FIELD_HEAD_CHAR_LIMIT = 10_000;
-const FIELD_TAIL_CHAR_LIMIT = 10_000;
-
 export interface RenderModelVisiblePartsTextOptions {
   readonly stripLeadingVisibleIdPrefix?: boolean;
 }
@@ -70,8 +67,7 @@ function renderToolPart(part: Readonly<Record<string, unknown>>): string {
 }
 
 function serializeModelVisibleField(value: unknown): string {
-  const serialized = typeof value === "string" ? value : stringifyCompactJson(value);
-  return truncateHeadTail(serialized);
+  return typeof value === "string" ? value : stringifyCompactJson(value);
 }
 
 function stringifyCompactJson(value: unknown): string {
@@ -81,16 +77,6 @@ function stringifyCompactJson(value: unknown): string {
   } catch {
     return String(value);
   }
-}
-
-function truncateHeadTail(value: string): string {
-  const maxLength = FIELD_HEAD_CHAR_LIMIT + FIELD_TAIL_CHAR_LIMIT;
-  if (value.length <= maxLength) {
-    return value;
-  }
-
-  const omittedCharCount = value.length - maxLength;
-  return `${value.slice(0, FIELD_HEAD_CHAR_LIMIT)}\n[... omitted ${omittedCharCount} chars from ${value.length} total ...]\n${value.slice(-FIELD_TAIL_CHAR_LIMIT)}`;
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

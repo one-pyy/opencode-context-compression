@@ -1,7 +1,36 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { createFlatPolicyEngine } from "../../src/projection/policy-engine.js";
+import { buildReferableMarkerIds } from "../../src/identity/visible-sequence.js";
+import type { CompleteResultGroup } from "../../src/state/result-group-repository.js";
 import type { ReplayedHistory, ReplayedHistoryMessage, ReplayedMarkIntent, ReplayedCompressionMarkToolCall } from "../../src/history/history-replay-reader.js";
+
+function createResultGroup(input: {
+  markId: string;
+  sourceStartSeq: number;
+  sourceEndSeq: number;
+  mode?: "compact" | "delete";
+}): CompleteResultGroup {
+  return {
+    markId: input.markId,
+    mode: input.mode ?? "compact",
+    sourceStartSeq: input.sourceStartSeq,
+    sourceEndSeq: input.sourceEndSeq,
+    fragmentCount: 1,
+    executionMode: "direct-llm",
+    createdAt: "2026-09-17T00:00:00.000Z",
+    payloadSha256: "sha256",
+    applied: true,
+    fragments: [
+      {
+        fragmentIndex: 0,
+        sourceStartSeq: input.sourceStartSeq,
+        sourceEndSeq: input.sourceEndSeq,
+        replacementText: "summary"
+      }
+    ]
+  };
+}
 
 function createMsg(seq: number, content: string, length: number): ReplayedHistoryMessage {
   return {
@@ -52,7 +81,7 @@ test("Policy Engine - Build Mark Tree (Intersection Rejection)", () => {
     ["msg_1", "compressible_000001_a1"], ["msg_2", "compressible_000002_a2"], ["msg_3", "compressible_000003_a3"], ["msg_4", "compressible_000004_a4"]
   ]);
 
-  const tree = engine.buildMarkTree({ history, visibleIdsByCanonicalId });
+  const tree = engine.buildMarkTree({ history, visibleIdsByCanonicalId, resultGroups: [] });
   
   // m_bad should be rejected due to overlap without containment
   assert.equal(tree.marks.length, 1);
@@ -84,7 +113,7 @@ test("Policy Engine - Build Mark Tree resolves visible IDs by sequence and check
     ["msg_2", "compressible_000002_cd"]
   ]);
 
-  const tree = engine.buildMarkTree({ history, visibleIdsByCanonicalId });
+  const tree = engine.buildMarkTree({ history, visibleIdsByCanonicalId, resultGroups: [] });
 
   assert.equal(tree.conflicts.length, 0);
   assert.equal(tree.marks.length, 1);
@@ -113,9 +142,94 @@ test("Policy Engine - Build Mark Tree rejects wrong visible ID checksum", () => 
     ["msg_2", "compressible_000002_cd"]
   ]);
 
-  const tree = engine.buildMarkTree({ history, visibleIdsByCanonicalId });
+  const tree = engine.buildMarkTree({ history, visibleIdsByCanonicalId, resultGroups: [] });
 
   assert.equal(tree.marks.length, 0);
   assert.equal(tree.conflicts.length, 1);
   assert.equal(tree.conflicts[0].markId, "m_wrong_checksum");
+});
+
+test("Policy Engine - Build Mark Tree resolves referable range markers of a current result", () => {
+  const engine = createFlatPolicyEngine({ smallUserMessageThreshold: 50 });
+  const messages = [createMsg(1, "A1", 100), createMsg(2, "T1", 100), createMsg(3, "T2", 100)];
+  const markers = buildReferableMarkerIds({
+    markId: "m_applied",
+    fragmentIndex: 0,
+    sourceStartSeq: 2,
+    sourceEndSeq: 3
+  });
+
+  const marks: ReplayedMarkIntent[] = [
+    {
+      markId: "m_referable",
+      mode: "delete",
+      sourceSequence: 4,
+      sourceMessageId: "msg_4",
+      startVisibleMessageId: markers.startId,
+      endVisibleMessageId: markers.endId
+    }
+  ];
+
+  const history: ReplayedHistory = { sessionId: "ses_1", messages, marks, compressionMarkToolCalls: [] };
+  const visibleIdsByCanonicalId = new Map([
+    ["msg_1", "compressible_000001_a1"],
+    ["msg_2", "compressible_000002_a2"],
+    ["msg_3", "compressible_000003_a3"]
+  ]);
+
+  const tree = engine.buildMarkTree({
+    history,
+    visibleIdsByCanonicalId,
+    resultGroups: [
+      createResultGroup({ markId: "m_applied", sourceStartSeq: 2, sourceEndSeq: 3 })
+    ]
+  });
+
+  assert.equal(tree.conflicts.length, 0);
+  assert.equal(tree.marks.length, 1);
+  assert.equal(tree.marks[0].startSequence, 2);
+  assert.equal(tree.marks[0].endSequence, 3);
+  // The tree carries the resolved host ids, not the referable markers.
+  assert.equal(tree.marks[0].startVisibleMessageId, "compressible_000002_a2");
+  assert.equal(tree.marks[0].endVisibleMessageId, "compressible_000003_a3");
+});
+
+test("Policy Engine - Build Mark Tree rejects referable markers of a stale or unknown result", () => {
+  const engine = createFlatPolicyEngine({ smallUserMessageThreshold: 50 });
+  const messages = [createMsg(1, "A1", 100), createMsg(2, "T1", 100)];
+  const staleMarkers = buildReferableMarkerIds({
+    markId: "m_superseded",
+    fragmentIndex: 0,
+    sourceStartSeq: 1,
+    sourceEndSeq: 2
+  });
+
+  const marks: ReplayedMarkIntent[] = [
+    {
+      markId: "m_referable_missing",
+      mode: "compact",
+      sourceSequence: 3,
+      sourceMessageId: "msg_3",
+      startVisibleMessageId: staleMarkers.startId,
+      endVisibleMessageId: "compressible_000002_a2"
+    }
+  ];
+
+  const history: ReplayedHistory = { sessionId: "ses_1", messages, marks, compressionMarkToolCalls: [] };
+  const visibleIdsByCanonicalId = new Map([
+    ["msg_1", "compressible_000001_a1"],
+    ["msg_2", "compressible_000002_a2"]
+  ]);
+
+  const tree = engine.buildMarkTree({
+    history,
+    visibleIdsByCanonicalId,
+    resultGroups: [
+      createResultGroup({ markId: "m_current", sourceStartSeq: 1, sourceEndSeq: 2 })
+    ]
+  });
+
+  assert.equal(tree.marks.length, 0);
+  assert.equal(tree.conflicts.length, 1);
+  assert.equal(tree.conflicts[0].markId, "m_referable_missing");
 });

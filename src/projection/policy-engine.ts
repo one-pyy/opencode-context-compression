@@ -1,6 +1,10 @@
 import { defineInternalModuleContract } from "../internal/module-contract.js";
-import { parseVisibleId } from "../identity/visible-sequence.js";
+import {
+  buildReferableMarkerIds,
+  parseVisibleId,
+} from "../identity/visible-sequence.js";
 import type { ReplayedHistory } from "../history/history-replay-reader.js";
+import type { CompleteResultGroup } from "../state/result-group-repository.js";
 import type { TransformEnvelope } from "../seams/noop-observation.js";
 import { estimateEnvelopeTokensWithService } from "../token-estimation.js";
 import type {
@@ -13,6 +17,7 @@ import type {
 interface BuildMarkTreeInput {
   readonly history: ReplayedHistory;
   readonly visibleIdsByCanonicalId: ReadonlyMap<string, string>;
+  readonly resultGroups: readonly CompleteResultGroup[];
 }
 
 interface MutableMarkTreeNode
@@ -35,7 +40,7 @@ export interface PolicyEngine {
 
 export const POLICY_ENGINE_INTERNAL_CONTRACT = defineInternalModuleContract({
   module: "PolicyEngine",
-  inputs: ["ReplayedHistory", "visible-id lookup", "MarkTree"],
+  inputs: ["ReplayedHistory", "visible-id lookup", "result groups", "MarkTree"],
   outputs: ["MessageProjectionPolicySeed[]", "MarkTree", "ConflictRecord[]"],
   mutability: "read-only",
   reads: ["replayed canonical messages", "replayed mark intents", "token estimation"],
@@ -93,6 +98,7 @@ export function createFlatPolicyEngine(
         (left, right) => left.sourceSequence - right.sourceSequence,
       );
       const visibleSequences = new Map<string, number>();
+      const visibleIdBySequence = new Map<number, string>();
       const conflicts: ConflictRecord[] = [];
       const roots: MutableMarkTreeNode[] = [];
 
@@ -100,25 +106,83 @@ export function createFlatPolicyEngine(
         const visibleId = input.visibleIdsByCanonicalId.get(message.canonicalId);
         if (visibleId) {
           visibleSequences.set(toVisibleIdLookupKey(visibleId), message.sequence);
+          visibleIdBySequence.set(message.sequence, visibleId);
         }
       });
 
+      // Referable markers are rendered per result fragment, so resolution
+      // compares the exact marker id: stale or fabricated markers fail, and a
+      // marker claimed by two different sequences is rejected as ambiguous.
+      const referableSequences = new Map<string, number>();
+      const ambiguousReferableIds = new Set<string>();
+      const registerReferableMarker = (markerId: string, sequence: number): void => {
+        const existing = referableSequences.get(markerId);
+        if (existing !== undefined && existing !== sequence) {
+          ambiguousReferableIds.add(markerId);
+          return;
+        }
+
+        referableSequences.set(markerId, sequence);
+      };
+
+      input.resultGroups.forEach((group) => {
+        if (group.mode === "delete") {
+          return;
+        }
+
+        group.fragments.forEach((fragment) => {
+          const markers = buildReferableMarkerIds({
+            markId: group.markId,
+            fragmentIndex: fragment.fragmentIndex,
+            sourceStartSeq: fragment.sourceStartSeq,
+            sourceEndSeq: fragment.sourceEndSeq,
+          });
+          registerReferableMarker(markers.startId, fragment.sourceStartSeq);
+          registerReferableMarker(markers.endId, fragment.sourceEndSeq);
+        });
+      });
+
+      // Host endpoints resolve by seq6 + checksum; referable markers resolve
+      // only when they match exactly one current result fragment.
+      const resolveEndpoint = (
+        visibleId: string,
+      ): { readonly sequence: number; readonly hostVisibleId: string } | undefined => {
+        const hostSequence = visibleSequences.get(toVisibleIdLookupKey(visibleId));
+        if (hostSequence !== undefined) {
+          return {
+            sequence: hostSequence,
+            hostVisibleId: visibleIdBySequence.get(hostSequence) ?? visibleId,
+          };
+        }
+
+        const parsed = parseVisibleId(visibleId);
+        if (parsed.kind !== "referable" || ambiguousReferableIds.has(visibleId)) {
+          return undefined;
+        }
+
+        const referableSequence = referableSequences.get(visibleId);
+        if (referableSequence === undefined) {
+          return undefined;
+        }
+
+        const hostVisibleId = visibleIdBySequence.get(referableSequence);
+        return hostVisibleId === undefined
+          ? undefined
+          : { sequence: referableSequence, hostVisibleId };
+      };
+
       marks.forEach((mark) => {
-        const startSequence = visibleSequences.get(
-          toVisibleIdLookupKey(mark.startVisibleMessageId),
-        );
-        const endSequence = visibleSequences.get(
-          toVisibleIdLookupKey(mark.endVisibleMessageId),
-        );
+        const start = resolveEndpoint(mark.startVisibleMessageId);
+        const end = resolveEndpoint(mark.endVisibleMessageId);
         if (
-          startSequence === undefined ||
-          endSequence === undefined ||
-          startSequence > endSequence
+          start === undefined ||
+          end === undefined ||
+          start.sequence > end.sequence
         ) {
           conflicts.push(
             createConflict(
               mark.markId,
-              `Mark '${mark.markId}' targets an unknown or reversed visible-id range and is excluded from the coverage tree.`,
+              `Mark '${mark.markId}' targets an unknown or reversed visible-id range and is excluded from the coverage tree. Mark endpoints must resolve to a host message or to a referable range marker of a current compression result.`,
             ),
           );
           return;
@@ -127,12 +191,12 @@ export function createFlatPolicyEngine(
         const mutableNode: MutableMarkTreeNode = {
           markId: mark.markId,
           mode: mark.mode,
-          startVisibleMessageId: mark.startVisibleMessageId,
-          endVisibleMessageId: mark.endVisibleMessageId,
+          startVisibleMessageId: start.hostVisibleId,
+          endVisibleMessageId: end.hostVisibleId,
           sourceMessageId: mark.sourceMessageId,
           sourceSequence: mark.sourceSequence,
-          startSequence,
-          endSequence,
+          startSequence: start.sequence,
+          endSequence: end.sequence,
           children: [],
           hint: mark.hint,
         };

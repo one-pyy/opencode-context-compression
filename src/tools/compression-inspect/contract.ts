@@ -22,7 +22,6 @@ export interface CompressionInspectMessageTokenInfo {
 export interface CompressionInspectAtom {
   readonly from: string;
   readonly to: string;
-  readonly messageCount: number;
   readonly tokens: number;
 }
 
@@ -214,7 +213,6 @@ export function deserializeCompressionInspectResult(
                 if (
                   typeof atomItem?.from !== "string" ||
                   typeof atomItem.to !== "string" ||
-                  typeof atomItem.messageCount !== "number" ||
                   typeof atomItem.tokens !== "number"
                 ) {
                   throw new Error("Invalid serialized compression_inspect atom payload.");
@@ -222,7 +220,6 @@ export function deserializeCompressionInspectResult(
                 return Object.freeze({
                   from: atomItem.from,
                   to: atomItem.to,
-                  messageCount: atomItem.messageCount,
                   tokens: atomItem.tokens,
                 });
               })

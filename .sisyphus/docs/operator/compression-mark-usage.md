@@ -20,7 +20,7 @@
 {
   "mode": "compact",
   "from": "compressible_000123_ab",
-  "to": "referable_000130_q7",
+  "to": "compressible_000130_q7",
   "hint": "optional guidance"
 }
 ```
@@ -32,8 +32,10 @@
   - `"delete"`：请求删除风格处理；是否允许取决于当前运行时 delete permission。目标行为与实施状态见 [删除契约](../compaction/allow-delete.md#实施状态)，选区前按 [主 agent 与本地文档职责](../compaction/allow-delete.md#主-agent-与本地文档职责) 核对信息保留和必要落盘。
 - `from`
   - 起始可见消息 id，格式为 `<visible-type>_<seq6>_<base62>`；运行时按 `seq6 + base62` 定位端点
+  - 端点可以是宿主消息（`protected` / `compressible`），也可以是 `referable` 区间标记；后者必须唯一匹配当前结果组的片段标记，再解析到它覆盖的来源消息
 - `to`
   - 结束可见消息 id，格式为 `<visible-type>_<seq6>_<base62>`；运行时按 `seq6 + base62` 定位端点
+  - 与 `from` 相同的宿主消息约束；跨已压缩范围选区时用包住该范围的宿主端点，并完整覆盖其中的摘要片段
 - `hint`
   - 可选压缩指导，例如保留文件路径、错误信息或工具参数
 
@@ -53,21 +55,19 @@
   "ok": true,
   "sections": [
     {
-      "from": "compressible_000123_ab",
-      "to": "compressible_000128_ef",
+      "from": "000123_ab",
+      "to": "000128_ef",
       "totalTokens": 19467,
       "atomCount": 2,
       "atoms": [
         {
-          "from": "compressible_000123_ab",
-          "to": "compressible_000125_cd",
-          "messageCount": 3,
+          "from": "000123_ab",
+          "to": "000125_cd",
           "tokens": 12000
         },
         {
-          "from": "compressible_000128_ef",
-          "to": "compressible_000128_ef",
-          "messageCount": 1,
+          "from": "000128_ef",
+          "to": "000128_ef",
           "tokens": 7467
         }
       ]
@@ -76,6 +76,8 @@
   "totalTokens": 19467
 }
 ```
+
+atom id 省略 `compressible_` 前缀，因为 atom 按定义都是 compressible。若要把该 id 用作 `compression_mark` 端点，需补回 `<visible-type>_` 前缀。
 
 sections 按 `totalTokens` 从高到低排列。`tokens <= 0` 的 compressible 消息不会生成 atom；`atomCount=1` 时省略 `atoms` 字段，避免重复 outer `from/to`。
 
@@ -87,7 +89,7 @@ sections / atoms 只说明当前投影中的结构和 token 数。模型仍需�
 {
   "ok": true,
   "messages": [
-    { "id": "compressible_000123_ab", "tokens": 6489 }
+    { "id": "000123_ab", "tokens": 6489 }
   ]
 }
 ```
@@ -98,7 +100,8 @@ sections / atoms 只说明当前投影中的结构和 token 数。模型仍需�
 
 - 目标 id 来自**当前 projection 可见视图**，不是宿主内部任意原始字段。
 - 当前可见 id 形如 `protected_000001_q7`、`compressible_000002_m2`、`referable_000003_w1`，不是 `msg_...`。
-- `protected` / `compressible` / `referable` 前缀只表示当前可见状态；如果前缀后来变化，只要 `seq6 + base62` 仍匹配同一条消息，mark replay 仍可命中。
+- `protected` / `compressible` / `referable` 前缀只表示当前可见状态；对宿主消息，只要前缀变化后 `seq6 + base62` 仍匹配同一条宿主消息，mark replay 仍可命中。
+- `referable_...` 不是宿主消息 id，而是已应用压缩结果的区间标记：`seq6` 指向被压缩的来源范围。它可以作为 `compression_mark` 端点，但必须唯一匹配当前结果组的片段标记（过期或多义会被拒绝），也用于 `compression_recall` 与 `compression_inspect` 的定位；跨已压缩范围选区时，也可以改用包住该范围的宿主端点。
 - `from` 和 `to` 是双闭区间端点；如果两者相同，范围就是这一条 visible message。
 - 应优先选择已经完成、后续不太需要逐条引用的历史片段。
 - 对最近几条消息、仍在进行中的任务或尚未收敛的问题，不应过早压缩。

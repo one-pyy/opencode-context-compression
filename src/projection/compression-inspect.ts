@@ -57,7 +57,7 @@ export function buildCompressionInspectOverrides(
               .filter((entry) => entry.visibleKind === "compressible")
               .map((entry) =>
                 Object.freeze({
-                  id: entry.id,
+                  id: toVisibleIdLookupKey(entry.id),
                   tokens: entry.tokens,
                 } satisfies CompressionInspectMessageTokenInfo),
               ),
@@ -89,6 +89,29 @@ export function buildCompressionInspectOverrides(
   );
 }
 
+export function buildCompressionInspectListing(input: {
+  readonly messages: readonly ProjectedPromptMessage[];
+  readonly policies: readonly MessageProjectionPolicy[];
+  readonly to: string;
+}): string | undefined {
+  try {
+    const entries = inspectVisibleEntriesInRange({
+      projectedMessages: input.messages,
+      policies: input.policies,
+      to: input.to,
+    });
+    const sections = groupCompressionInspectEntries(entries);
+    return serializeCompressionInspectResult({
+      ok: true,
+      sections,
+      totalTokens: sections.reduce((sum, section) => sum + section.totalTokens, 0),
+    });
+  } catch {
+    // A stale anchor must never block projection; the reminder just ships without a listing.
+    return undefined;
+  }
+}
+
 export function groupCompressionInspectEntries(
   entries: readonly CompressionInspectVisibleEntry[],
 ): readonly CompressionInspectSection[] {
@@ -98,7 +121,6 @@ export function groupCompressionInspectEntries(
     | {
         from: string;
         to: string;
-        messageCount: number;
         tokens: number;
       }
     | undefined;
@@ -144,11 +166,13 @@ export function groupCompressionInspectEntries(
       continue;
     }
 
+    // Atoms are always compressible, so the `compressible_` prefix is dropped in
+    // the inspect output; the visible kind is recoverable from the range itself.
+    const atomId = toVisibleIdLookupKey(entry.id);
     if (currentAtom === undefined) {
       currentAtom = {
-        from: entry.id,
-        to: entry.id,
-        messageCount: 1,
+        from: atomId,
+        to: atomId,
         tokens: entry.tokens,
       };
       continue;
@@ -156,8 +180,7 @@ export function groupCompressionInspectEntries(
 
     currentAtom = {
       ...currentAtom,
-      to: entry.id,
-      messageCount: currentAtom.messageCount + 1,
+      to: atomId,
       tokens: currentAtom.tokens + entry.tokens,
     };
   }

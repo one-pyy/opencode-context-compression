@@ -406,7 +406,6 @@ test(
         readonly atoms?: readonly {
           readonly from: string;
           readonly to: string;
-          readonly messageCount: number;
           readonly tokens: number;
         }[];
       }[];
@@ -419,32 +418,29 @@ test(
       true,
     );
     const userSection = inspected.sections.find(
-      (section) => section.from === visibleIds.user1.assignedVisibleId,
+      (section) => section.from === bareId(visibleIds.user1.assignedVisibleId),
     );
     const toolSection = inspected.sections.find(
-      (section) => section.from === visibleIds.tool1.assignedVisibleId,
+      (section) => section.from === bareId(visibleIds.tool1.assignedVisibleId),
     );
-    assert.equal(userSection?.to, visibleIds.user1.assignedVisibleId);
+    assert.equal(userSection?.to, bareId(visibleIds.user1.assignedVisibleId));
     assert.equal(userSection?.atomCount, 1);
     assert.equal("atoms" in (userSection ?? {}), false);
-    assert.equal(toolSection?.to, visibleIds.user2.assignedVisibleId);
+    assert.equal(toolSection?.to, bareId(visibleIds.user2.assignedVisibleId));
     assert.equal(toolSection?.atomCount, 2);
     assert.deepEqual(
       toolSection?.atoms?.map((atom) => ({
         from: atom.from,
         to: atom.to,
-        messageCount: atom.messageCount,
       })),
       [
         {
-          from: visibleIds.tool1.assignedVisibleId,
-          to: visibleIds.tool1.assignedVisibleId,
-          messageCount: 1,
+          from: bareId(visibleIds.tool1.assignedVisibleId),
+          to: bareId(visibleIds.tool1.assignedVisibleId),
         },
         {
-          from: visibleIds.user2.assignedVisibleId,
-          to: visibleIds.user2.assignedVisibleId,
-          messageCount: 1,
+          from: bareId(visibleIds.user2.assignedVisibleId),
+          to: bareId(visibleIds.user2.assignedVisibleId),
         },
       ],
     );
@@ -455,6 +451,10 @@ test(
     assert.equal(Number.isInteger(inspected.totalTokens) && inspected.totalTokens > 0, true);
   },
 );
+
+function bareId(visibleId: string): string {
+  return visibleId.replace(/^[a-z]+_/u, "");
+}
 
 function hostEntry(sequence: number, message: CanonicalHostMessage) {
   return {
