@@ -483,11 +483,11 @@ function trimTrailingSlashes(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
-async function readStreamingText(
+export async function readStreamingText(
   response: Response,
   runtimeArtifacts: RuntimeArtifactRecorder,
   request: CompactionTransportRequest,
-  parseChunk: (data: string) => string,
+  parseChunk: (data: string) => ParsedChunk,
 ): Promise<string> {
   if (!response.body) {
     throw new Error("Streaming response body is missing.");
@@ -559,22 +559,26 @@ async function readStreamingText(
           frameSamples.push(...parsedFrame.samples.slice(0, EMPTY_STREAM_FRAME_SAMPLE_LIMIT - frameSamples.length));
         }
 
+        if (!parsedFrame.progressed) {
+          continue;
+        }
+
+        // Reasoning frames count as stream progress so reasoning-heavy models
+        // are not cut off while they are still thinking but not yet emitting text.
+        if (firstTokenTimer) {
+          clearTimeout(firstTokenTimer);
+          firstTokenTimer = undefined;
+        }
+        armStreamIdleTimer();
+
         const chunk = parsedFrame.text;
         if (!chunk) {
           continue;
         }
 
         textChunkCount += 1;
-        if (!receivedAnyToken) {
-          receivedAnyToken = true;
-          if (firstTokenTimer) {
-            clearTimeout(firstTokenTimer);
-            firstTokenTimer = undefined;
-          }
-        }
-
+        receivedAnyToken = true;
         aggregated += chunk;
-        armStreamIdleTimer();
       }
     }
   } catch (error) {
@@ -620,7 +624,7 @@ async function readStreamingText(
 
 function parseSseFrame(
   frame: string,
-  parseChunk: (data: string) => string,
+  parseChunk: (data: string) => ParsedChunk,
 ): ParsedSseFrame {
   const trimmed = frame.trim();
   if (trimmed.length === 0) {
@@ -635,6 +639,7 @@ function parseSseFrame(
   if (dataLines.length === 0) {
     return {
       text: "",
+      progressed: false,
       dataFrameCount: 0,
       parsedDataFrameCount: 0,
       doneFrameCount: 0,
@@ -646,6 +651,7 @@ function parseSseFrame(
   if (data === "[DONE]") {
     return {
       text: "",
+      progressed: false,
       dataFrameCount: 1,
       parsedDataFrameCount: 0,
       doneFrameCount: 1,
@@ -653,8 +659,10 @@ function parseSseFrame(
     };
   }
 
+  const chunk = parseChunk(data);
   return {
-    text: parseChunk(data),
+    text: chunk.text,
+    progressed: chunk.text.length > 0 || chunk.reasoning.length > 0,
     dataFrameCount: 1,
     parsedDataFrameCount: 1,
     doneFrameCount: 0,
@@ -662,8 +670,14 @@ function parseSseFrame(
   };
 }
 
+export interface ParsedChunk {
+  readonly text: string;
+  readonly reasoning: string;
+}
+
 interface ParsedSseFrame {
   readonly text: string;
+  readonly progressed: boolean;
   readonly dataFrameCount: number;
   readonly parsedDataFrameCount: number;
   readonly doneFrameCount: number;
@@ -684,6 +698,7 @@ type EmptyStreamFrameSample =
 
 const EMPTY_PARSED_SSE_FRAME: ParsedSseFrame = Object.freeze({
   text: "",
+  progressed: false,
   dataFrameCount: 0,
   parsedDataFrameCount: 0,
   doneFrameCount: 0,
@@ -765,22 +780,45 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function parseGeminiSseChunk(data: string): string {
+export function parseGeminiSseChunk(data: string): ParsedChunk {
   const parsed = JSON.parse(data) as any;
-  return parsed.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-}
-
-function parseAnthropicSseChunk(data: string): string {
-  const parsed = JSON.parse(data) as any;
-  if (parsed.type === "content_block_delta" && parsed.delta?.type === "text_delta") {
-    return parsed.delta.text ?? "";
+  const parts: readonly any[] = parsed.candidates?.[0]?.content?.parts ?? [];
+  let text = "";
+  let reasoning = "";
+  for (const part of parts) {
+    const partText = typeof part?.text === "string" ? part.text : "";
+    if (partText.length === 0) {
+      continue;
+    }
+    if (part?.thought === true) {
+      reasoning += partText;
+    } else {
+      text += partText;
+    }
   }
-  return "";
+  return { text, reasoning };
 }
 
-function parseOpenAISseChunk(data: string): string {
+export function parseAnthropicSseChunk(data: string): ParsedChunk {
   const parsed = JSON.parse(data) as any;
-  return parsed.choices?.[0]?.delta?.content ?? "";
+  if (parsed.type === "content_block_delta") {
+    if (parsed.delta?.type === "text_delta") {
+      return { text: parsed.delta.text ?? "", reasoning: "" };
+    }
+    if (parsed.delta?.type === "thinking_delta") {
+      return { text: "", reasoning: parsed.delta.thinking ?? "" };
+    }
+  }
+  return { text: "", reasoning: "" };
+}
+
+export function parseOpenAISseChunk(data: string): ParsedChunk {
+  const parsed = JSON.parse(data) as any;
+  const delta = parsed.choices?.[0]?.delta ?? {};
+  return {
+    text: delta.content ?? "",
+    reasoning: delta.reasoning_content ?? "",
+  };
 }
 
 function parseModel(modelString: string): {
