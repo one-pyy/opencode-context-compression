@@ -140,10 +140,84 @@ test(
       "Lead summary.",
     );
 
+    const nullExplanationTransport = createScriptedCompactionTransport([
+      {
+        kind: "success",
+        rawPayload: {
+          contentText: JSON.stringify({
+            plan: "A null explanation is equivalent to an omitted explanation.",
+            compression_output: 'Lead summary.\n<opaque slot="S1"/>',
+            explanation: null,
+          }),
+        },
+      },
+    ]);
+    const nullExplanationRunner = createContractLevelCompactionRunner({
+      inputBuilder: createCompactionInputBuilder(),
+      transport: createSafeTransportAdapter(nullExplanationTransport.transport),
+      outputValidator: createOutputValidator(),
+      resultGroupRepository: resultGroups,
+    });
+
+    const nullExplanationResult = await nullExplanationRunner.run({
+      build: {
+        ...compactBuild(fixture.sessionID, "mark-null-explanation"),
+        transcript: compactBuild(fixture.sessionID, "mark-null-explanation").transcript.slice(0, 2),
+      },
+      resultGroup: {
+        sourceStartSeq: 10,
+        sourceEndSeq: 12,
+        createdAt: "2026-04-06T12:10:04.000Z",
+        committedAt: "2026-04-06T12:10:05.000Z",
+      },
+    });
+    nullExplanationTransport.assertConsumed();
+    assert.equal(
+      nullExplanationResult.validatedOutput.contentText,
+      'Lead summary.\n<opaque slot="S1"/>',
+    );
+
+    // Tolerant parsing extracts the object between the first '{' and the last
+    // '}', so surrounding prose does not by itself make the response malformed.
+    const proseWrappedTransport = createScriptedCompactionTransport([
+      {
+        kind: "success",
+        rawPayload: {
+          contentText: `prefix ${JSON.stringify({
+            plan: "Plan",
+            compression_output: 'Lead summary.\n<opaque slot="S1"/>',
+          })}`,
+        },
+      },
+    ]);
+    const proseWrappedRunner = createContractLevelCompactionRunner({
+      inputBuilder: createCompactionInputBuilder(),
+      transport: createSafeTransportAdapter(proseWrappedTransport.transport),
+      outputValidator: createOutputValidator(),
+      resultGroupRepository: resultGroups,
+    });
+
+    const proseWrappedResult = await proseWrappedRunner.run({
+      build: {
+        ...compactBuild(fixture.sessionID, "mark-extra-prose"),
+        transcript: compactBuild(fixture.sessionID, "mark-extra-prose").transcript.slice(0, 2),
+      },
+      resultGroup: {
+        sourceStartSeq: 10,
+        sourceEndSeq: 12,
+        createdAt: "2026-04-06T12:10:06.000Z",
+        committedAt: "2026-04-06T12:10:07.000Z",
+      },
+    });
+    proseWrappedTransport.assertConsumed();
+    assert.equal(
+      proseWrappedResult.validatedOutput.contentText,
+      'Lead summary.\n<opaque slot="S1"/>',
+    );
+
     for (const [markId, contentText] of [
       ["mark-missing-output", "not JSON"],
       ["mark-duplicate-output", '{"plan":"One","compression_output":"First","compression_output":"Second"}'],
-      ["mark-extra-prose", 'prefix {"plan":"Plan","compression_output":"Wrapped"}'],
       ["mark-wrong-order", '{"explanation":"Early","plan":"Plan","compression_output":"Wrapped"}'],
       ["mark-duplicate-plan", '{"plan":"One","plan":"Two","compression_output":"Wrapped"}'],
       ["mark-extra-field", '{"plan":"Plan","compression_output":"Wrapped","extra":"Unexpected"}'],

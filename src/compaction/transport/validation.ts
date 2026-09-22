@@ -96,7 +96,9 @@ function parseStrictCompactionJsonPayload(
     (actualKeys.length === 2 || actualKeys[2] === "explanation") &&
     typeof parsed.plan === "string" &&
     typeof parsed.compression_output === "string" &&
-    (actualKeys.length === 2 || typeof parsed.explanation === "string");
+    (actualKeys.length === 2 ||
+      typeof parsed.explanation === "string" ||
+      parsed.explanation === null);
 
   if (!hasValidShape) {
     throw new CompactionTransportMalformedPayloadError(
@@ -160,12 +162,13 @@ export function validateCompactionTransportPayload(
       rawPayload.plan.trim().length === 0 ||
       rawPayload.compression_output.trim().length === 0 ||
       (rawPayload.explanation !== undefined &&
+        rawPayload.explanation !== null &&
         typeof rawPayload.explanation !== "string")
     ) {
       throw new CompactionTransportMalformedPayloadError(
         summarizeCompactionTransportRequest(request),
         rawPayload,
-        "structured response fields plan and compression_output must be non-empty strings; explanation must be a string when present.",
+        "structured response fields plan and compression_output must be non-empty strings; explanation must be a string or null when present.",
       );
     }
 
