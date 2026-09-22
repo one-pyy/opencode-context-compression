@@ -382,7 +382,7 @@ async function callAnthropic(
     },
     body: JSON.stringify({
       model: modelID,
-      max_tokens: 4096,
+      max_tokens: 64000,
       thinking: {
         type: "adaptive",
       },
