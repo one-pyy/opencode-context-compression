@@ -190,7 +190,7 @@ const DEFAULTS = {
   deletePromptPath: "prompts/delete.md",
   leadingUserPromptPath: "prompts/projection-leading-user.md",
   markedTokenAutoCompactionThreshold: 20_000,
-  idleThresholdMs: 5 * 60 * 1000,
+  idleThresholdMs: 270 * 1000,
   smallUserMessageThreshold: 1_024,
   schedulerMarkThreshold: 1,
   reminder: {

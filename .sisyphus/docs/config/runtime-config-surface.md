@@ -20,6 +20,7 @@
 - `leadingUserPromptPath`
 - `compactionModels`
 - `markedTokenAutoCompactionThreshold`
+- `idleThresholdMs`
 - `smallUserMessageThreshold`
 - `reminder.hsoft`
 - `reminder.hhard`

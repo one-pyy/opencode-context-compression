@@ -11,20 +11,20 @@
 1. 当前 hook 重放后存在至少一个合法且仍有效的 mark 节点
 2. 当前有效覆盖树中的未压原始 token 总数达到 `markedTokenAutoCompactionThreshold`
 
-## 调度与执行时序（当前实现，部分待替换）
+## 调度与执行时序（已实现）
 
 当前 runtime 已去掉 pending 中转，采用 `messages.transform` 末尾直接启动的异步 background executor：
 
 1. N+0：模型调用 `compression_mark`，mark 进入 host history
 2. N+1：`messages.transform` replay 历史，构造 projection state，并在末尾直接收集 eligible marks
 3. background executor 写 lock、执行压缩、写 result group、清 lock
-4. lock 存在期间，后续 `messages.transform` gate 会等待压缩完成后再继续投影
+4. 替换门槛满足（token 达标或 idle 超阈值）且 lock 仍存活时，后续 `messages.transform` gate 才等待压缩完成后再继续投影；门槛未满足不阻塞
 
 旧 DB 中可能残留 `pending_compactions`，但它不是当前运行时状态表。schema bootstrap 只应清理这张 legacy 队列表，不得因此清空 result group 或 visible id 数据。
 
-## 目标设计：异步压缩 + 替换门槛解耦（未实现）
+## 替换门槛解耦与 send-entry-gate 缩小（已实现）
 
-目标设计保留异步后台压缩，但将**替换应用**与 result group 写入解耦，并将 send-entry-gate 缩小到仅在"该替换但压缩未完成"时触发：
+异步后台压缩保留，**替换应用**与 result group 写入已经解耦，send-entry-gate 已经缩小到仅在"该替换但压缩未完成"时触发：
 
 ### 压缩执行（N+1 启动）
 
@@ -32,14 +32,14 @@
 2. N+1：`messages.transform` replay 历史，第一次看到 mark。构造完 projection state 后，若存在 eligible mark，**直接在末尾启动后台压缩**（state 已在手边，不需要 pending 中转，不需要等 `chat.params`）
 3. 后台压缩写 lock、调小模型、写 result group、清 lock
 
-当前实现已具备这一执行路径：压缩从 N+2 提前到 N+1，因为 `messages.transform` 已经有 projection state，不需要跨 seam 传递。剩余目标是将 result group 的替换应用与入库时机解耦。
+压缩从 N+2 提前到 N+1，因为 `messages.transform` 已经有 projection state，不需要跨 seam 传递。result group 的替换应用与入库时机已经解耦。
 
 ### 替换应用（门槛触发）
 
 result group 入库后**不立即替换**。替换在以下条件之一满足时启用：
 
 1. 待替换内容的未压 token 达到 `markedTokenAutoCompactionThreshold`
-2. 本次发送距离上一轮模型返回超过 idle 阈值（如 5 分钟）
+2. 本次发送距离上一轮模型返回超过 idle 阈值（默认 270 秒，配置项 `idleThresholdMs`）
 
 投影逻辑变为：result group 存在 **且** 替换门槛满足 → 用 result group 替换；否则保留原内容。
 
@@ -67,16 +67,16 @@ send-entry-gate 不完全移除，而是缩小到仅在"替换门槛已满足但
 - 压缩仍异步，N+1 的请求不阻塞，但 result group 要到 N+2 才可用
 - lock 仍需保留（防止并发压缩）
 
-### 与当前实现的差异
+### 当前行为
 
-| 维度 | 当前实现 | 目标设计 |
-|---|---|---|
-| 压缩启动 | N+1（messages.transform 末尾直接启动） | N+1（保持当前启动路径） |
-| pending 中转 | 不需要（state 在手边） | 不需要 |
-| chat.params 调度 | 不负责压缩执行调度 | 不负责压缩执行调度 |
-| 替换时机 | result group 存在即替换 | result group 存在 **且** 门槛满足 |
-| send-entry-gate | 阻塞所有普通对话 | 仅在"该替换但压缩未完成"时阻塞，复用 lock 超时 |
-| lock | 保留 | 保留（防并发压缩 + gate 等待） |
+| 维度 | 当前实现 |
+|---|---|
+| 压缩启动 | N+1（messages.transform 末尾直接启动） |
+| pending 中转 | 不需要（state 在手边） |
+| chat.params 调度 | 不负责压缩执行调度 |
+| 替换时机 | result group 存在 **且** 门槛满足（token 达标或 idle 超阈值）才替换；已 applied 的组持续替换 |
+| send-entry-gate | 仅在"该替换但压缩未完成"时阻塞，复用 lock 超时 |
+| lock | 保留（防并发压缩 + gate 等待） |
 
 同一个 batch 内的多个 eligible mark 当前分两阶段执行：
 

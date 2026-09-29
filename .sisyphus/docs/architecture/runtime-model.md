@@ -15,11 +15,11 @@
    - SQLite 只保存结果组、visible-id 映射、跨发送 compaction failure counts、toast events、schema 元信息等 sidecar 状态
    - mark 的真值来自 host history / tool history replay，不单独持久化 marks/source snapshots 真值表
 
-3. **文件锁是实时压缩门控**（当前实现，目标设计中缩小 gate 触发范围）
+3. **文件锁是实时压缩门控**（已实现）
    - 活跃 batch 写入 `locks/<session-id>.lock`
-   - 普通 chat 等待该锁（当前实现；目标设计中仅在"该替换但压缩未完成"时阻塞，复用 lock 超时）
+   - 普通 chat 仅在替换门槛满足（token 达标或 idle 超阈值）且 lock 活跃时等待该锁；门槛未满足不阻塞
    - `compression_mark` 保持在已冻结 batch 之外
-   - 目标设计保留 lock 防并发压缩，send-entry-gate 缩小到最小必要范围
+   - lock 保留防并发压缩，send-entry-gate 已缩小到最小必要范围
 
 4. **投影是确定性的**
    - 已提交 replacement 通过 `experimental.chat.messages.transform` 渲染
@@ -87,7 +87,7 @@ sidecar bootstrap 可以自动创建缺失的当前表、补齐兼容列，并�
 - `chat.params`：窄调度缝，不负责 prompt authoring 或普通对话等待入口
 - `compaction-input-builder`：构造压缩输入，不复用 projected prompt 再清洗
 - `compaction-runner`：后台压缩任务、retry/fallback、lock 生命周期；当前由 N+1 的 `messages.transform` 末尾直接触发
-- `send-entry-gate`：普通对话等待入口（当前实现，目标设计中缩小到仅在"该替换但压缩未完成"时阻塞）
+- `send-entry-gate`：普通对话等待入口（已缩小到仅在"该替换但压缩未完成"时阻塞）
 
 ## Host seam 输入边界（已实现 / 半实现）
 
@@ -103,10 +103,10 @@ marked-token accounting 可以使用 tokenizer-backed estimator；live-context r
 - `compaction-runner` 持有当前 batch 的 live lock；同一 session 在 lock 存活期间不应并发再启动第二个压缩 batch
 - 本次调用冻结 eligible mark 集合；之后新增的 mark 不属于当前 batch，在下一次 `messages.transform` replay 时进入新的评估
 
-仍未实现的目标设计仅包括替换门槛解耦：
+替换门槛解耦已实现：
 
-- lock 仍保留防并发压缩，send-entry-gate 缩小到仅在"该替换但压缩未完成"时阻塞，复用 lock 超时
-- 替换由门槛触发（token 达标或 idle 超阈值），result group 入库后不立即替换
+- lock 保留防并发压缩，send-entry-gate 缩小到仅在"该替换但压缩未完成"时阻塞，复用 lock 超时
+- 替换由门槛触发（token 达标或 idle 超阈值），result group 入库后不立即替换；已 applied 的组持续替换
 
 ## Metadata 边界
 

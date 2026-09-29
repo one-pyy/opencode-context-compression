@@ -420,7 +420,7 @@ function computeReplacementGateOpen(options: {
     options.currentMessages as readonly { readonly parts?: readonly { readonly type?: string; readonly time?: { readonly start?: number; readonly end?: number } | null }[] }[],
   );
 
-  const idleThresholdMs = options.idleThresholdMs ?? 5 * 60 * 1000;
+  const idleThresholdMs = options.idleThresholdMs ?? 270 * 1000;
 
   const gateResult = evaluateReplacementGate({
     uncompressedMarkedTokenCount,
@@ -473,7 +473,7 @@ async function markAppliedResultGroups(options: {
   const lastModelResponseTime = extractLastModelResponseTime(
     options.currentMessages as readonly { readonly parts?: readonly { readonly type?: string; readonly time?: { readonly start?: number; readonly end?: number } | null }[] }[],
   );
-  const idleThresholdMs = options.idleThresholdMs ?? 5 * 60 * 1000;
+  const idleThresholdMs = options.idleThresholdMs ?? 270 * 1000;
 
   const gateResult = evaluateReplacementGate({
     uncompressedMarkedTokenCount,

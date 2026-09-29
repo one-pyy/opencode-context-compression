@@ -1,8 +1,8 @@
-# Lock 与 Send Gate（当前实现，部分待调整）
+# Lock 与 Send Gate（已实现）
 
 ## 状态
 
-本文档描述的 lock、send gate、batch freeze 机制属于当前异步实现。目标设计保留 lock（防并发压缩 + gate 等待），将 send-entry-gate 从"阻塞所有普通对话"缩小到仅在"替换门槛已满足但压缩仍在进行中"时阻塞。详见 `compaction-lifecycle.md` 的"目标设计：异步压缩 + 替换门槛解耦"章节。
+本文档描述的 lock、send gate、batch freeze 机制属于当前异步实现。lock 保留用于防并发压缩与 gate 等待；send-entry-gate 已缩小到仅在"替换门槛已满足但压缩仍在进行中"时阻塞。详见 `compaction-lifecycle.md` 的"替换门槛解耦与 send-entry-gate 缩小"章节。
 
 ## 文档定位
 
@@ -18,7 +18,7 @@
 
 ## 阻塞范围
 
-- 普通对话发送时等待到 lock 解除 / 终态失败 / 超时 / 手工恢复后再继续
+- 仅当替换门槛满足（token 达标或 idle 超阈值）且 lock 活跃时，普通对话才等待到 lock 解除 / 终态失败 / 超时 / 手工恢复后再继续；门槛未满足不阻塞
 - `compression_mark` 不加入已冻结 batch
 - 非 compaction 工具调用不阻塞
 
