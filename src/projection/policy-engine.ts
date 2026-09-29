@@ -2,6 +2,7 @@ import { defineInternalModuleContract } from "../internal/module-contract.js";
 import {
   buildReferableMarkerIds,
   parseVisibleId,
+  type ParsedVisibleId,
 } from "../identity/visible-sequence.js";
 import type { ReplayedHistory } from "../history/history-replay-reader.js";
 import type { CompleteResultGroup } from "../state/result-group-repository.js";
@@ -147,6 +148,11 @@ export function createFlatPolicyEngine(
       const resolveEndpoint = (
         visibleId: string,
       ): { readonly sequence: number; readonly hostVisibleId: string } | undefined => {
+        const parsed = tryParseVisibleId(visibleId);
+        if (parsed === undefined) {
+          return undefined;
+        }
+
         const hostSequence = visibleSequences.get(toVisibleIdLookupKey(visibleId));
         if (hostSequence !== undefined) {
           return {
@@ -155,7 +161,6 @@ export function createFlatPolicyEngine(
           };
         }
 
-        const parsed = parseVisibleId(visibleId);
         if (parsed.kind !== "referable" || ambiguousReferableIds.has(visibleId)) {
           return undefined;
         }
@@ -236,6 +241,18 @@ function classifyVisibleKind(
 function toVisibleIdLookupKey(visibleId: string): string {
   const parsed = parseVisibleId(visibleId);
   return `${String(parsed.visibleSeq).padStart(6, "0")}_${parsed.suffix}`;
+}
+
+// A model-provided endpoint can be malformed (for example a bare <seq6> with no
+// checksum). That is unresolvable, not fatal: returning undefined routes the
+// mark to the conflict path so it is excluded, instead of throwing out of the
+// whole projection.
+function tryParseVisibleId(visibleId: string): ParsedVisibleId | undefined {
+  try {
+    return parseVisibleId(visibleId);
+  } catch {
+    return undefined;
+  }
 }
 
 function insertMarkTreeNode(

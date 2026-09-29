@@ -56,7 +56,7 @@ sidecar 应至少持久化：
 
 ## Mark 端点匹配规则
 
-`compression_mark` 的 `from` / `to` 可以使用完整渲染 id，例如 `protected_000001_q7` 或 `compressible_000001_q7`，但运行时定位端点时只使用 bare 部分：`seq6 + base62`。因此 `from` / `to` 也接受省略状态前缀的裸 id，例如 `000001_q7` 与 `compressible_000001_q7` 等价；裸 id 只按宿主消息端点解析，不会被当作 `referable` 区间标记。
+`compression_mark` 的 `from` / `to` 可以使用完整渲染 id，例如 `protected_000001_q7` 或 `compressible_000001_q7`，但运行时定位端点时只使用 bare 部分：`seq6 + base62`。因此 `from` / `to` 也接受省略状态前缀的裸 id，例如 `000001_q7` 与 `compressible_000001_q7` 等价；裸 id 只按宿主消息端点解析，不会被当作 `referable` 区间标记。裸形式仍必须保留 `_base62` 校验后缀：只写 `<seq6>`（如 `000042`）不是合法端点，会按无法解析处理。
 
 因此，如果同一条消息在后续 projection 中因为分类变化从 `protected` 变为 `compressible`，或反向变化，只要 `000001_q7` 仍然对应同一条消息，mark replay 仍应命中。`visible-type` 是当前可见状态，不是长期稳定身份的一部分。
 

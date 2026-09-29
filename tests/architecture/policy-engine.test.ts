@@ -149,6 +149,34 @@ test("Policy Engine - Build Mark Tree rejects wrong visible ID checksum", () => 
   assert.equal(tree.conflicts[0].markId, "m_wrong_checksum");
 });
 
+test("Policy Engine - Build Mark Tree treats a malformed bare seq6 endpoint as unresolvable instead of throwing", () => {
+  const engine = createFlatPolicyEngine({ smallUserMessageThreshold: 50 });
+  const messages = [createMsg(1, "short", 5), createMsg(2, "long content", 100)];
+
+  const marks: ReplayedMarkIntent[] = [
+    {
+      markId: "m_bare_seq",
+      mode: "compact",
+      sourceSequence: 3,
+      sourceMessageId: "msg_3",
+      startVisibleMessageId: "000001",
+      endVisibleMessageId: "compressible_000002_cd"
+    }
+  ];
+
+  const history: ReplayedHistory = { sessionId: "ses_1", messages, marks, compressionMarkToolCalls: [] };
+  const visibleIdsByCanonicalId = new Map([
+    ["msg_1", "protected_000001_ab"],
+    ["msg_2", "compressible_000002_cd"]
+  ]);
+
+  const tree = engine.buildMarkTree({ history, visibleIdsByCanonicalId, resultGroups: [] });
+
+  assert.equal(tree.marks.length, 0);
+  assert.equal(tree.conflicts.length, 1);
+  assert.equal(tree.conflicts[0].markId, "m_bare_seq");
+});
+
 test("Policy Engine - Build Mark Tree resolves referable range markers of a current result", () => {
   const engine = createFlatPolicyEngine({ smallUserMessageThreshold: 50 });
   const messages = [createMsg(1, "A1", 100), createMsg(2, "T1", 100), createMsg(3, "T2", 100)];
