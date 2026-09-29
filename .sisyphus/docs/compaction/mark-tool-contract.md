@@ -33,23 +33,46 @@
 
 ## Inspect 工具契约
 
-- `compression_inspect` 输入为 `{ to, mergeAdjacent? }`；`mergeAdjacent` 缺省为 `true`
-- inspect 范围从当前投影中的首个 compressible 消息开始，到 `to` 端点结束，端点消息包含在范围内
+- `compression_inspect` 输入为 `{ to, mode?, mergeAdjacent? }`；`mode` 缺省为 `"compact"`，`mergeAdjacent` 缺省为 `true`
 - 工具调用当下只返回 `inspectId` 占位结果
 - 后续 `messages.transform` 使用当前 `ProjectionState.messagePolicies` 中已经计算出的 `tokenCount` 生成真实结果
+- compact 模式下，inspect 范围从当前投影中的首个 compressible 消息开始，到 `to` 端点结束，端点消息包含在范围内
+- delete 模式下，inspect 范围从当前投影中的首个非 system 可见条目开始，到 `to` 端点结束；这样开头就存在的摘要片段与短用户消息不会被漏掉。`mergeAdjacent` 在 delete 模式下不生效
 - `mergeAdjacent=true` 时，真实结果返回两级结构：referable replacement 切分外层 `sections`，protected 消息在 section 内切分连续 compressible `atoms`
 - 每个 atom 返回起止 visible id 与 token 数；atom id 省略 `compressible_` 前缀，形如 `<seq6>_<base62>`，因为 atom 按定义都是 compressible。每个 section 返回首尾 atom 的 visible id、`atomCount` 与 atom token 总数；`atomCount=1` 时省略 `atoms` 字段，避免重复范围
 - sections 按 `totalTokens` 降序排列；`tokens <= 0` 的 compressible 消息不生成 atom；顶层同时返回所有 section 的 token 总数
 - `mergeAdjacent=false` 时，真实结果保留按消息顺序排列的明细：`[{"id":"compressible_...","tokens":123}]`
-- 结果只描述当前投影中仍可见的 compressible 消息；已应用压缩结果只作为 section 边界出现，不作为条目返回。因此“未出现在结果中”不代表该范围不在窗口内或不可删除
+- compact 模式下，结果只描述当前投影中仍可见的 compressible 消息；已应用压缩结果只作为 section 边界出现，不作为条目返回。因此“未出现在结果中”不代表该范围不在窗口内或不可删除
 - `compression_inspect` 的 `to` 端点按 `seq6` 定位，`referable` 区间 id 可以用于 inspect；mark 的端点规则见 [工具契约](#工具契约)
 - sections / atoms 只提供确定性的范围与计数结构，不判断内容是否已完成，也不构成自动 mark 建议；语义选择由调用模型完成
+
+`mode="delete"` 时，真实结果改为按位置顺序返回 delete 选区的可选项清单：
+
+```json
+{
+  "ok": true,
+  "mode": "delete",
+  "entries": [
+    { "kind": "fragment", "from": "referable_000002_wq", "to": "referable_000004_wq", "tokens": 1200 },
+    { "kind": "user", "from": "000005_y9", "to": "000005_y9", "tokens": 0 },
+    { "kind": "compressible", "from": "000012_ab", "to": "000020_cd", "tokens": 1234 }
+  ],
+  "totalTokens": 2434
+}
+```
+
+- `kind=fragment`：当前投影中已应用的 compact 摘要片段，`from` 与 `to` 是该片段的 `referable` 区间标记，可直接作为 `compression_mark` 端点。这是唯一保留 `referable_` 前缀的条目类型，因为只有该类型会走片段标记解析路径
+- `kind=user`：范围内被分类为 protected 的用户消息，`from` 与 `to` 相同且为宿主消息 id，省略 `protected_` 前缀。compressible 的用户消息不重复列出，它们已进入 `kind=compressible` 条目
+- `kind=compressible`：范围内连续的 compressible 消息段，`from` 与 `to` 为宿主消息 id，省略 `compressible_` 前缀
+- system 消息不进入清单；已被 delete 结果接管的来源不再出现在投影中，因此也不会成为条目
+- 条目 token 沿用 `messagePolicies` 口径：`fragment` 报其来源跨度的 policy token 总和，`user` 报该消息自身的 `tokenCount`（短用户消息按现有分类记为 `0`）
+- delete mode 只展示当前可选的条目，不做 `allowDelete` 准入判断；实际 delete 仍由 `compression_mark` 的 [Admission 规则](allow-delete.md#admission-规则) 拒绝
 
 `compression_inspect` 的 token 数据来自消息级策略，不是 mark tree 本身：
 
 1. `messagePolicies` 持有 canonical 消息的 `tokenCount`。
 2. 最终 projected messages 提供当前可见的 protected / compressible / referable 顺序，已被 replacement 接管的 source 不再作为 compressible 返回。
-3. `compression_inspect` 按输入 visible-id 范围读取当前可见结构，再按 `mergeAdjacent` 决定返回逐消息明细或 sections / atoms。
+3. `compression_inspect` 按输入 visible-id 范围读取当前可见结构，再按 `mode` 与 `mergeAdjacent` 决定返回逐消息明细、sections / atoms 或 delete 条目清单。
 4. scheduler 则用同一批 message token，按 mark tree range 汇总为 `uncompressedMarkedTokenCount` 后再和自动压缩阈值比较。
 
 因此 inspect 明细之和只有在 inspect 范围与当前待压 mark range 完全一致时，才应等于 scheduler 的 `uncompressedMarkedTokenCount`。

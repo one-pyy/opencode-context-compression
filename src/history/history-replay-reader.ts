@@ -105,6 +105,7 @@ export interface ReplayedCompressionInspectToolCall {
   readonly sequence: number;
   readonly sourceMessageId: string;
   readonly outcome: "accepted" | "rejected" | "invalid-input" | "invalid-result";
+  readonly mode?: "compact" | "delete";
   readonly mergeAdjacent?: boolean;
   readonly inspectId?: string;
   readonly startVisibleMessageId?: string;

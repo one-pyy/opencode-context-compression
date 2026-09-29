@@ -4,8 +4,11 @@ export const COMPRESSION_INSPECT_TOOL_NAME = "compression_inspect";
 
 export type CompressionInspectErrorCode = "INVALID_RANGE" | "SESSION_NOT_READY";
 
+export type CompressionInspectMode = "compact" | "delete";
+
 export interface CompressionInspectInputV1 {
   readonly to: string;
+  readonly mode: CompressionInspectMode;
   readonly mergeAdjacent: boolean;
 }
 
@@ -33,6 +36,18 @@ export interface CompressionInspectSection {
   readonly atoms?: readonly CompressionInspectAtom[];
 }
 
+export type CompressionInspectEntryKind = "fragment" | "user" | "compressible";
+
+// Delete mode reports every selectable unit in position order. `fragment` carries the
+// referable marker pair, the only kind whose visible-type prefix is load-bearing for
+// endpoint resolution; `user` and `compressible` use bare host ids.
+export interface CompressionInspectEntry {
+  readonly kind: CompressionInspectEntryKind;
+  readonly from: string;
+  readonly to: string;
+  readonly tokens: number;
+}
+
 export type CompressionInspectResolved =
   | {
       readonly ok: true;
@@ -41,6 +56,12 @@ export type CompressionInspectResolved =
   | {
       readonly ok: true;
       readonly sections: readonly CompressionInspectSection[];
+      readonly totalTokens: number;
+    }
+  | {
+      readonly ok: true;
+      readonly mode: "delete";
+      readonly entries: readonly CompressionInspectEntry[];
       readonly totalTokens: number;
     };
 
@@ -77,9 +98,9 @@ export type CompressionInspectValidationResult =
 
 export interface CompressionInspectExternalContract {
   readonly toolName: "compression_inspect";
-  readonly inputShape: "{ to, mergeAdjacent? }";
-  readonly outputShape: "placeholder first, then JSON-serialized message details or referable sections with protected-delimited atoms after projection";
-  readonly callTiming: "when the model needs to inspect uncompressed compressible messages up to a visible-id endpoint";
+  readonly inputShape: "{ to, mode?, mergeAdjacent? }";
+  readonly outputShape: "placeholder first, then JSON-serialized message details, referable sections with protected-delimited atoms, or delete-mode position-ordered entries after projection";
+  readonly callTiming: "when the model needs to inspect compressible messages up to a visible-id endpoint, or to list the deletable compact fragments and protected user messages of a delete range";
   readonly visibleSideEffects: readonly [
     "returns an inspectId placeholder immediately",
     "messages.transform replaces the placeholder with message ids and token counts from the current projection state"
@@ -93,11 +114,11 @@ export interface CompressionInspectExternalContract {
 
 export const COMPRESSION_INSPECT_EXTERNAL_CONTRACT = Object.freeze({
   toolName: "compression_inspect",
-  inputShape: "{ to, mergeAdjacent? }",
+  inputShape: "{ to, mode?, mergeAdjacent? }",
   outputShape:
-    "placeholder first, then JSON-serialized message details or referable sections with protected-delimited atoms after projection",
+    "placeholder first, then JSON-serialized message details, referable sections with protected-delimited atoms, or delete-mode position-ordered entries after projection",
   callTiming:
-    "when the model needs to inspect uncompressed compressible messages up to a visible-id endpoint",
+    "when the model needs to inspect compressible messages up to a visible-id endpoint, or to list the deletable compact fragments and protected user messages of a delete range",
   visibleSideEffects: [
     "returns an inspectId placeholder immediately",
     "messages.transform replaces the placeholder with message ids and token counts from the current projection state",
@@ -127,6 +148,13 @@ export function validateCompressionInspectInput(
     );
   }
 
+  const mode = record.mode === undefined ? "compact" : readMode(record.mode);
+  if (mode === undefined) {
+    return invalidRange(
+      `compression_inspect mode must be "compact" or "delete". You provided: mode=${JSON.stringify(record.mode)}`,
+    );
+  }
+
   const mergeAdjacent =
     record.mergeAdjacent === undefined ? true : readBoolean(record.mergeAdjacent);
   if (mergeAdjacent === undefined) {
@@ -137,7 +165,7 @@ export function validateCompressionInspectInput(
 
   return {
     ok: true,
-    value: { to, mergeAdjacent },
+    value: { to, mode, mergeAdjacent },
   };
 }
 
@@ -237,6 +265,39 @@ export function deserializeCompressionInspectResult(
     };
   }
 
+  if (record?.ok === true && Array.isArray(record.entries)) {
+    const totalTokens = record.totalTokens;
+    if (typeof totalTokens !== "number") {
+      throw new Error("Invalid serialized compression_inspect entry payload.");
+    }
+
+    return {
+      ok: true,
+      mode: "delete",
+      entries: Object.freeze(
+        record.entries.map((entry) => {
+          const item = asRecord(entry);
+          const kind = item?.kind;
+          if (
+            (kind !== "fragment" && kind !== "user" && kind !== "compressible") ||
+            typeof item?.from !== "string" ||
+            typeof item.to !== "string" ||
+            typeof item.tokens !== "number"
+          ) {
+            throw new Error("Invalid serialized compression_inspect entry payload.");
+          }
+          return Object.freeze({
+            kind,
+            from: item.from,
+            to: item.to,
+            tokens: item.tokens,
+          });
+        }),
+      ),
+      totalTokens,
+    };
+  }
+
   if (
     record?.ok === false &&
     typeof record.errorCode === "string" &&
@@ -288,4 +349,8 @@ function readNonEmptyString(value: unknown): string | undefined {
 
 function readBoolean(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
+}
+
+function readMode(value: unknown): CompressionInspectMode | undefined {
+  return value === "compact" || value === "delete" ? value : undefined;
 }

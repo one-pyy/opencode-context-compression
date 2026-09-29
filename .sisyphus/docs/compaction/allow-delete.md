@@ -57,6 +57,8 @@ compact → delete 允许二次提炼。普通 compact 保持已有 compact 结�
 
 选择范围必须完整覆盖要消费的摘要片段；若只覆盖片段的一部分，主 agent 应先调整为包含完整片段的合法范围，或回查原文后重新选区。不能按原始消息比例切割摘要，也不能把范围外的摘要事实当成范围内内容删除。选区端点可以是摘要片段自身的 `referable` 区间标记（须唯一匹配当前结果组的片段标记），也可以是包住片段的宿主消息；端点规则见 [mark 工具契约](mark-tool-contract.md#工具契约)。
 
+选区前可以用 `compression_inspect` 的 `mode="delete"` 取得范围内按位置排列的可选条目：`kind=fragment` 给出摘要片段的 `referable` 区间标记，`kind=user` 给出可删的 protected 用户消息，`kind=compressible` 给出其余连续范围。该清单只描述当前可选结构，不代表这些范围已经满足删除标准；准入仍由 `compression_mark` 判断。输入与返回结构见 [Inspect 工具契约](mark-tool-contract.md#inspect-工具契约)。
+
 输入大小按实际组装内容检查，不能用被摘要替代的整段原文体积代替。若仍超出模型可用输入预算，保留尚未处理的内容，由主 agent 拆成可独立处理的合法范围；不得静默截断整个输入或因超限恢复为更大的全量历史。工具字段的显式截断沿用 [文本渲染契约](model-visible-transcript.md#json-与截断规则已实现)，有省略的证据不能视为完整事实。
 
 默认 direct LLM transport 在发送 delete 请求前检查实际 system prompt 与用户输入的估算 token。预算来自 OpenCode provider 对应模型的 `limit.input`，否则使用 `limit.context - limit.output`；元数据不足时由服务端容量校验兜底。计数服务不可用时使用 UTF-8 字节数保守估计。这不是各 provider 精确 tokenizer 与消息封装开销的保证；服务端拒绝仍按模型失败处理，不提交结果。自定义 transport 需自行遵守相同的超限保留契约。

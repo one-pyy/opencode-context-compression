@@ -8,9 +8,9 @@
 
 `compression_mark` 用于标记一段当前可见消息范围，要求系统在未来上下文中对这段内容执行压缩或删除风格处理，从而减少 prompt 体积，同时保留必要信息。
 
-`compression_inspect` 用于查看一段当前可见消息范围内，哪些 compressible 消息还没有被已提交压缩结果覆盖，以及每条消息当前投影阶段计算出的 token 数。
+`compression_inspect` 用于查看一段当前可见消息范围内，哪些 compressible 消息还没有被已提交压缩结果覆盖，以及每条消息当前投影阶段计算出的 token 数。`mode="delete"` 时改为列出该范围内可参与 delete 选区的条目：已应用的 compact 摘要片段、protected 用户消息与其余 compressible 连续范围。
 
-调用 `compression_inspect` 时，应将 `to` 设为当前最新可见消息 id；检查范围从当前投影中的首个 compressible 消息开始，覆盖到该端点。
+调用 `compression_inspect` 时，应将 `to` 设为当前最新可见消息 id；compact 模式下检查范围从当前投影中的首个 compressible 消息开始，`mode="delete"` 时从首个非 system 可见条目开始，两者都覆盖到该端点。
 
 ## 当前公共契约
 
@@ -44,11 +44,12 @@
 ```json
 {
   "to": "compressible_000130_q7",
+  "mode": "compact",
   "mergeAdjacent": true
 }
 ```
 
-`mergeAdjacent` 缺省为 `true`。返回结果先是占位 `inspectId`，后续投影会替换为两级计数结构：referable replacement 切分外层 `sections`，protected 消息在 section 内切分连续 compressible `atoms`。
+`mode` 缺省为 `"compact"`，`mergeAdjacent` 缺省为 `true`。返回结果先是占位 `inspectId`，后续投影会替换为两级计数结构：referable replacement 切分外层 `sections`，protected 消息在 section 内切分连续 compressible `atoms`。
 
 ```json
 {
@@ -77,7 +78,7 @@
 }
 ```
 
-atom id 省略 `compressible_` 前缀，因为 atom 按定义都是 compressible。若要把该 id 用作 `compression_mark` 端点，需补回 `<visible-type>_` 前缀。
+atom id 省略 `compressible_` 前缀，因为 atom 按定义都是 compressible；宿主端点的前缀只表示可见状态，直接用该 id 或补回 `<visible-type>_` 前缀都能定位到同一条宿主消息。
 
 sections 按 `totalTokens` 从高到低排列。`tokens <= 0` 的 compressible 消息不会生成 atom；`atomCount=1` 时省略 `atoms` 字段，避免重复 outer `from/to`。
 
@@ -95,6 +96,26 @@ sections / atoms 只说明当前投影中的结构和 token 数。模型仍需�
 ```
 
 历史调用缺少 `mergeAdjacent` 时按 `true` 处理；这只改变重新投影时的派生 inspect 结果，不改变宿主历史、已有 mark 或压缩结果。
+
+设置 `mode="delete"` 时返回按位置顺序排列的可选条目清单，用于挑选 delete 选区：
+
+```json
+{
+  "ok": true,
+  "mode": "delete",
+  "entries": [
+    { "kind": "fragment", "from": "referable_000002_wq", "to": "referable_000004_wq", "tokens": 1200 },
+    { "kind": "user", "from": "000005_y9", "to": "000005_y9", "tokens": 0 },
+    { "kind": "compressible", "from": "000012_ab", "to": "000020_cd", "tokens": 1234 }
+  ],
+  "totalTokens": 2434
+}
+```
+
+- `kind=fragment` 的 `from` / `to` 就是该摘要片段的 `referable` 区间标记，可直接作为 `compression_mark` 端点；选区必须完整覆盖片段
+- `kind=user` 与 `kind=compressible` 用宿主消息 id（省略类型前缀），可直接作为端点
+- 条目 token 沿用 `messagePolicies` 口径：`fragment` 报其来源跨度的 policy token 总和，`user` 报该消息自身的 `tokenCount`（短用户消息记为 `0`）
+- 该清单只描述当前可选结构，不代表这些范围已经满足删除标准；`mode="delete"` 也不做 `allowDelete` 准入判断，实际 delete 仍由 `compression_mark` 拒绝
 
 ## 如何选择消息范围
 

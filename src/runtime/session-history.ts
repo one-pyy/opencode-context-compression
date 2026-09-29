@@ -320,7 +320,10 @@ function collectReplayableCompressionInspectEntry(input: {
       sourceMessageId: input.syntheticMessageId,
       outcome: parsedResult.ok === true ? "accepted" : "rejected",
       ...(parsedResult.ok === true
-        ? { mergeAdjacent: parsedInput.value.mergeAdjacent }
+        ? {
+            mode: parsedInput.value.mode,
+            mergeAdjacent: parsedInput.value.mergeAdjacent,
+          }
         : {}),
       startVisibleMessageId: undefined,
       endVisibleMessageId: parsedInput.value.to,

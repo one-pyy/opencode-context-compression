@@ -83,14 +83,18 @@ export function createCompressionInspectTool(
   return tool({
     description:
       "Inspect token counts for a visible message range before deciding whether to call compression_mark. " +
-      "Use this when you need to choose an exact range for compression. Provide the to visible message ID — the range always starts from the first compressible message. " +
-      "By default, the result groups visible content into sections split by referable replacements; protected messages split each section into contiguous compressible atoms. Applied compression results appear only as those section boundaries and never as entries, so a range missing from the result is not necessarily outside the window or undeletable. Sections and atoms contain token counts for semantic analysis and are not automatic mark recommendations. Set mergeAdjacent=false to receive per-message token counts. " +
+      "Use this when you need to choose an exact range for compression. Provide the to visible message ID — the range always starts from the first compressible message, or from the first non-system entry in delete mode. " +
+      "By default, the result groups visible content into sections split by referable replacements; protected messages split each section into contiguous compressible atoms. In compact mode, applied compression results appear only as those section boundaries and never as entries, so a range missing from the result is not necessarily outside the window or undeletable. Sections and atoms contain token counts for semantic analysis and are not automatic mark recommendations. Set mergeAdjacent=false to receive per-message token counts. " +
+      "Set mode=delete when you need to choose a delete range: the result is a position-ordered entries list, where kind=fragment carries the referable range marker pair usable directly as endpoints, kind=user lists the protected user messages, and kind=compressible lists the remaining compressible ranges; mergeAdjacent does not apply in delete mode. " +
       "After inspecting a range, either call compression_mark or leave the range unchanged. " +
       "Do not repeatedly inspect the same range unless new visible messages were added or the range boundaries changed. " +
       "compression_mark records a future compaction request; it does not immediately change the current visible context.",
     args: {
       to: tool.schema.string().min(1).describe(
-        "The last visible message ID in the range to inspect (the range starts from the first compressible message)"
+        "The last visible message ID in the range to inspect (the range starts from the first compressible message, or from the first non-system entry in delete mode)"
+      ),
+      mode: tool.schema.enum(["compact", "delete"]).optional().default("compact").describe(
+        "compact (default) lists compressible ranges; delete returns position-ordered deletable entries including applied compact fragments and protected user messages"
       ),
       mergeAdjacent: tool.schema.boolean().optional().default(true).describe(
         "Group messages into referable sections and protected-delimited compressible atoms; defaults to true"
