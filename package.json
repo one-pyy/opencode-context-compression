@@ -24,7 +24,10 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@opentui/core": "^0.5.11",
+    "@opentui/solid": "^0.5.11",
     "@types/node": "^24.6.0",
+    "solid-js": "^1.9.12",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }

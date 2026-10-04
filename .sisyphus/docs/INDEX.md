@@ -45,6 +45,7 @@ Current Stage: 实现参考与验收
 [operator/compression-mark-usage.md] — 已实现：`compression_mark` / `compression_inspect` 工具使用说明与常见错误
 [operator/json-snapshot-trimming.md] — 已实现：调试快照 JSON 的安全读取方法
 [operator/runtime-config-live-validation-runbook.md] — 已实现：runtime config 在真实宿主中的验证 runbook
+[operator/tui-panel.md] — 已实现：右侧栏 TUI 面板（三档 token + cache/tool spark）的数据通道与启用方式
 
 ## Prompting
 

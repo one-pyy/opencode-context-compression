@@ -48,6 +48,7 @@ import type { ToastService } from "../services/toast-service.js";
 import { openSessionSidecarRepository } from "../state/sidecar-store.js";
 import { createResultGroupRepository } from "../state/result-group-repository.js";
 import { resolvePluginStateDirectory, resolveSessionDatabasePath } from "./sidecar-layout.js";
+import { computeCompressionStats, writeCompressionStats } from "./compression-stats.js";
 import { readPendingToastEvents, markToastEventsProcessed } from "../state/sidecar-store/toast-events.js";
 import { executeBackgroundCompactions } from "./background-compaction-executor.js";
 import type { LoadedRuntimeConfig } from "../config/runtime-config.js";
@@ -246,6 +247,22 @@ export function createContextCompressionHooks(
           messages: output.messages,
         },
       });
+
+      const statsProjection = messagesTransformProjector?.getLastProjectionState?.();
+      if (statsProjection && options.pluginDirectory) {
+        try {
+          await writeCompressionStats({
+            pluginDirectory: options.pluginDirectory,
+            stats: await computeCompressionStats(
+              statsProjection,
+              new Date().toISOString(),
+            ),
+          });
+        } catch {
+          // Best-effort TUI stats; a stats write must never break the transform.
+        }
+      }
+
       journal.record(observeMessagesTransform(input, output));
       await runtimeArtifacts.recordEvent({
         sessionID,

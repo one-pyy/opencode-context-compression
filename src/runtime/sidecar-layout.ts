@@ -141,6 +141,18 @@ export function resolveSessionDatabasePath(
   );
 }
 
+export function resolveSessionStatsPath(
+  stateDirectory: string,
+  sessionID: string,
+): string {
+  const safeSessionID = assertSafeSessionIDSegment(sessionID);
+  return resolvePathWithinDirectory(
+    stateDirectory,
+    `${safeSessionID}.stats.json`,
+    "session stats",
+  );
+}
+
 export function resolveRepoOwnedArtifactPath(
   pluginDirectory: string,
   configuredPath: string,
