@@ -113,7 +113,7 @@ delete inspect 的 `compressible` 条目可用于 compact 选区，`fragment` �
 
 `reminder.cpmarkThreshold` 是正整数，默认 `190000`。异步面板统计发布成功后，使用同一份统计判断：`del + comp > cpmarkThreshold + fixed` 时发送一次提醒；发送成功后进入等待回落状态，直到 `del + comp <= cpmarkThreshold + fixed - 30000` 才重新激活。等于上限不触发，等于下限重新激活，reasoning 不参与计算。
 
-提醒正文固定为“别忘了cpmark，这次不用调用inspect，用之前的就好。”，使用 `client.session.prompt` 的 `noReply: true` 写入真实用户消息，不启动回复，不附带 inspect。已经发出的模型请求不会被追加入此消息，后续读取历史时才能看到；旧 inspect 清单可能未覆盖后来新增的消息。
+提醒正文固定为“别忘了cpmark，这次不用调用inspect，用之前的就好。cpmark完继续之前的任务。如果之前的任务已结束，同样结束。”，使用 `client.session.prompt` 的 `noReply: true` 写入真实用户消息，不启动回复，不附带 inspect。已经发出的模型请求不会被追加入此消息，后续读取历史时才能看到；旧 inspect 清单可能未覆盖后来新增的消息。
 
 统计调度按会话串行处理，待处理投影合并为最新版本；计算或落盘期间被新投影替代的统计不发送提醒。激活状态保存在各会话 sidecar 的 `schema_meta` 键 `cpmark_reminder_armed` 中，初始激活，重启后沿用。发送失败不关闭激活状态，下次统计发布时重试；错误写入运行诊断。宿主消息写入和 sidecar 状态更新属于两个独立写入，发送成功但响应丢失或状态保存前进程退出时，后续可能重复提醒。
 

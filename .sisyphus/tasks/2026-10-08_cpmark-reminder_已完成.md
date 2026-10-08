@@ -9,7 +9,7 @@
 
 配置入口为 src/config/runtime-config.ts、runtime-config.schema.json 与 runtime-config.jsonc。提醒语义维护于 .sisyphus/docs/compaction/reminder-system.md，配置说明维护于 .sisyphus/docs/config/runtime-config-surface.md。
 
-使用当前异步统计的 del、comp、fixed：del + comp > x + fixed 时提醒一次，del + comp <= x + fixed - 30000 时重新激活。提醒正文为“别忘了cpmark，这次不用调用inspect，用之前的就好。”，通过普通 session.prompt 接口设置 noReply=true 写入历史，不启动回复。按会话串行处理并持久化激活状态。
+使用当前异步统计的 del、comp、fixed：del + comp > x + fixed 时提醒一次，del + comp <= x + fixed - 30000 时重新激活。提醒正文为“别忘了cpmark，这次不用调用inspect，用之前的就好。cpmark完继续之前的任务。如果之前的任务已结束，同样结束。”，通过普通 session.prompt 接口设置 noReply=true 写入历史，不启动回复。按会话串行处理并持久化激活状态。
 
 ## 实施与验证
 
