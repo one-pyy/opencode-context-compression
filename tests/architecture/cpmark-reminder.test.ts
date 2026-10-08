@@ -10,6 +10,16 @@ import type { CompressionStatsSnapshot } from "../../src/runtime/compression-sta
 
 type PromptRequest = Parameters<PluginInput["client"]["session"]["prompt"]>[0];
 
+const promptContext = {
+  agent: "sisyphus", model: { providerID: "openai", modelID: "gpt-6.1-sol" },
+  variant: "high", tools: { bash: true, task: false },
+};
+const history = { data: [
+  { info: { role: "user", ...promptContext, variant: "low" } },
+  { info: { role: "user", ...promptContext } },
+  { info: { role: "assistant", providerID: "other", modelID: "other" } },
+] };
+
 function stats(total: number, fixed = 10_000, sessionID = "session-a"): CompressionStatsSnapshot {
   return {
     sessionID, protectedTokenCount: fixed, deletableTokenCount: 15_000,
@@ -24,7 +34,10 @@ test("cpmark reminder uses strict upper bound, hysteresis and persisted session 
   const sent: PromptRequest[] = [];
   const pluginInput = {
     directory: "/host-project",
-    client: { session: { prompt: async (request: PromptRequest) => { sent.push(request); } } },
+    client: { session: {
+      messages: async () => history,
+      prompt: async (request: PromptRequest) => { sent.push(request); },
+    } },
   } as unknown as PluginInput;
   const check = (value: CompressionStatsSnapshot) => sendCpmarkReminder({
     stats: value, threshold: 190_000,
@@ -37,7 +50,7 @@ test("cpmark reminder uses strict upper bound, hysteresis and persisted session 
   await check(stats(200_001));
   assert.deepEqual(sent[0], {
     path: { id: "session-a" }, query: { directory: "/host-project" },
-    body: { noReply: true, parts: [{ type: "text", text: CPMARK_REMINDER_TEXT }] },
+    body: { noReply: true, ...promptContext, parts: [{ type: "text", text: CPMARK_REMINDER_TEXT }] },
     throwOnError: true,
   });
   await check(stats(230_000));
@@ -61,7 +74,7 @@ test("cpmark reminder retries failed delivery and follows current fixed and cust
   let calls = 0;
   const pluginInput = {
     directory: "/host-project",
-    client: { session: { prompt: async () => {
+    client: { session: { messages: async () => history, prompt: async () => {
       calls += 1;
       if (calls === 1) throw new Error("delivery failed");
     } } },
@@ -79,6 +92,38 @@ test("cpmark reminder retries failed delivery and follows current fixed and cust
   await check(150_001, 80_001);
   await check(150_001, 50_000);
   assert.equal(calls, 3);
+});
+
+test("cpmark reminder preserves pending delivery when session context is unavailable", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "cpmark-context-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  let reads = 0;
+  const sent: PromptRequest[] = [];
+  const pluginInput = {
+    directory: "/host-project",
+    client: { session: {
+      messages: async () => {
+        reads += 1;
+        if (reads === 1) throw new Error("history unavailable");
+        if (reads === 2) return { data: [] };
+        return { data: [{ info: { role: "user", agent: promptContext.agent, model: promptContext.model } }] };
+      },
+      prompt: async (request: PromptRequest) => { sent.push(request); },
+    } },
+  } as unknown as PluginInput;
+  const check = () => sendCpmarkReminder({
+    stats: stats(200_001), threshold: 190_000,
+    databasePath: join(directory, "session-a.db"), pluginInput,
+  });
+  await assert.rejects(check(), /history unavailable/);
+  await assert.rejects(check(), /without a user message/);
+  assert.equal(sent.length, 0);
+  await check();
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0]?.body, {
+    noReply: true, agent: promptContext.agent, model: promptContext.model,
+    parts: [{ type: "text", text: CPMARK_REMINDER_TEXT }],
+  });
 });
 
 test("cpmark threshold config defaults, overrides and rejects invalid values", async (t) => {

@@ -28,11 +28,26 @@ export async function sendCpmarkReminder(input: {
     if (!armed && total <= upper - REARM_DELTA) {
       nextArmed = true;
     } else if (armed && total > upper) {
+      const history = await input.pluginInput.client.session.messages({
+        path: { id: stats.sessionID },
+        query: { directory: input.pluginInput.directory },
+        throwOnError: true,
+      });
+      const latestUser = history.data?.findLast((message) => message.info.role === "user")?.info;
+      if (!latestUser || latestUser.role !== "user") {
+        throw new Error("Cannot inherit cpmark reminder session settings without a user message");
+      }
+      // 旧 SDK 类型未声明宿主支持的 variant；从用户消息继承推理档位。
+      const context = latestUser as typeof latestUser & { variant?: string };
       await input.pluginInput.client.session.prompt({
         path: { id: stats.sessionID },
         query: { directory: input.pluginInput.directory },
         body: {
           noReply: true,
+          agent: context.agent,
+          model: context.model,
+          ...(context.variant !== undefined ? { variant: context.variant } : {}),
+          ...(context.tools !== undefined ? { tools: context.tools } : {}),
           parts: [{ type: "text", text: CPMARK_REMINDER_TEXT }],
         },
         throwOnError: true,
