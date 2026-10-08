@@ -11,6 +11,7 @@ import type {
 export interface ReminderComputationInput {
   readonly state: ProjectionState;
   readonly messages: readonly ProjectedPromptMessage[];
+  readonly deletableTokenCount?: number;
 }
 
 export interface ReminderService {
@@ -45,17 +46,21 @@ export function createStaticReminderService(
 export interface ConfiguredReminderServiceOptions {
   readonly hsoft: number;
   readonly hhard: number;
+  readonly hdelete?: number;
   readonly softRepeatEveryTokens: number;
   readonly hardRepeatEveryTokens: number;
   readonly allowDelete: boolean;
   readonly promptTextByKind: Readonly<Record<ReminderKind, string>>;
+  readonly retirePromptText?: string;
 }
 
 export function createConfiguredReminderService(
   options: ConfiguredReminderServiceOptions,
 ): ReminderService {
   return {
-    compute({ state, messages }) {
+    compute({ state, messages, deletableTokenCount = 0 }) {
+      const retireSummaries = options.allowDelete && deletableTokenCount > (options.hdelete ?? 60_000);
+      const inspectMode = retireSummaries ? "delete" : "compact";
       const policiesByCanonicalId = new Map(
         state.messagePolicies.map((policy) => [policy.canonicalId, policy]),
       );
@@ -92,6 +97,8 @@ export function createConfiguredReminderService(
               messages,
               policies: state.messagePolicies,
               to: policy.visibleId,
+              mode: inspectMode,
+              resultGroups: state.resultGroups,
             });
             hasInspectListing = true;
           }
@@ -110,8 +117,11 @@ export function createConfiguredReminderService(
                 policy.visibleSeq,
                 `${kind}:${policy.canonicalId}:${nextMilestone}`,
               ),
-              contentText: options.promptTextByKind[kind],
+              contentText: retireSummaries && options.retirePromptText
+                ? `${options.promptTextByKind[kind]}\n\n${options.retirePromptText}`
+                : options.promptTextByKind[kind],
               ...(inspectListing === undefined ? {} : { inspectListing }),
+              inspectInput: { mode: inspectMode, to: policy.visibleId },
             } satisfies ReminderArtifact),
           );
 

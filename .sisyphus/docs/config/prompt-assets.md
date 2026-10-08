@@ -36,22 +36,26 @@ delete 使用独立 prompt 资产 `prompts/delete.md`，实施状态见 [删除�
 
 ## Reminder Prompt
 
-四个 reminder prompt 文件：
+四个基础 reminder prompt 文件：
 
 - `prompts/reminder-soft-compact-only.md`
 - `prompts/reminder-soft-delete-allowed.md`
 - `prompts/reminder-hard-compact-only.md`
 - `prompts/reminder-hard-delete-allowed.md`
 
+摘要退役追加正文：`prompts/reminder-retire.md`，配置入口为 `reminder.promptPaths.retire`。
+
+退役追加正文使用完整的 `<model_instruction>` 开始与结束标签独立包裹；追加在基础提醒之后，标签随正文原样进入工具结果。
+
 这些 reminder prompt 是纯文本正文资产，不是模板。其模型可见承载形态由 `compaction/reminder-system.md` 定义；目标态下正文进入 no-op tool result，而不是独立 user 消息。
 
-四个变体都提醒执行 compact；delete-allowed 正文补充用户显式调用 skill 的授权边界。配置路径保持兼容，具体规则见 [allowDelete 对措辞的影响](../compaction/reminder-system.md#allowdelete-对措辞的影响)。
+四个基础变体都提醒对未压缩原文执行 compact；摘要达到条件时追加的正文要求主 agent 检查并退役不再需要的已压缩内容。选择规则见 [摘要退役追加指令](../compaction/reminder-system.md#摘要退役追加指令)。
 
-## 手工整理 Skill
+## 上下文整理 Skill
 
 仓库资产为 [skills/context-retire/SKILL.md](../../../skills/context-retire/SKILL.md)。它面向主 agent，负责本地文件留存、最终信息核对与 delete 选区；`prompts/delete.md` 面向压缩模型，只负责输入到整理结果的转换。
 
-在宿主的 skill 搜索目录中安装或链接整个 `context-retire` 目录后，用户明确要求使用 `context-retire` 才启动本次整理。仓库仅提供资产，不会自动安装或加载它。skill 未安装时也可由用户明确指定其文件并要求按该 skill 执行；读取其他文档或普通 cpmark 不构成调用授权。
+在宿主的 skill 搜索目录中安装或链接整个 `context-retire` 目录后，用户要求整理或 reminder 附带退役指令时，由主 agent 按其流程执行。此前未加载时提示调用 skill 工具，已完整加载时直接复用；插件本身只提供提醒，不执行 skill 工具。选区规则见 [退役执行准则](../compaction/allow-delete.md#退役执行准则)。仓库提供资产，部署时需安装或链接；skill 或工具不可用时，保留内容并继续可执行的 compact 工作。
 
 ## 当前状态
 

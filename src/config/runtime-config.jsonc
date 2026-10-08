@@ -18,16 +18,22 @@
   "schedulerMarkThreshold": 1,
   "runtimeLogPath": "logs/runtime-events.jsonl",
   "seamLogPath": "logs/seam-observation.jsonl",
-  "debugSnapshotPath": "logs/debug-snapshots",
+  // debugSnapshotPath 在每次 messages.transform 写全量消息快照，超大会话单轮可达 GB 级；默认关闭。
+  // runtimeLogPath / seamLogPath / debugSnapshotPath 三者设为 null 均可关闭对应写入。
+  // "debugSnapshotPath": "logs/debug-snapshots",
   "markedTokenAutoCompactionThreshold": 50000,
   "smallUserMessageThreshold": 1536,
   "reminder": {
     // Reminder prompt assets are plain-text files selected by severity × allowDelete.
     "hsoft": 40000,
     "hhard": 150000,
+    "hdelete": 60000,
+    // del + comp > cpmarkThreshold + fixed 时发送用户提醒；回落 30000 后重新激活。
+    "cpmarkThreshold": 190000,
     "softRepeatEveryTokens": 30000,
     "hardRepeatEveryTokens": 10000,
     "promptPaths": {
+      "retire": "prompts/reminder-retire.md",
       "compactOnly": {
         "soft": "prompts/reminder-soft-compact-only.md",
         "hard": "prompts/reminder-hard-compact-only.md"

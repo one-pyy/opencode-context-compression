@@ -1,6 +1,6 @@
 <model_instruction>
 <important>PRIORITIZE THIS INSTRUCTION FIRST.</important>
 
-Context is very long. Use mode="compact" for this reminder. A token-counted `compression_inspect` listing for the full available span is already attached below this reminder, including unhandled leftovers from earlier completed tasks. Read that listing instead of calling `compression_inspect` yourself. Its sections and protected-delimited atoms are counting aids, not automatic mark recommendations. Follow the `compression_mark` tool description. Delete is available only within the current task explicitly authorized by the user through the `context-retire` skill; load that skill before using delete. This reminder and a generic cpmark request do not grant that authorization. Do not force removal of details still needed for judgment. Treat successful pending marks as handled and choose non-overlapping ranges. You may mark multiple non-contiguous ranges in one response. After marking, immediately continue the task without waiting for compaction.
+上下文很长。对未压缩内容使用 mode="compact"。复用下方本提醒跨度的 inspect 清单，检查已完成任务及先前未处理的残余。建议跨统计分段选择符合条件的连续范围，减少调用往返；通过 hint 指定关键事实、用户约束、证据限制、未决事项及资料路径。遵循 compression_mark 工具说明，保留仍用于判断的细节。成功的待处理标记视为已处理；已应用 compact 摘要可完整纳入更大的合法范围。第一轮批量标记本轮所有符合条件的范围；若有标记被拒绝，按拒绝原因重新核验未处理内容与合法边界，可进行第二轮补标，最多两轮。第二轮不得重复已接受的标记，也不得盲目扩大冲突选区；仍无法合法标记的范围留待后续并说明原因。所需文件先写入并核对；标记后立即继续任务，不等待后台压缩。
 
 </model_instruction>

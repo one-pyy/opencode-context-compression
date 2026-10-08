@@ -28,7 +28,7 @@
 - 端点无法解析到宿主消息、或 `referable` 端点匹配不到当前结果组片段（含过期与多义）时，该次调用不创建 mark，并按失败结果呈现
 - 成功调用时立即返回随机 `mark id`
 - `mode=delete` 且当前策略不允许 delete 时，返回错误结果
-- 主 agent 使用 delete 须遵循 [用户授权](allow-delete.md#用户授权)，工具描述持续展示该限制；普通 reminder 和 cpmark 使用 compact。
+- 主 agent 使用 delete 须遵循 [退役执行准则](allow-delete.md#退役执行准则)，按后续是否有用自主选区；普通 reminder 和 cpmark 对未压缩原文使用 compact，附带退役指令时另行检查已应用摘要。
 - `mode=delete` 的目标范围可包含用户消息；是否从投影移除用户原文由 [删除契约](allow-delete.md#目标与保留标准) 定义，不由 `smallUserMessageThreshold` 单独决定
 
 ## Inspect 工具契约
@@ -45,6 +45,8 @@
 - compact 模式下，结果只描述当前投影中仍可见的 compressible 消息；已应用压缩结果只作为 section 边界出现，不作为条目返回。因此“未出现在结果中”不代表该范围不在窗口内或不可删除
 - `compression_inspect` 的 `to` 端点按 `seq6` 定位，`referable` 区间 id 可以用于 inspect；mark 的端点规则见 [工具契约](#工具契约)
 - sections / atoms 只提供确定性的范围与计数结构，不判断内容是否已完成，也不构成自动 mark 建议；语义选择由调用模型完成
+
+推荐按任务或主题跨 inspect 分段选取符合条件的连续范围，减少标记调用往返；统计分段不决定 mark 边界。成功但尚未应用的标记视为已处理，避免重复覆盖；已应用 compact 可以完整纳入更大选区。涉及摘要时须完整覆盖片段，delete 还须满足下方的标记包含规则；活跃细节、区间冲突或输入预算需要时才拆段。hint 指定范围内的关键保留项，不替代选区准入和信息留存检查。
 
 `mode="delete"` 时，真实结果改为按位置顺序返回 delete 选区的可选项清单：
 
@@ -65,10 +67,11 @@
 - `kind=user`：范围内被分类为 protected 的用户消息，`from` 与 `to` 相同且为宿主消息 id，省略 `protected_` 前缀。compressible 的用户消息不重复列出，它们已进入 `kind=compressible` 条目
 - `kind=compressible`：范围内连续的 compressible 消息段，`from` 与 `to` 为宿主消息 id，省略 `compressible_` 前缀
 - system 消息不进入清单；已被 delete 结果接管的来源不再出现在投影中，因此也不会成为条目
-- 条目 token 沿用 `messagePolicies` 口径：`fragment` 报其来源跨度的 policy token 总和，`user` 报该消息自身的 `tokenCount`（短用户消息按现有分类记为 `0`）
+- delete 条目 token 估算当前实际可见文本：`fragment` 报当前摘要，`user` 报用户正文，`compressible` 报当前未压缩文本；`totalTokens` 是清单条目合计。投影预计算每条可见文本并复用同一估算器，短用户消息不因 protected 分类而记为零。compact 模式继续使用 `messagePolicies` 的策略计数。
 - delete mode 只展示当前可选的条目，不做 `allowDelete` 准入判断；实际 delete 仍由 `compression_mark` 的 [Admission 规则](allow-delete.md#admission-规则) 拒绝
+- reminder 可附带 delete 模式清单供 compact 与摘要退役两项动作使用；调用输入明确携带相同 `mode` 与 `to`。满足所需跨度时直接复用清单，模式与范围不足时再请求 inspect。
 
-`compression_inspect` 的 token 数据来自消息级策略，不是 mark tree 本身：
+compact 模式的 token 数据来自消息级策略；delete 模式复用当前投影文本计数，都不从 mark tree 反推大小：
 
 1. `messagePolicies` 持有 canonical 消息的 `tokenCount`。
 2. 最终 projected messages 提供当前可见的 protected / compressible / referable 顺序，已被 replacement 接管的 source 不再作为 compressible 返回。

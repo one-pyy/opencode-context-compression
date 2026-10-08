@@ -24,7 +24,7 @@ Current Stage: 实现参考与验收
 
 ## Compaction
 
-[compaction/reminder-system.md] — 已实现：reminder 语义、token 口径、cadence、prompt 选择与 no-op 工具载体
+[compaction/reminder-system.md] — 已实现：reminder 语义、token 口径、cadence、摘要退役追加指令与 inspect 工具载体
 [compaction/allow-delete.md] — delete 准入、有效信息提炼、混合输入与保留标准
 [compaction/mark-tool-contract.md] — 已实现：`compression_mark` / `compression_inspect` 公共契约与 replay 入口语义
 [compaction/recall-tool-contract.md] — `compression_recall` 原始内容回查、delete 生效覆盖拒绝与错误契约

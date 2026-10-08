@@ -31,11 +31,10 @@ test("prompt resolution selects reminder variants by severity and allowDelete", 
   });
 
   assert.match(softCompactOnly.path, /reminder-soft-compact-only\.md$/u);
-  assert.match(softCompactOnly.text, /Do not call `compression_inspect`/u);
   assert.match(hardDeleteAllowed.path, /reminder-hard-delete-allowed\.md$/u);
-  assert.match(hardDeleteAllowed.text, /You must first call `compression_inspect`/u);
   assert.match(runtimeConfig.leadingUserPromptPath, /projection-leading-user\.md$/u);
-  assert.match(runtimeConfig.leadingUserPromptText, /NEVER\*\* include them in your responses/u);
+  assert.equal(runtimeConfig.reminder.hdelete, 60_000);
+  assert.match(runtimeConfig.reminder.prompts.retire.path, /reminder-retire\.md$/u);
 });
 
 test("default runtime config path lives in the OpenCode config directory", () => {
@@ -43,6 +42,30 @@ test("default runtime config path lives in the OpenCode config directory", () =>
     resolveDefaultRuntimeConfigPath(),
     join(homedir(), ".config", "opencode", "opencode-context-compression.jsonc"),
   );
+});
+
+test("hdelete accepts an independent threshold and rejects invalid values", async () => {
+  const tempDirectory = await mkdtemp(join(tmpdir(), "opencode-context-compression-hdelete-"));
+  const configPath = join(tempDirectory, "runtime-config.json");
+  try {
+    for (const hdelete of [undefined, 5, 0, -1, 1.5, "bad"]) {
+      await writeFile(configPath, JSON.stringify({
+        version: 1,
+        promptPath: "prompts/compaction.md",
+        compactionModels: ["test/model"],
+        reminder: { hsoft: 10, hhard: 20, hdelete },
+      }), "utf8");
+      const load = () => loadRuntimeConfig({ [RUNTIME_CONFIG_ENV.configPath]: configPath });
+      if (hdelete === undefined || hdelete === 5) {
+        const config = await load();
+        assert.equal(config.reminder.hdelete, hdelete ?? 60_000);
+      } else {
+        await assert.rejects(load, /reminder\.hdelete/u);
+      }
+    }
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
 });
 
 test("repo-relative paths resolve from repo root and absolute paths stay absolute", () => {

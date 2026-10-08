@@ -1,8 +1,7 @@
 import { rename, writeFile } from "node:fs/promises";
 
 import type { ProjectedMessageSet } from "../projection/types.js";
-import { estimateTextTokensWithService } from "../token-estimation.js";
-import { TokenCounter } from "../utils/token-counter.js";
+import { estimateTextTokenCount } from "../token-estimation.js";
 import {
   resolvePluginStateDirectory,
   resolveSessionStatsPath,
@@ -11,10 +10,7 @@ import {
 export type TextTokenEstimator = (text: string) => Promise<number>;
 
 // 优先用本地 tiktoken 服务；服务不可用时退回字符近似（与插件其它处一致）。
-const estimateTextTokens: TextTokenEstimator = async (text) => {
-  const estimate = await estimateTextTokensWithService({ text });
-  return estimate?.tokenCount ?? new TokenCounter().countTokens(text);
-};
+const estimateTextTokens: TextTokenEstimator = estimateTextTokenCount;
 
 export interface CompressionStatsSnapshot {
   readonly sessionID: string;
@@ -29,6 +25,51 @@ export interface CompressionStatsSnapshot {
   readonly updatedAt: string;
 }
 
+const MAX_STATS_TOKEN_ESTIMATIONS = 16;
+
+export function createCompressionStatsScheduler(input: {
+  readonly compute: (projection: ProjectedMessageSet, updatedAt: string) => Promise<CompressionStatsSnapshot>;
+  readonly write: (stats: CompressionStatsSnapshot) => Promise<void>;
+  readonly onPublished?: (stats: CompressionStatsSnapshot) => Promise<void>;
+  readonly onError?: (error: unknown, sessionID: string) => void;
+}): (projection: ProjectedMessageSet) => void {
+  const pending = new Map<string, ProjectedMessageSet>();
+  const running = new Set<string>();
+
+  const drain = async (sessionID: string): Promise<void> => {
+    try {
+      while (pending.has(sessionID)) {
+        const projection = pending.get(sessionID);
+        if (!projection) break;
+        pending.delete(sessionID);
+        try {
+          const stats = await input.compute(projection, new Date().toISOString());
+          if (!pending.has(sessionID)) {
+            await input.write(stats);
+            if (!pending.has(sessionID)) await input.onPublished?.(stats);
+          }
+        } catch (error) {
+          input.onError?.(error, sessionID);
+        }
+      }
+    } finally {
+      running.delete(sessionID);
+      if (pending.has(sessionID)) {
+        running.add(sessionID);
+        void drain(sessionID);
+      }
+    }
+  };
+
+  return (projection) => {
+    const sessionID = projection.sessionId;
+    pending.set(sessionID, projection);
+    if (running.has(sessionID)) return;
+    running.add(sessionID);
+    void drain(sessionID);
+  };
+}
+
 export async function computeCompressionStats(
   projection: ProjectedMessageSet,
   updatedAt: string,
@@ -40,8 +81,10 @@ export async function computeCompressionStats(
 
   // 逐条估算占用。可压 canonical 用 policy.tokenCount（text + tool）再加 reasoning；
   // 保护类与摘要文本没有 policy，用同一估算器现算。
-  const perMessage = await Promise.all(
-    projection.messages.map(async (message) => {
+  const perMessage = await mapWithConcurrency(
+    projection.messages,
+    MAX_STATS_TOKEN_ESTIMATIONS,
+    async (message) => {
       if (message.source === "canonical" && message.canonicalId !== undefined) {
         const policy = policyByCanonicalId.get(message.canonicalId);
         if (policy?.visibleKind === "compressible") {
@@ -55,6 +98,9 @@ export async function computeCompressionStats(
         return undefined;
       }
       if (message.source === "result-group") {
+        if (message.visibleKind === "referable" && projection.deletableTokenCount !== undefined) {
+          return undefined;
+        }
         const tokens = await estimate(message.contentText);
         return {
           bucket:
@@ -66,11 +112,11 @@ export async function computeCompressionStats(
         };
       }
       return undefined;
-    }),
+    },
   );
 
   let protectedTokenCount = 0;
-  let deletableTokenCount = 0;
+  let deletableTokenCount = projection.deletableTokenCount ?? 0;
   let compressibleTokenCount = 0;
   let reasoningTokenCount = 0;
   for (const entry of perMessage) {
@@ -89,6 +135,25 @@ export async function computeCompressionStats(
     reasoningTokenCount,
     updatedAt,
   };
+}
+
+async function mapWithConcurrency<Input, Output>(
+  input: readonly Input[],
+  concurrency: number,
+  map: (value: Input) => Promise<Output>,
+): Promise<Output[]> {
+  const output = new Array<Output>(input.length);
+  let nextIndex = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, input.length) }, async () => {
+      while (nextIndex < input.length) {
+        const index = nextIndex++;
+        const value = input[index];
+        if (value !== undefined) output[index] = await map(value);
+      }
+    }),
+  );
+  return output;
 }
 
 async function estimateReasoningTokens(

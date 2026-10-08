@@ -1,4 +1,5 @@
 import type { Hooks } from "@opencode-ai/plugin";
+import { measurePerformanceStage, withPerformanceTrace } from "../performance-diagnostics.js";
 
 import { createFileBackedSeamObservationJournal } from "../seams/file-journal.js";
 import {
@@ -48,7 +49,7 @@ import type { ToastService } from "../services/toast-service.js";
 import { openSessionSidecarRepository } from "../state/sidecar-store.js";
 import { createResultGroupRepository } from "../state/result-group-repository.js";
 import { resolvePluginStateDirectory, resolveSessionDatabasePath } from "./sidecar-layout.js";
-import { computeCompressionStats, writeCompressionStats } from "./compression-stats.js";
+import { computeCompressionStats, createCompressionStatsScheduler, writeCompressionStats } from "./compression-stats.js";
 import { readPendingToastEvents, markToastEventsProcessed } from "../state/sidecar-store/toast-events.js";
 import { executeBackgroundCompactions } from "./background-compaction-executor.js";
 import type { LoadedRuntimeConfig } from "../config/runtime-config.js";
@@ -59,6 +60,7 @@ import {
   extractLastModelResponseTime,
 } from "./replacement-gate.js";
 import { readSessionFileLock } from "./file-lock.js";
+import { sendCpmarkReminder } from "./cpmark-reminder.js";
 
 export const ALLOWED_PLUGIN_EXTERNAL_HOOKS = Object.freeze([
   "experimental.chat.messages.transform",
@@ -109,6 +111,44 @@ export function createContextCompressionHooks(
   const sendEntryGate = options.sendEntryGate ?? createStaticSendEntryGate();
   const messagesTransformProjector = options.messagesTransformProjector;
   const toastService = options.toastService;
+  const scheduleCompressionStats = createCompressionStatsScheduler({
+    compute: (projection, updatedAt) => withPerformanceTrace(
+      (payload) => runtimeArtifacts.recordEvent({
+        sessionID: projection.sessionId,
+        seam: "experimental.chat.messages.transform",
+        stage: "performance-sidebar",
+        payload,
+      }),
+      () => measurePerformanceStage("sidebar.count", () => computeCompressionStats(projection, updatedAt)),
+    ),
+    write: async (stats) => {
+      if (options.pluginDirectory) {
+        await writeCompressionStats({ pluginDirectory: options.pluginDirectory, stats });
+      }
+    },
+    onPublished: async (stats) => {
+      if (options.pluginInput && options.runtimeConfig) {
+        await sendCpmarkReminder({
+          stats,
+          threshold: options.runtimeConfig.reminder.cpmarkThreshold,
+          databasePath: resolveSessionDatabasePath(
+            resolvePluginStateDirectory(options.runtimeConfig.repoRoot),
+            stats.sessionID,
+          ),
+          pluginInput: options.pluginInput,
+        });
+      }
+    },
+    onError: (error, sessionID) => {
+      runtimeArtifacts.writeDiagnostic({
+        sessionID,
+        scope: "compression-stats",
+        severity: "error",
+        message: "Failed to publish compression stats or send cpmark reminder.",
+        payload: serializeError(error),
+      }).catch(() => {});
+    },
+  });
   const toolExecutionGate =
     options.toolExecutionGate ?? createDefaultToolExecutionGate();
   const messagesTransform = createMessagesTransformHook({
@@ -143,6 +183,15 @@ export function createContextCompressionHooks(
         currentMessages: output.messages,
       });
 
+      return withPerformanceTrace(
+        (payload) => runtimeArtifacts.recordEvent({
+          sessionID,
+          seam: "experimental.chat.messages.transform",
+          stage: "performance",
+          payload,
+        }),
+        async () => {
+
       const gateOpen = computeReplacementGateOpen({
         messagesTransformProjector,
         currentMessages: output.messages,
@@ -170,7 +219,7 @@ export function createContextCompressionHooks(
           toastService,
         });
 
-        await messagesTransform(input, output);
+        await measurePerformanceStage("transform.project", () => messagesTransform(input, output));
 
         const projectionState = messagesTransformProjector?.getLastProjectionState?.();
         if (projectionState && options.pluginInput && options.runtimeConfig) {
@@ -183,7 +232,7 @@ export function createContextCompressionHooks(
               projectionState,
               toastService,
             });
-            await messagesTransform(input, output);
+            await measurePerformanceStage("transform.project", () => messagesTransform(input, output));
           }
         }
 
@@ -197,7 +246,7 @@ export function createContextCompressionHooks(
         });
       } else {
         try {
-          await messagesTransform(input, output);
+          await measurePerformanceStage("transform.project", () => messagesTransform(input, output));
         } catch (error) {
           await runtimeArtifacts.recordEvent({
             sessionID,
@@ -250,20 +299,12 @@ export function createContextCompressionHooks(
 
       const statsProjection = messagesTransformProjector?.getLastProjectionState?.();
       if (statsProjection && options.pluginDirectory) {
-        try {
-          await writeCompressionStats({
-            pluginDirectory: options.pluginDirectory,
-            stats: await computeCompressionStats(
-              statsProjection,
-              new Date().toISOString(),
-            ),
-          });
-        } catch {
-          // Best-effort TUI stats; a stats write must never break the transform.
-        }
+        scheduleCompressionStats(statsProjection);
       }
 
-      journal.record(observeMessagesTransform(input, output));
+      if (journal !== undefined) {
+        journal.record(observeMessagesTransform(input, output));
+      }
       await runtimeArtifacts.recordEvent({
         sessionID,
         seam: "experimental.chat.messages.transform",
@@ -320,10 +361,14 @@ export function createContextCompressionHooks(
         } catch {
         }
       }
+        },
+      );
     },
     "chat.params": async (input, output) => {
       const metadata = await chatParams(input, output);
-      journal.record(observeChatParams(input, output));
+      if (journal !== undefined) {
+        journal.record(observeChatParams(input, output));
+      }
       await runtimeArtifacts.recordEvent({
         sessionID: input.sessionID,
         seam: "chat.params",
@@ -337,7 +382,9 @@ export function createContextCompressionHooks(
     "tool.execute.before": async (input, output) => {
       const gateDecision = await toolExecutionGate.beforeExecution(input);
       await toolExecuteBefore(input, output);
-      journal.record(observeToolExecuteBefore(input, output));
+      if (journal !== undefined) {
+        journal.record(observeToolExecuteBefore(input, output));
+      }
       await runtimeArtifacts.recordEvent({
         sessionID: input.sessionID,
         seam: "tool.execute.before",
@@ -352,11 +399,10 @@ export function createContextCompressionHooks(
   } satisfies Hooks;
 }
 
-function createPluginSeamJournal(seamLogPath?: string): SeamObservationJournal {
+function createPluginSeamJournal(seamLogPath?: string): SeamObservationJournal | undefined {
+  if (seamLogPath === undefined) return undefined;
   const baseJournal = createSeamObservationJournal();
-  return seamLogPath === undefined
-    ? baseJournal
-    : createFileBackedSeamObservationJournal(baseJournal, seamLogPath);
+  return createFileBackedSeamObservationJournal(baseJournal, seamLogPath);
 }
 
 function serializeError(error: unknown): {

@@ -79,6 +79,20 @@ input 和 output 按模型可见内容完整渲染，不做字符数截断。压
 
 最终 `messages.transform` 可以继续保留结构化 `parts` 供上游宿主序列化，但压缩输入与 token 估算不得再使用 text-only 口径或完整 tool object 口径；它们只共享“text + tool input/output”这条文本口径。
 
+## 服务计数缓存
+
+`estimateTextTokensWithService` 在服务请求前查询进程内模块级缓存。同一服务端实例的主会话与 task 子会话共享计数；独立进程或独立模块实例各有自己的缓存。只缓存成功服务计数，不保留原文、消息对象、响应或在途 Promise。
+
+缓存最多 65536 条，命中更新使用顺序，超出容量淘汰最久未使用项。条目保留至容量淘汰或宿主重启，不按时间过期。空文本仍直接返回零，不占容量。
+
+键使用 SHA-256，覆盖完整计数文本、有效服务地址、实际 modelName、文本长度和内部键版本。文本以 UTF-16LE 进入摘要，保留孤立代理项的区别。消息身份不进入计数键；流式正文、tool input/output/status 变化重新计数，不参与 renderer 的 metadata 不影响 canonical 计数。reasoning 仍只在侧栏独立统计中计数。
+
+热命中返回此前成功值及 `python-tiktoken` 来源，即使服务此时离线也可复用。未命中请求保持原超时；错误、异常返回和近似回退不缓存，各消费者继续使用自己的 fallback。并发首次未命中不合并，各请求有独立超时；缓存不会跳过每轮的消息分类、分桶、重复消息累加或统计更新时间。
+
+同一地址与模型在宿主生命周期内应对应稳定分词算法。更换计数服务的 tiktoken 版本或编码算法时同步重启 OpenCode 清空缓存；当前服务不返回算法 revision，地址不变不能自动识别算法切换。内部键版本与 LRU 实现在 `src/token-estimation-cache.ts`，计数入口在 `src/token-estimation.ts`。
+
+验收入口为 `tests/architecture/token-estimation-cache.test.ts` 和 `token-service-cache.test.ts`，覆盖容量淘汰、完整键隔离、服务失败恢复、冷/热分类与侧栏分桶、预算边界和跨会话复用。缓存省去热命中的计数 HTTP、请求体 JSON 与服务分词，完整历史读取和文本渲染仍执行。
+
 ## 必要回归用例（已实现）
 
 实现时至少覆盖：

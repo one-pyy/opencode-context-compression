@@ -21,8 +21,8 @@ export const DEFAULT_DEBUG_SNAPSHOT_OUTPUT_SUFFIX = ".out.json";
 export interface SessionSidecarLayoutOptions {
   readonly pluginDirectory: string;
   readonly sessionID: string;
-  readonly runtimeLogPath: string;
-  readonly seamLogPath: string;
+  readonly runtimeLogPath?: string;
+  readonly seamLogPath?: string;
   readonly debugSnapshotPath?: string;
   readonly stateDirectoryName?: string;
   readonly lockDirectoryName?: string;
@@ -33,8 +33,8 @@ export interface SessionSidecarLayout {
   readonly databasePath: string;
   readonly lockDirectory: string;
   readonly lockPath: string;
-  readonly runtimeLogPath: string;
-  readonly seamLogPath: string;
+  readonly runtimeLogPath?: string;
+  readonly seamLogPath?: string;
   readonly debugSnapshotDirectory?: string;
   readonly debugSnapshotHookInputPath?: string;
   readonly debugSnapshotProjectionInputPath?: string;
@@ -68,14 +68,12 @@ export function resolveSessionSidecarLayout(
     options.sessionID,
   );
   const lockPath = resolveSessionFileLockPath(lockDirectory, options.sessionID);
-  const runtimeLogPath = resolveRepoOwnedArtifactPath(
-    options.pluginDirectory,
-    options.runtimeLogPath,
-  );
-  const seamLogPath = resolveRepoOwnedArtifactPath(
-    options.pluginDirectory,
-    options.seamLogPath,
-  );
+  const runtimeLogPath = options.runtimeLogPath === undefined
+    ? undefined
+    : resolveRepoOwnedArtifactPath(options.pluginDirectory, options.runtimeLogPath);
+  const seamLogPath = options.seamLogPath === undefined
+    ? undefined
+    : resolveRepoOwnedArtifactPath(options.pluginDirectory, options.seamLogPath);
 
   if (!options.debugSnapshotPath) {
     return {

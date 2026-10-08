@@ -6,6 +6,26 @@ import { computeCompressionStats } from "../../src/runtime/compression-stats.js"
 // 固定用字符近似，避免测试依赖本地 tiktoken 服务。
 const charEstimate = async (text: string) => Math.ceil(text.length / 4);
 
+test("compression stats reuse the current projection's precomputed del without estimating summaries again", async () => {
+  const projection = {
+    sessionId: "precomputed",
+    deletableTokenCount: 60_001,
+    messages: [
+      { source: "result-group", role: "assistant", visibleKind: "referable", contentText: "already counted" },
+      { source: "result-group", role: "assistant", contentText: "delete output" },
+    ],
+    state: { messagePolicies: [] },
+  } as unknown as Parameters<typeof computeCompressionStats>[0];
+  const texts: string[] = [];
+  const stats = await computeCompressionStats(projection, "t", async (text) => {
+    texts.push(text);
+    return 7;
+  });
+  assert.equal(stats.deletableTokenCount, 60_001);
+  assert.equal(stats.protectedTokenCount, 7);
+  assert.deepEqual(texts, ["delete output"]);
+});
+
 test("compression stats split 不可压 / 可delete / 可压", async () => {
   const projection = {
     sessionId: "s1",
@@ -65,4 +85,32 @@ test("compression stats ignore reminder and synthetic messages", async () => {
   assert.equal(stats.protectedTokenCount, 10);
   assert.equal(stats.deletableTokenCount, 0);
   assert.equal(stats.compressibleTokenCount, 0);
+});
+
+test("compression stats bound concurrent token estimates without dropping messages", async () => {
+  let active = 0;
+  let maxActive = 0;
+  let calls = 0;
+  const projection = {
+    sessionId: "many",
+    messages: Array.from({ length: 40 }, (_, index) => ({
+      source: "result-group",
+      role: "assistant",
+      visibleKind: "referable",
+      contentText: `summary-${index}`,
+    })),
+    state: { messagePolicies: [] },
+  } as unknown as Parameters<typeof computeCompressionStats>[0];
+  const stats = await computeCompressionStats(projection, "t", async () => {
+    active += 1;
+    calls += 1;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    active -= 1;
+    return 1;
+  });
+
+  assert.equal(maxActive, 16);
+  assert.equal(calls, 40);
+  assert.equal(stats.deletableTokenCount, 40);
 });

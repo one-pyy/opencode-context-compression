@@ -264,6 +264,7 @@ export function replayHistoryFromSources(
             sourceMessageId: entry.sourceMessageId,
             outcome,
             mergeAdjacent: entry.input.mergeAdjacent,
+            mode: entry.input.mode,
             startVisibleMessageId: undefined,
             endVisibleMessageId: entry.input.to,
             ...(entry.result.ok === true && "inspectId" in entry.result

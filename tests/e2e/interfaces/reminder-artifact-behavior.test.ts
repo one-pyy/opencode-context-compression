@@ -19,6 +19,86 @@ import {
   openSessionSidecarRepository,
 } from "../../../src/state/sidecar-store.js";
 import { createHermeticE2EFixture } from "../harness/fixture.js";
+import { computeCompressionStats } from "../../../src/runtime/compression-stats.js";
+import { projectProjectionToEnvelopes } from "../../../src/runtime/messages-transform.js";
+
+for (const mode of ["compact", "delete"] as const) {
+  test(`reminder and panel consume only applied ${mode} projection summaries`, { concurrency: false }, async (t) => {
+    const fixture = await createHermeticE2EFixture(t, { suite: "interfaces", caseName: `retirement-${mode}` });
+    const databasePath = resolveSessionDatabasePath(resolvePluginStateDirectory(fixture.repoRoot), fixture.sessionID);
+    await bootstrapSessionSidecar({ databasePath });
+    const sidecar = await openSessionSidecarRepository({ databasePath });
+    t.after(() => sidecar.close());
+    const resultGroups = createResultGroupRepository(sidecar);
+    const identity = createCanonicalIdentityService({ visibleIds: resultGroups });
+    await identity.allocateVisibleId("system", "protected");
+    const first = await identity.allocateVisibleId("old-first", "compressible");
+    const last = await identity.allocateVisibleId("old-last", "compressible");
+    const current = await identity.allocateVisibleId("current", "compressible");
+    const hostHistory = [
+      hostEntry(1, createMessage("system", "system", "System.")),
+      hostEntry(2, createMessage("old-first", "assistant", "Old investigation.")),
+      hostEntry(3, createMessage("old-last", "tool", "Old evidence.")),
+      hostEntry(4, createMessage("current", "assistant", "Current uncompressed work.")),
+    ];
+    const builder = createProjectionBuilder({
+      historyReplayReader: createHistoryReplayReaderFromSources({
+        sessionId: fixture.sessionID,
+        hostHistory,
+        toolHistory: [
+          { sequence: 5, sourceMessageId: "mark-tool", toolName: "compression_mark", input: { mode, from: first.assignedVisibleId, to: last.assignedVisibleId }, result: { ok: true, markId: "old" } },
+          { sequence: 6, sourceMessageId: "inspect-tool", toolName: "compression_inspect", input: { mode: "delete", to: current.assignedVisibleId, mergeAdjacent: true }, result: { ok: true, inspectId: "inspect-current" } },
+        ],
+      }),
+      policyEngine: createFlatPolicyEngine({ smallUserMessageThreshold: 5 }),
+      resultGroupRepository: resultGroups,
+      canonicalIdentityService: identity,
+      reminderService: createConfiguredReminderService({
+        hsoft: 1, hhard: 10_000, hdelete: 1,
+        softRepeatEveryTokens: 10_000, hardRepeatEveryTokens: 10_000,
+        allowDelete: true, retirePromptText: "Retire unused summaries.",
+        promptTextByKind: { "soft-compact": "Compact originals.", "soft-delete": "Compact originals.", "hard-compact": "Compact originals.", "hard-delete": "Compact originals." },
+      }),
+    });
+    await resultGroups.upsertCompleteGroup({
+      markId: "old", mode, executionMode: mode, sourceStartSeq: 2, sourceEndSeq: 3,
+      createdAt: "2026-10-06T00:00:00.000Z", committedAt: "2026-10-06T00:00:00.000Z",
+      fragments: [{ sourceStartSeq: 2, sourceEndSeq: 3, replacementText: "Summary of completed work and its verified evidence." }],
+    });
+    const pending = await builder.build({ sessionId: fixture.sessionID, replacementGateOpen: false });
+    assert.equal(pending.deletableTokenCount, 0);
+    assert.ok(pending.reminders.every((item) => !item.contentText.includes("Retire unused")));
+
+    const applied = await builder.build({ sessionId: fixture.sessionID, replacementGateOpen: true });
+    assert.equal(applied.reminders.length, 1);
+    assert.equal(applied.reminders[0]?.anchorVisibleId, current.assignedVisibleId);
+    const listing = JSON.parse(applied.reminders[0]?.inspectListing ?? "{}");
+    if (mode === "compact") {
+      assert.ok((applied.deletableTokenCount ?? 0) > 1);
+      assert.match(applied.reminders[0]?.contentText ?? "", /Retire unused summaries/u);
+      assert.equal(listing.mode, "delete");
+      assert.equal(listing.entries[0]?.kind, "fragment");
+      assert.equal(listing.entries[0]?.tokens, applied.deletableTokenCount);
+      assert.equal(listing.totalTokens, listing.entries.reduce((total: number, entry: { tokens: number }) => total + entry.tokens, 0));
+      assert.equal(listing.entries.at(-1)?.kind, "compressible");
+      const actualInspect = applied.toolResultOverrides.find((override) => override.sourceMessageId === "inspect-tool");
+      assert.ok(actualInspect);
+      assert.deepEqual(JSON.parse(actualInspect.output), listing);
+    } else {
+      assert.equal(applied.deletableTokenCount, 0);
+      assert.ok(listing.sections);
+    }
+    const inspectPair = projectProjectionToEnvelopes(applied).flatMap((item) => item.parts)
+      .find((part) => part.type === "tool" && part.tool === "compression_inspect");
+    assert.ok(inspectPair && inspectPair.type === "tool" && inspectPair.state.status === "completed");
+    assert.deepEqual(inspectPair.state.input, { mode: mode === "compact" ? "delete" : "compact", to: current.assignedVisibleId });
+    const stats = await computeCompressionStats(applied, "t", async (text) => {
+      assert.ok(mode !== "compact" || !text.includes("Summary of completed"), "panel must reuse the precomputed summary count");
+      return 1;
+    });
+    assert.equal(stats.deletableTokenCount, applied.deletableTokenCount);
+  });
+}
 
 test(
   "reminders stay projection-only and disappear once a covered window is successfully replaced",

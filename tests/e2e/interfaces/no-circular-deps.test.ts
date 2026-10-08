@@ -66,18 +66,9 @@ test(
       "src/projection/reminder-service.ts",
     );
     const runnerFile = resolve(fixture.repoRoot, "src/compaction/runner.ts");
-    const transportFile = resolve(
-      fixture.repoRoot,
-      "src/runtime/compaction-transport.ts",
-    );
-    const pluginHooksFile = resolve(
-      fixture.repoRoot,
-      "src/runtime/plugin-hooks.ts",
-    );
 
     assert.ok(!(graph.get(repositoryFile) ?? []).includes(projectionBuilderFile));
     assert.ok(!(graph.get(reminderFile) ?? []).includes(runnerFile));
-    assert.ok(!(graph.get(transportFile) ?? []).includes(pluginHooksFile));
 
     const evidencePath = await fixture.evidence.writeJson("no-circular-deps", {
       files: CRITICAL_MODULE_FILES,

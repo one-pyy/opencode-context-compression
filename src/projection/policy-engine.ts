@@ -354,6 +354,7 @@ function freezeMarkTreeNode(
     sourceSequence: node.sourceSequence,
     startSequence: node.startSequence,
     endSequence: node.endSequence,
+    hint: node.hint,
     depth,
     children: Object.freeze(
       [...node.children]

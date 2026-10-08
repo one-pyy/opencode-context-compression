@@ -114,8 +114,24 @@ export function buildCompressionInspectListing(input: {
   readonly messages: readonly ProjectedPromptMessage[];
   readonly policies: readonly MessageProjectionPolicy[];
   readonly to: string;
+  readonly mode?: "compact" | "delete";
+  readonly resultGroups?: readonly CompleteResultGroup[];
 }): string | undefined {
   try {
+    if (input.mode === "delete") {
+      const entries = buildCompressionInspectDeleteEntries({
+        messages: input.messages,
+        policies: input.policies,
+        resultGroups: input.resultGroups ?? [],
+        to: input.to,
+      });
+      return serializeCompressionInspectResult({
+        ok: true,
+        mode: "delete",
+        entries,
+        totalTokens: entries.reduce((sum, entry) => sum + entry.tokens, 0),
+      });
+    }
     const entries = inspectVisibleEntriesInRange({
       projectedMessages: input.messages,
       policies: input.policies,
@@ -139,7 +155,7 @@ export function buildCompressionInspectDeleteEntries(input: {
   readonly resultGroups: readonly CompleteResultGroup[];
   readonly to: string;
 }): readonly CompressionInspectEntry[] {
-  const entries = collectProjectedEntries(input.messages, input.policies);
+  const entries = collectProjectedEntries(input.messages, input.policies, true);
   const range = parseInclusiveVisibleRange({
     policies: input.policies,
     entries,
@@ -150,7 +166,6 @@ export function buildCompressionInspectDeleteEntries(input: {
   });
   const fragments = buildCompressionInspectFragmentEntries({
     resultGroups: input.resultGroups,
-    policies: input.policies,
   });
   const result: CompressionInspectEntry[] = [];
   let currentCompressible:
@@ -185,7 +200,7 @@ export function buildCompressionInspectDeleteEntries(input: {
             kind: "fragment",
             from: fragment.from,
             to: fragment.to,
-            tokens: fragment.tokens,
+            tokens: entry.tokens,
           } satisfies CompressionInspectEntry),
         );
       }
@@ -223,21 +238,15 @@ export function buildCompressionInspectDeleteEntries(input: {
   return Object.freeze(result);
 }
 
-// Fragment totals reuse the message-policy caliber: the summed policy token counts of
-// the source messages the fragment replaced, not a fresh estimate of the summary text.
 function buildCompressionInspectFragmentEntries(input: {
   readonly resultGroups: readonly CompleteResultGroup[];
-  readonly policies: readonly MessageProjectionPolicy[];
 }): ReadonlyMap<
   string,
-  { readonly from: string; readonly to: string; readonly tokens: number }
+  { readonly from: string; readonly to: string }
 > {
-  const tokenCountBySequence = new Map(
-    input.policies.map((policy) => [policy.sequence, policy.tokenCount]),
-  );
   const fragments = new Map<
     string,
-    { readonly from: string; readonly to: string; readonly tokens: number }
+    { readonly from: string; readonly to: string }
   >();
 
   input.resultGroups.forEach((group) => {
@@ -252,18 +261,9 @@ function buildCompressionInspectFragmentEntries(input: {
         sourceStartSeq: fragment.sourceStartSeq,
         sourceEndSeq: fragment.sourceEndSeq,
       });
-      let tokens = 0;
-      for (
-        let sequence = fragment.sourceStartSeq;
-        sequence <= fragment.sourceEndSeq;
-        sequence += 1
-      ) {
-        tokens += tokenCountBySequence.get(sequence) ?? 0;
-      }
       fragments.set(toVisibleIdLookupKey(markers.startId), {
         from: markers.startId,
         to: markers.endId,
-        tokens,
       });
     });
   });
@@ -378,6 +378,7 @@ function inspectVisibleEntriesInRange(input: {
 function collectProjectedEntries(
   messages: readonly ProjectedPromptMessage[],
   policies: readonly MessageProjectionPolicy[],
+  countVisibleText = false,
 ): readonly CompressionInspectVisibleEntry[] {
   const policiesByCanonicalId = new Map(
     policies.map((policy) => [policy.canonicalId, policy]),
@@ -395,6 +396,7 @@ function collectProjectedEntries(
           : policiesByCanonicalId.get(message.canonicalId);
       if (
         message.visibleKind === "compressible" &&
+        !countVisibleText &&
         (policy === undefined || policy.tokenCount <= 0)
       ) {
         return [];
@@ -404,8 +406,9 @@ function collectProjectedEntries(
           id: message.visibleId,
           visibleKind: message.visibleKind,
           role: message.role,
-          tokens:
-            message.visibleKind === "compressible"
+          tokens: countVisibleText
+            ? (message.visibleTokenCount ?? Math.ceil(message.contentText.length / 4))
+            : message.visibleKind === "compressible"
               ? (policy?.tokenCount ?? 0)
               : 0,
         } satisfies CompressionInspectVisibleEntry),

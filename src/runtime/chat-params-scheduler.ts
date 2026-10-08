@@ -27,6 +27,8 @@ export type ChatParamsInput = Parameters<ChatParamsHook>[0];
 export type ChatParamsOutput = Parameters<ChatParamsHook>[1];
 
 export interface ChatParamsSchedulingMetadata {
+  /** When false, eligibility and lock fields are placeholders, not measurements. */
+  readonly evaluationPerformed?: boolean;
   readonly schedulerState: "idle" | "eligible";
   readonly scheduled: boolean;
   readonly reason: string;

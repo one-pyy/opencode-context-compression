@@ -37,6 +37,7 @@ interface ReminderPromptPathVariantInput {
 }
 
 interface ReminderPromptPathsInput {
+  readonly retire?: unknown;
   readonly compactOnly?: ReminderPromptPathVariantInput;
   readonly deleteAllowed?: ReminderPromptPathVariantInput;
 }
@@ -68,6 +69,8 @@ interface RuntimeConfigInput {
   readonly reminder?: {
     readonly hsoft?: unknown;
     readonly hhard?: unknown;
+    readonly hdelete?: unknown;
+    readonly cpmarkThreshold?: unknown;
     readonly softRepeatEveryTokens?: unknown;
     readonly hardRepeatEveryTokens?: unknown;
     readonly promptPaths?: ReminderPromptPathsInput;
@@ -91,6 +94,7 @@ export interface LoadedPromptAsset {
 }
 
 export interface ResolvedRuntimeReminderPrompts {
+  readonly retire: LoadedPromptAsset;
   readonly compactOnly: {
     readonly soft: LoadedPromptAsset;
     readonly hard: LoadedPromptAsset;
@@ -104,6 +108,8 @@ export interface ResolvedRuntimeReminderPrompts {
 export interface RuntimeConfigReminderThresholds {
   readonly hsoft: number;
   readonly hhard: number;
+  readonly hdelete: number;
+  readonly cpmarkThreshold: number;
   readonly softRepeatEveryTokens: number;
   readonly hardRepeatEveryTokens: number;
 }
@@ -129,8 +135,8 @@ export interface LoadedRuntimeConfig {
   readonly idleThresholdMs: number;
   readonly smallUserMessageThreshold: number;
   readonly schedulerMarkThreshold: number;
-  readonly runtimeLogPath: string;
-  readonly seamLogPath: string;
+  readonly runtimeLogPath: string | undefined;
+  readonly seamLogPath: string | undefined;
   readonly debugSnapshotPath?: string;
   readonly logging: {
     readonly level: RuntimeLogLevel;
@@ -146,6 +152,7 @@ export interface LoadedRuntimeConfig {
   };
   readonly reminder: RuntimeConfigReminderThresholds & {
     readonly promptPaths: {
+      readonly retire: string;
       readonly compactOnly: {
         readonly soft: string;
         readonly hard: string;
@@ -196,9 +203,12 @@ const DEFAULTS = {
   reminder: {
     hsoft: 30_000,
     hhard: 70_000,
+    hdelete: 60_000,
+    cpmarkThreshold: 190_000,
     softRepeatEveryTokens: 20_000,
     hardRepeatEveryTokens: 10_000,
     promptPaths: {
+      retire: "prompts/reminder-retire.md",
       compactOnly: {
         soft: "prompts/reminder-soft-compact-only.md",
         hard: "prompts/reminder-hard-compact-only.md",
@@ -261,11 +271,13 @@ const ALLOWED_COMPRESSING_KEYS = new Set([
 const ALLOWED_REMINDER_KEYS = new Set([
   "hsoft",
   "hhard",
+  "hdelete",
+  "cpmarkThreshold",
   "softRepeatEveryTokens",
   "hardRepeatEveryTokens",
   "promptPaths",
 ]);
-const ALLOWED_REMINDER_PROMPT_KEYS = new Set(["compactOnly", "deleteAllowed"]);
+const ALLOWED_REMINDER_PROMPT_KEYS = new Set(["compactOnly", "deleteAllowed", "retire"]);
 const ALLOWED_REMINDER_VARIANT_KEYS = new Set(["soft", "hard"]);
 const ALLOWED_TOAST_KEYS = new Set(["enabled", "durations"]);
 const ALLOWED_TOAST_DURATION_KEYS = new Set([
@@ -325,9 +337,8 @@ export async function loadRuntimeConfig(
     modelsOverride ?? readRequiredArray(parsed.compactionModels, "compactionModels"),
     modelsOverride ? RUNTIME_CONFIG_ENV.models : "compactionModels",
   );
-  const runtimeLogPath = resolveRuntimePathFromRepoRoot(
-    runtimeLogOverride ??
-      readRequiredString(parsed.runtimeLogPath, "runtimeLogPath"),
+  const runtimeLogPath = resolveOptionalRuntimeLogPath(
+    runtimeLogOverride ?? parsed.runtimeLogPath,
     {
       repoRoot,
       fieldPath: runtimeLogOverride
@@ -335,9 +346,8 @@ export async function loadRuntimeConfig(
         : "runtimeLogPath",
     },
   );
-  const seamLogPath = resolveRuntimePathFromRepoRoot(
-    seamLogOverride ??
-      readRequiredString(parsed.seamLogPath, "seamLogPath"),
+  const seamLogPath = resolveOptionalRuntimeLogPath(
+    seamLogOverride ?? parsed.seamLogPath,
     {
       repoRoot,
       fieldPath: seamLogOverride ? RUNTIME_CONFIG_ENV.seamLogPath : "seamLogPath",
@@ -361,6 +371,13 @@ export async function loadRuntimeConfig(
   });
 
   const reminderPromptPaths = {
+    retire: resolveRuntimePathFromRepoRoot(
+      readRequiredString(
+        parsed.reminder?.promptPaths?.retire ?? DEFAULTS.reminder.promptPaths.retire,
+        "reminder.promptPaths.retire",
+      ),
+      { repoRoot, fieldPath: "reminder.promptPaths.retire" },
+    ),
     compactOnly: {
       soft: resolveRuntimePathFromRepoRoot(
         readRequiredString(
@@ -427,6 +444,10 @@ export async function loadRuntimeConfig(
   );
 
   const reminderPrompts = {
+    retire: resolvePromptAsset(reminderPromptPaths.retire, {
+      kind: "Reminder prompt asset 'reminder.promptPaths.retire'",
+      templateMode: "plain-text",
+    }),
     compactOnly: {
       soft: resolvePromptAsset(reminderPromptPaths.compactOnly.soft, {
         kind: "Reminder prompt asset 'reminder.promptPaths.compactOnly.soft'",
@@ -508,6 +529,8 @@ export async function loadRuntimeConfig(
     reminder: {
       hsoft: readPositiveInteger(parsed.reminder?.hsoft ?? DEFAULTS.reminder.hsoft, "reminder.hsoft"),
       hhard: readPositiveInteger(parsed.reminder?.hhard ?? DEFAULTS.reminder.hhard, "reminder.hhard"),
+      hdelete: readPositiveInteger(parsed.reminder?.hdelete ?? DEFAULTS.reminder.hdelete, "reminder.hdelete"),
+      cpmarkThreshold: readPositiveInteger(parsed.reminder?.cpmarkThreshold ?? DEFAULTS.reminder.cpmarkThreshold, "reminder.cpmarkThreshold"),
       softRepeatEveryTokens: readPositiveInteger(
         parsed.reminder?.softRepeatEveryTokens ??
           DEFAULTS.reminder.softRepeatEveryTokens,
@@ -577,6 +600,27 @@ export function resolveRuntimePathFromRepoRoot(
   }
 
   return resolve(options.repoRoot ?? resolveRuntimeConfigRepoRoot(), trimmed);
+}
+
+export function resolveOptionalRuntimeLogPath(
+  value: unknown,
+  options: {
+    readonly repoRoot: string;
+    readonly fieldPath: string;
+  },
+): string | undefined {
+  // A null (or absent) value disables this log; a string enables it at the given path.
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (typeof value !== "string") {
+    throw new OpencodeContextCompressionRuntimeConfigError(
+      `${options.fieldPath} must be a non-empty string or null.`,
+    );
+  }
+
+  return resolveRuntimePathFromRepoRoot(value, options);
 }
 
 export function resolveCompactionModelChain(
@@ -654,6 +698,8 @@ export function readReminderThresholds(
   return Object.freeze({
     hsoft: config.reminder.hsoft,
     hhard: config.reminder.hhard,
+    hdelete: config.reminder.hdelete,
+    cpmarkThreshold: config.reminder.cpmarkThreshold,
     softRepeatEveryTokens: config.reminder.softRepeatEveryTokens,
     hardRepeatEveryTokens: config.reminder.hardRepeatEveryTokens,
   });

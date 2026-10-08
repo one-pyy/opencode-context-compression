@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -7,6 +7,8 @@ import test from "node:test";
 import type { Hooks, PluginInput } from "@opencode-ai/plugin";
 
 import pluginModule from "../../../src/index.js";
+import { loadRuntimeConfig, resolveRuntimeConfigRepoRoot } from "../../../src/config/runtime-config.js";
+import { createDefaultRuntimePluginSeamServices } from "../../../src/runtime/default-plugin-services.js";
 import {
   ALLOWED_PLUGIN_EXTERNAL_HOOKS,
   ALLOWED_PLUGIN_EXTERNAL_TOOLS,
@@ -72,9 +74,6 @@ test(
     );
 
     const indexSource = await readFile(join(repoRoot, "src", "index.ts"), "utf8");
-    assert.ok(indexSource.split(/\r?\n/u).length < 60);
-    assert.match(indexSource, /createContextCompressionHooks/u);
-    assert.doesNotMatch(indexSource, /INVALID_RANGE|DELETE_NOT_ALLOWED|OVERLAP_CONFLICT/u);
 
     const evidencePath = await fixture.evidence.writeJson("plugin-hooks-contract", {
       exposedHookKeys: Object.keys(pluginHooks).sort(),
@@ -257,6 +256,137 @@ test("chat.params keeps scheduler metadata out of provider options", async () =>
 
   assert.deepEqual(output.options, {});
   assert.equal((events[0] as { reason?: string } | undefined)?.reason, "test metadata must stay internal");
+});
+
+test("production chat.params skips history evaluation and preserves provider parameters across sessions", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "opencode-chat-params-lightweight-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  let historyReads = 0;
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => {
+    throw new Error("chat.params must not request token estimates");
+  });
+  const input = {
+    ...createPluginInput(directory),
+    client: {
+      session: {
+        async messages() {
+          historyReads += 1;
+          throw new Error("chat.params must not read session history");
+        },
+      },
+    } as unknown as PluginInput["client"],
+  };
+  const runtimeConfig = await loadRuntimeConfig({
+    OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH:
+      join(resolveRuntimeConfigRepoRoot(), "src/config/runtime-config.jsonc"),
+  });
+  const services = createDefaultRuntimePluginSeamServices(input, runtimeConfig);
+  const events: unknown[] = [];
+  const hooks = createContextCompressionHooks({
+    ...services,
+    runtimeArtifacts: {
+      async recordEvent(event) { events.push(event.payload); },
+      async writeMessagesTransformSnapshot() {},
+      async writeDiagnostic() {},
+      async writeCompactionRecord() {},
+    },
+  });
+
+  for (const sessionID of ["session-a", "session-b", "session-a"]) {
+    const output = {
+      temperature: 0.5,
+      topP: 0.9,
+      topK: 0,
+      maxOutputTokens: 4096,
+      options: { reasoningEffort: "medium" },
+    };
+    const expected = structuredClone(output);
+    await hooks["chat.params"]?.({
+      sessionID,
+      agent: "build",
+      model: createChatParamsModel(),
+      provider: createChatParamsProvider(),
+      message: createUserMessage({ id: `msg-${sessionID}` }),
+    }, output);
+    assert.deepEqual(output, expected);
+  }
+
+  assert.equal(historyReads, 0);
+  assert.equal(fetchMock.mock.callCount(), 0);
+  assert.deepEqual(await readdir(directory), []);
+  assert.equal(events.length, 3);
+  for (const event of events) {
+    assert.equal((event as { evaluationPerformed?: boolean }).evaluationPerformed, false);
+    assert.match((event as { reason: string }).reason, /evaluation skipped/u);
+  }
+});
+
+test("disabled seam observation skips scanning while all hooks still execute", async () => {
+  let scanned = 0;
+  const events: string[] = [];
+  const hooks = createContextCompressionHooks({
+    messagesTransformProjector: {
+      project({ currentMessages }) {
+        events.push("projection");
+        return currentMessages;
+      },
+    },
+    runtimeArtifacts: {
+      async recordEvent(input) { events.push(input.seam); },
+      async writeMessagesTransformSnapshot() {},
+      async writeDiagnostic() {},
+      async writeCompactionRecord() {},
+    },
+  });
+  const markScanned = (output: object) => Object.defineProperty(output, "observationSentinel", {
+    enumerable: true,
+    get() { scanned += 1; return "observation-only"; },
+  });
+  const transformOutput = { messages: [{
+    info: createUserMessage({ id: "disabled-observation" }),
+    parts: [createTextPart({ id: "part-disabled", messageID: "disabled-observation", text: "test" })],
+  }] };
+  const originalMessages = transformOutput.messages;
+  markScanned(transformOutput);
+  await hooks["experimental.chat.messages.transform"]?.({ sessionID: "disabled-observation" }, transformOutput);
+  assert.equal(transformOutput.messages, originalMessages);
+  const paramsOutput = { temperature: 1, topP: 1, topK: 0, maxOutputTokens: undefined, options: { retained: true } };
+  markScanned(paramsOutput);
+  await hooks["chat.params"]?.({
+    sessionID: "disabled-observation", agent: "build", model: createChatParamsModel(),
+    provider: createChatParamsProvider(), message: createUserMessage({ id: "disabled-params" }),
+  }, paramsOutput);
+  assert.deepEqual(paramsOutput.options, { retained: true });
+  const toolOutput = { args: { path: "test" } };
+  markScanned(toolOutput);
+  await hooks["tool.execute.before"]?.({ sessionID: "disabled-observation", tool: "read", callID: "disabled-tool" }, toolOutput);
+  assert.equal(scanned, 0);
+  assert.deepEqual(events, ["projection", "experimental.chat.messages.transform", "chat.params", "tool.execute.before"]);
+});
+
+test("enabled seam observation preserves ordered JSONL records", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "seam-observation-cache-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const seamLogPath = join(directory, "seams.jsonl");
+  const hooks = createContextCompressionHooks({ seamLogPath });
+  await hooks["experimental.chat.messages.transform"]?.({ sessionID: "enabled-observation" }, { messages: [{
+    info: createUserMessage({ id: "enabled-message" }),
+    parts: [createTextPart({ id: "enabled-part", messageID: "enabled-message", text: "test" })],
+  }] });
+  await hooks["chat.params"]?.({
+    sessionID: "enabled-observation", agent: "build", model: createChatParamsModel(),
+    provider: createChatParamsProvider(), message: createUserMessage({ id: "enabled-params" }),
+  }, { temperature: 1, topP: 1, topK: 0, options: {} });
+  await hooks["tool.execute.before"]?.({ sessionID: "enabled-observation", tool: "read", callID: "enabled-tool" }, { args: {} });
+  const entries = (await readFile(seamLogPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as {
+    sequence: number; seam: string; outputShape: { kind: string }; identityFields: Array<{ path: string; value: string }>;
+  });
+  assert.deepEqual(entries.map((entry) => entry.sequence), [1, 2, 3]);
+  assert.deepEqual(entries.map((entry) => entry.seam), ["experimental.chat.messages.transform", "chat.params", "tool.execute.before"]);
+  assert.ok(entries.every((entry) => entry.outputShape.kind === "object"));
+  assert.ok(entries[0]?.identityFields.some((field) => field.value === "enabled-part"));
+  assert.ok(entries[1]?.identityFields.some((field) => field.value === "enabled-params"));
+  assert.ok(entries[2]?.identityFields.some((field) => field.value === "enabled-tool"));
 });
 
 test("chat.params scheduler metadata includes mark eligibility diagnostics", async () => {

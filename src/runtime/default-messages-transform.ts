@@ -1,4 +1,5 @@
 import type { LoadedRuntimeConfig } from "../config/runtime-config.js";
+import { measurePerformanceStage } from "../performance-diagnostics.js";
 import { createCanonicalIdentityService } from "../identity/canonical-identity.js";
 import { createFlatPolicyEngine } from "../projection/policy-engine.js";
 import { createProjectionBuilder } from "../projection/projection-builder.js";
@@ -54,7 +55,7 @@ export function createDefaultMessagesTransformProjector(
         const projectionBuilder = createProjectionBuilder({
           historyReplayReader: createHistoryReplayReaderFromSessionMessages({
             readSessionMessages: async (sessionId) => {
-              const messages = await options.readSessionMessages(sessionId);
+              const messages = await measurePerformanceStage("history.host-read", () => options.readSessionMessages(sessionId));
               await options.onProjectionInputRead?.({
                 sessionId,
                 messages: messages as readonly MessagesTransformEnvelope[],
@@ -74,6 +75,8 @@ export function createDefaultMessagesTransformProjector(
           reminderService: createConfiguredReminderService({
             hsoft: options.runtimeConfig.reminder.hsoft,
             hhard: options.runtimeConfig.reminder.hhard,
+            hdelete: options.runtimeConfig.reminder.hdelete,
+            retirePromptText: options.runtimeConfig.reminder.prompts.retire.text,
             softRepeatEveryTokens:
               options.runtimeConfig.reminder.softRepeatEveryTokens,
             hardRepeatEveryTokens:

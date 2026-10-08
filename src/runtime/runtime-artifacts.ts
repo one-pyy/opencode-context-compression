@@ -81,8 +81,8 @@ export function createNoopRuntimeArtifactRecorder(): RuntimeArtifactRecorder {
 
 export function createFileBackedRuntimeArtifactRecorder(options: {
   readonly pluginDirectory: string;
-  readonly runtimeLogPath: string;
-  readonly seamLogPath: string;
+  readonly runtimeLogPath?: string;
+  readonly seamLogPath?: string;
   readonly debugSnapshotPath?: string;
   readonly loggingLevel: RuntimeLogLevel;
   readonly now?: () => string;
@@ -98,6 +98,11 @@ export function createFileBackedRuntimeArtifactRecorder(options: {
         seamLogPath: options.seamLogPath,
         debugSnapshotPath: options.debugSnapshotPath,
       });
+      const runtimeLogPath = layout.runtimeLogPath;
+      if (runtimeLogPath === undefined) {
+        return;
+      }
+
       const event: RuntimeEventRecord = Object.freeze({
         createdAt: now(),
         sessionID: input.sessionID,
@@ -106,8 +111,8 @@ export function createFileBackedRuntimeArtifactRecorder(options: {
         payload: input.payload,
       });
 
-      await ensureParentDirectory(layout.runtimeLogPath);
-      await appendFile(layout.runtimeLogPath, `${JSON.stringify(event)}\n`, "utf8");
+      await ensureParentDirectory(runtimeLogPath);
+      await appendFile(runtimeLogPath, `${JSON.stringify(event)}\n`, "utf8");
     },
     async writeMessagesTransformSnapshot(input) {
       if (options.debugSnapshotPath === undefined) {
@@ -147,6 +152,11 @@ export function createFileBackedRuntimeArtifactRecorder(options: {
         seamLogPath: options.seamLogPath,
         debugSnapshotPath: options.debugSnapshotPath,
       });
+      const runtimeLogPath = layout.runtimeLogPath;
+      if (runtimeLogPath === undefined) {
+        return;
+      }
+
       const event: RuntimeDiagnosticRecord = Object.freeze({
         createdAt: now(),
         sessionID: input.sessionID,
@@ -156,8 +166,8 @@ export function createFileBackedRuntimeArtifactRecorder(options: {
         ...(input.payload === undefined ? {} : { payload: input.payload }),
       });
 
-      await ensureParentDirectory(layout.runtimeLogPath);
-      await appendFile(layout.runtimeLogPath, `${JSON.stringify(event)}\n`, "utf8");
+      await ensureParentDirectory(runtimeLogPath);
+      await appendFile(runtimeLogPath, `${JSON.stringify(event)}\n`, "utf8");
     },
     async writeCompactionRecord(input) {
       const filePath = resolveCompactionRecordPath({

@@ -7,9 +7,7 @@
   "required": [
     "version",
     "promptPath",
-    "compactionModels",
-    "runtimeLogPath",
-    "seamLogPath"
+    "compactionModels"
   ],
   "properties": {
     "$schema": {
@@ -62,19 +60,19 @@
       "description": "Internal/test compatibility threshold that still works by mark count, distinct from markedTokenAutoCompactionThreshold."
     },
     "runtimeLogPath": {
-      "type": "string",
+      "type": ["string", "null"],
       "minLength": 1,
-      "description": "Repo-relative or absolute runtime event log path."
+      "description": "Repo-relative or absolute runtime event log path. Set null to disable runtime event logging."
     },
     "seamLogPath": {
-      "type": "string",
+      "type": ["string", "null"],
       "minLength": 1,
-      "description": "Repo-relative or absolute seam observation log path."
+      "description": "Repo-relative or absolute seam observation log path. Set null to disable seam observation logging."
     },
     "debugSnapshotPath": {
-      "type": "string",
+      "type": ["string", "null"],
       "minLength": 1,
-      "description": "Repo-relative or absolute debug snapshot directory path for messages.transform input/output snapshots."
+      "description": "Repo-relative or absolute debug snapshot directory path for messages.transform input/output snapshots. Set null or omit to disable."
     },
     "logging": {
       "type": "object",
@@ -136,8 +134,18 @@
         "hhard": {
           "$ref": "#/$defs/positiveInteger"
         },
+        "hdelete": {
+          "$ref": "#/$defs/positiveInteger",
+          "default": 60000,
+          "description": "Append summary retirement instructions to an existing soft/hard reminder only when applied compact summary tokens strictly exceed this value."
+        },
         "softRepeatEveryTokens": {
           "$ref": "#/$defs/positiveInteger"
+        },
+        "cpmarkThreshold": {
+          "$ref": "#/$defs/positiveInteger",
+          "default": 190000,
+          "description": "发送无需回复的用户提醒：del + comp 严格超过此值 + fixed 时触发，回落到此值 + fixed - 30000 后重新激活。"
         },
         "hardRepeatEveryTokens": {
           "$ref": "#/$defs/positiveInteger"
@@ -147,6 +155,12 @@
           "additionalProperties": false,
           "description": "Plain-text reminder prompt asset paths keyed by severity × allowDelete.",
           "properties": {
+            "retire": {
+              "type": "string",
+              "minLength": 1,
+              "default": "prompts/reminder-retire.md",
+              "description": "Plain-text instructions appended when the summary retirement threshold is exceeded."
+            },
             "compactOnly": {
               "$ref": "#/$defs/reminderPromptVariant"
             },

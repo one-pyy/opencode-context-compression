@@ -244,11 +244,16 @@ test("compression_inspect delete mode lists fragments, users and compressible ra
   });
 
   assert.deepEqual(entries, [
-    { kind: "user", from: "000001_a1", to: "000001_a1", tokens: 0 },
-    { kind: "fragment", from: markers.startId, to: markers.endId, tokens: 40 },
-    { kind: "user", from: "000003_c3", to: "000003_c3", tokens: 0 },
-    { kind: "compressible", from: "000004_d4", to: "000004_d4", tokens: 20 },
+    { kind: "user", from: "000001_a1", to: "000001_a1", tokens: Math.ceil(messages[0]!.contentText.length / 4) },
+    { kind: "fragment", from: markers.startId, to: markers.endId, tokens: Math.ceil(messages[1]!.contentText.length / 4) },
+    { kind: "user", from: "000003_c3", to: "000003_c3", tokens: Math.ceil(messages[2]!.contentText.length / 4) },
+    { kind: "compressible", from: "000004_d4", to: "000004_d4", tokens: Math.ceil(messages[3]!.contentText.length / 4) },
   ]);
+  const precounted = buildCompressionInspectDeleteEntries({
+    messages: messages.map((message, index) => ({ ...message, visibleTokenCount: index + 1 })),
+    policies, resultGroups, to: "compressible_000004_d4",
+  });
+  assert.deepEqual(precounted.map((entry) => entry.tokens), [1, 2, 3, 4]);
 });
 
 test("compression_inspect delete mode round-trips through the serialized result", () => {

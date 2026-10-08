@@ -1133,9 +1133,12 @@ function createRuntimeConfig(input: {
     reminder: {
       hsoft: 1,
       hhard: 2,
+      hdelete: 60_000,
+      cpmarkThreshold: 190_000,
       softRepeatEveryTokens: 1,
       hardRepeatEveryTokens: 1,
       promptPaths: {
+        retire: join(input.repoRoot, "prompts", "retire.md"),
         compactOnly: {
           soft: join(input.repoRoot, "prompts", "soft.md"),
           hard: join(input.repoRoot, "prompts", "hard.md"),
@@ -1146,6 +1149,7 @@ function createRuntimeConfig(input: {
         },
       },
       prompts: {
+        retire: { path: join(input.repoRoot, "prompts", "retire.md"), text: "Retire unused summaries." },
         compactOnly: {
           soft: { path: join(input.repoRoot, "prompts", "soft.md"), text: "soft" },
           hard: { path: join(input.repoRoot, "prompts", "hard.md"), text: "hard" },

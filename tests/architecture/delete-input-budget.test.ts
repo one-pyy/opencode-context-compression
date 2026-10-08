@@ -19,12 +19,11 @@ test("delete budget measures assembled prompts, accepts the boundary and rejects
   const input = { model: "provider/model", systemPrompt: "delete rules", userMessage: "summary plus uncovered originals" };
   await checkCompactionInputBudget({ ...input, inputTokenLimit: 100 });
   await assert.rejects(checkCompactionInputBudget({ ...input, inputTokenLimit: 99 }), /exceeds model budget/);
-  assert.equal(measured.length, 2);
+  assert.equal(measured.length, 1);
   assert.deepEqual(JSON.parse(measured[0]), [
     { role: "system", content: input.systemPrompt },
     { role: "user", content: input.userMessage },
   ]);
-  assert.equal(measured[0], measured[1]);
 });
 
 test("delete budget uses conservative byte count when token service fails and skips unknown budgets", async (t) => {

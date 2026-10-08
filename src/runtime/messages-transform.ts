@@ -240,7 +240,7 @@ export function projectProjectionToEnvelopes(
           callID: `${messageId}:notice`,
           state: {
             status: "completed",
-            input: {},
+            input: message.reminderToolInput ?? {},
             output: message.contentText,
             title: message.reminderToolName,
             metadata: {},

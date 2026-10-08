@@ -74,6 +74,10 @@ export interface ReminderArtifact {
   readonly visibleId: string;
   readonly contentText: string;
   readonly inspectListing?: string;
+  readonly inspectInput?: {
+    readonly mode: "compact" | "delete";
+    readonly to: string;
+  };
 }
 
 export interface ProjectionState {
@@ -93,6 +97,7 @@ export interface ProjectionBuildInput {
 }
 
 export interface ProjectedPromptMessage {
+  readonly visibleTokenCount?: number;
   readonly source: "canonical" | "result-group" | "reminder" | "synthetic";
   readonly role: "system" | "user" | "assistant" | "tool";
   readonly canonicalId?: string;
@@ -101,12 +106,14 @@ export interface ProjectedPromptMessage {
   readonly visibleId?: string;
   readonly contentText: string;
   readonly reminderToolName?: string;
+  readonly reminderToolInput?: ReminderArtifact["inspectInput"];
   readonly parts?: readonly import("../history/history-replay-reader.js").CanonicalHostMessagePart[];
   readonly hostMessage?: import("../history/history-replay-reader.js").CanonicalHostMessage;
 }
 
 export interface ProjectedMessageSet {
   readonly sessionId: string;
+  readonly deletableTokenCount?: number;
   readonly messages: readonly ProjectedPromptMessage[];
   readonly toolResultOverrides: readonly ToolResultOverride[];
   readonly reminders: readonly ReminderArtifact[];

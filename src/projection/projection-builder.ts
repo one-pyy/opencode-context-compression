@@ -1,4 +1,6 @@
 import { defineInternalModuleContract } from "../internal/module-contract.js";
+import { measurePerformanceStage, startPerformanceStage } from "../performance-diagnostics.js";
+import { estimateTextTokenCount } from "../token-estimation.js";
 import type { CanonicalIdentityService } from "../identity/canonical-identity.js";
 import type { VisibleIdAllocation } from "../identity/visible-id.js";
 import type { HistoryReplayReader } from "../history/history-replay-reader.js";
@@ -69,11 +71,12 @@ export function createProjectionBuilder(
 ): ProjectionBuilder {
   return {
     async build(input) {
-      const history = await dependencies.historyReplayReader.read(input.sessionId);
-      const messagePolicies = await hydrateMessagePolicies(
+      const history = await measurePerformanceStage("history.read-and-replay", () => dependencies.historyReplayReader.read(input.sessionId));
+      const policySeeds = await measurePerformanceStage("policy.classify-and-count", () => dependencies.policyEngine.classifyMessages(history));
+      const messagePolicies = await measurePerformanceStage("identity.hydrate", () => hydrateMessagePolicies(
         dependencies.canonicalIdentityService,
-        await dependencies.policyEngine.classifyMessages(history),
-      );
+        policySeeds,
+      ));
       const visibleIdAllocations = Object.freeze(
         messagePolicies.map(toVisibleIdAllocation),
       );
@@ -134,7 +137,8 @@ export function createProjectionBuilder(
         });
       });
 
-      const renderedBaseMessages = renderProjectionMessages({
+      const finishRendering = startPerformanceStage("projection.render");
+      let renderedBaseMessages = renderProjectionMessages({
         history,
         messagePolicies,
         markTree,
@@ -144,6 +148,26 @@ export function createProjectionBuilder(
         failedToolMessageIds,
         replacementGateOpen: input.replacementGateOpen,
       }).messages;
+      finishRendering();
+
+      const countedMessages: ProjectedPromptMessage[] = [];
+      let deletableTokenCount = 0;
+      for (let index = 0; index < renderedBaseMessages.length; index += 16) {
+        const counted = await Promise.all(
+          renderedBaseMessages.slice(index, index + 16).map(async (message) => {
+            if (message.visibleId === undefined || message.role === "system") return message;
+            const visibleTokenCount = await estimateTextTokenCount(message.contentText);
+            return Object.freeze({ ...message, visibleTokenCount });
+          }),
+        );
+        countedMessages.push(...counted);
+        for (const message of counted) {
+          if (message.source === "result-group" && message.visibleKind === "referable") {
+            deletableTokenCount += message.visibleTokenCount ?? 0;
+          }
+        }
+      }
+      renderedBaseMessages = countedMessages;
 
       const state = {
         sessionId: input.sessionId,
@@ -155,18 +179,22 @@ export function createProjectionBuilder(
         resultGroups,
         failedToolMessageIds,
       } satisfies ProjectionState;
+      const finishOverrides = startPerformanceStage("projection.tool-overrides");
       const toolResultOverrides = Object.freeze([
         ...buildToolResultOverrides(failedToolMessageIds),
         ...buildCompressionInspectOverrides(state, renderedBaseMessages),
         ...buildCompressionRecallOverrides(state, renderedBaseMessages),
       ]);
+      finishOverrides();
       const reminders = dependencies.reminderService.compute({
         state,
         messages: renderedBaseMessages,
+        deletableTokenCount,
       });
 
       return {
         sessionId: input.sessionId,
+        deletableTokenCount,
         messages: Object.freeze(
           prependLeadingUserPrompt(
             injectReminderArtifacts(renderedBaseMessages, reminders),
@@ -285,6 +313,7 @@ function injectReminderArtifacts(
             ),
             contentText: reminder.inspectListing,
             reminderToolName: COMPRESSION_INSPECT_TOOL_NAME,
+            reminderToolInput: reminder.inspectInput,
           } satisfies ProjectedPromptMessage),
         );
       }

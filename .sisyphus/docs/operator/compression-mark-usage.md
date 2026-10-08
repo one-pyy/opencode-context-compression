@@ -84,6 +84,8 @@ sections 按 `totalTokens` 从高到低排列。`tokens <= 0` 的 compressible �
 
 sections / atoms 只说明当前投影中的结构和 token 数。模型仍需判断任务是否完成、细节是否已外化，以及哪些范围适合调用 `compression_mark`；不要默认逐 atom 标记。
 
+建议按任务或主题跨 atom、section 以及 delete 清单条目选择符合条件的连续范围，减少调用往返。范围可以经过 protected 用户消息，compact 保留其原文；涉及已应用摘要时须完整覆盖片段。成功的待处理标记视为已处理，已应用 compact 可以完整纳入更大范围；合法包含与冲突边界见 [标记包含冲突](../compaction/mark-tool-contract.md#标记包含冲突)。通过 hint 指定整个范围必须保留的关键内容，活跃细节、区间冲突或输入预算需要时才拆段。
+
 设置 `mergeAdjacent=false` 时返回旧的逐消息明细：
 
 ```json
@@ -114,7 +116,7 @@ sections / atoms 只说明当前投影中的结构和 token 数。模型仍需�
 
 - `kind=fragment` 的 `from` / `to` 就是该摘要片段的 `referable` 区间标记，可直接作为 `compression_mark` 端点；选区必须完整覆盖片段
 - `kind=user` 与 `kind=compressible` 用宿主消息 id（省略类型前缀），可直接作为端点
-- 条目 token 沿用 `messagePolicies` 口径：`fragment` 报其来源跨度的 policy token 总和，`user` 报该消息自身的 `tokenCount`（短用户消息记为 `0`）
+- 条目 token 是当前可见文本的估算大小：`fragment` 报摘要，`user` 报用户正文，`compressible` 报当前未压缩文本；`totalTokens` 汇总清单中的条目。
 - 该清单只描述当前可选结构，不代表这些范围已经满足删除标准；`mode="delete"` 也不做 `allowDelete` 准入判断，实际 delete 仍由 `compression_mark` 拒绝
 
 ## 如何选择消息范围
@@ -157,6 +159,8 @@ sections / atoms 只说明当前投影中的结构和 token 数。模型仍需�
 ## `hint` 的用法
 
 `hint` 是传给压缩引擎的最高优先级指令，来自调用者（通常是外层 AI）对任务上下文的判断。压缩引擎会把 hint 视为比默认压缩原则更高优先级。
+
+跨段选区时，hint 应明确指定关键事实、精确参数、用户约束、决定、证据限制、未决事项和完整资料路径，并说明已核对文件的用途。保留项必须进入最终 `compression_output`，仅出现在 `plan` 或 `explanation` 不算保留。hint 不能伪造事实或把助手建议升级为用户授权；delete 的有效信息保留与留存要求见 [目标与保留标准](../compaction/allow-delete.md#目标与保留标准)。
 
 ### 三类 hint 指令
 

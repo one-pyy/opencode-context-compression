@@ -127,6 +127,8 @@ sidecar 当前常见表包括：
 
 sidecar 不保存 scheduler 的最新 token 统计快照；不要假设存在 scheduler state 表。token 统计与 eligible mark 判断以 `messages.transform` 的 projection debug 为准，执行结果以其后的 `background-compaction` 记录为准。
 
+默认生产入口的 `chat.params` 完成事件只记录钩子已通过，payload 中 `evaluationPerformed: false` 表示本次没有评估历史、待压标记或锁。此时 `schedulerState`、`pendingMarkCount` 和 `activeCompactionLock` 是兼容占位值，不能用于判断是否存在待压范围或运行中的压缩。该入口不重读会话、不重复估算 token，也不分配 visible id；压缩调度与发送等待仍由 `messages.transform` 负责。
+
 不要只凭 assistant prose 或 toast 文案判断 sidecar 已经更新；必须查数据库记录或 runtime event。一个旧 `result_group` 只能证明某个 mark 曾经压缩完成，不代表后续所有 mark 都已处理，也不代表当前没有新的未压范围。
 
 ## Result fragment sequence repair（已实现）

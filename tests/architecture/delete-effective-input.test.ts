@@ -7,6 +7,7 @@ import { buildCompactionResultGroup } from "../../src/compaction/runner/result-g
 import { buildUserMessage } from "../../src/compaction/transport/direct-llm.js";
 import { replayHistoryFromSources } from "../../src/history/history-replay-reader.js";
 import { renderProjectionMessages } from "../../src/projection/rendering.js";
+import { createFlatPolicyEngine } from "../../src/projection/policy-engine.js";
 import type { MarkTreeNode, ProjectionState } from "../../src/projection/types.js";
 import type { CompleteResultGroup } from "../../src/state/result-group-repository.js";
 
@@ -59,6 +60,30 @@ function render(value: ProjectionState) {
   return renderProjectionMessages({ history: value.history, messagePolicies: value.messagePolicies,
     markTree: value.markTree, resultGroupsByMarkId: new Map(value.resultGroups.map((g) => [g.markId, g])),
     failedToolMessageIds: value.failedToolMessageIds, replacementGateOpen: false }).messages;
+}
+
+for (const mode of ["compact", "delete"] as const) {
+  test(`${mode} preserves replayed hints through frozen coverage nodes and model input`, async () => {
+    const value = state(mode);
+    const hint = "Keep the compatibility requirement and the exact report path /reports/current.md.";
+    const childHint = "Keep the child evidence limitation.";
+    const visibleIdsByCanonicalId = new Map(value.messagePolicies.map((policy) => [policy.canonicalId, policy.visibleId]));
+    const history = { ...value.history, marks: [
+      { markId: "child", mode: "compact" as const, sourceMessageId: "child-call", sourceSequence: 9,
+        startVisibleMessageId: value.messagePolicies[1].visibleId, endVisibleMessageId: value.messagePolicies[2].visibleId, hint: childHint },
+      { markId: "parent", mode, sourceMessageId: "parent-call", sourceSequence: 10,
+        startVisibleMessageId: value.messagePolicies[0].visibleId, endVisibleMessageId: value.messagePolicies[7].visibleId, hint },
+    ] };
+    const markTree = createFlatPolicyEngine().buildMarkTree({ history, visibleIdsByCanonicalId, resultGroups: [] });
+    assert.deepEqual(markTree.conflicts, []);
+    assert.equal(markTree.marks[0].hint, hint);
+    assert.equal(markTree.marks[0].children[0].hint, childHint);
+    const input = runInput({ ...value, history, markTree, resultGroups: [] });
+    const request = await createCompactionInputBuilder().build(input.build);
+    assert.equal(request.hint, hint);
+    assert.equal(JSON.parse(JSON.stringify(request)).hint, hint);
+    assert.ok(buildUserMessage(request.transcript, mode, request.hint).includes(`Compression hint: ${hint}`));
+  });
 }
 
 test("delete sends applied summaries and uncovered user text once, with hint and original source ranges", async () => {
