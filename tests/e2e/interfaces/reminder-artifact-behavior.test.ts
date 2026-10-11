@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import test from "node:test";
 
 import {
@@ -229,6 +229,41 @@ test(
     assert.match(evidencePath, /reminder-artifact-behavior\.json$/u);
   },
 );
+
+test("applying summaries after an early reminder preserves its materialized request prefix", async (t) => {
+  const repoRoot = await mkdtemp("/tmp/opencode/compression-prefix-");
+  const fixture = await createHermeticE2EFixture(t, { suite: "interfaces", caseName: "prefix-summary-growth", repoRoot });
+  const databasePath = resolveSessionDatabasePath(resolvePluginStateDirectory(repoRoot), fixture.sessionID);
+  await bootstrapSessionSidecar({ databasePath });
+  const sidecar = await openSessionSidecarRepository({ databasePath });
+  t.after(() => sidecar.close());
+  const resultGroups = createResultGroupRepository(sidecar);
+  const identity = createCanonicalIdentityService({ visibleIds: resultGroups });
+  const texts = ["System.", "First old work.", "First old evidence.", "Early work.", "Later old work.", "Later old evidence.", "Late work with additional uncompressed evidence."];
+  const hostHistory = texts.map((text, index) => hostEntry(index + 1, createMessage(`prefix-${index}`, index === 0 ? "system" : "assistant", text)));
+  const ids = await Promise.all(hostHistory.map((entry) => identity.allocateVisibleId(entry.message.info.id, entry.message.info.role === "system" ? "protected" : "compressible")));
+  const builder = createProjectionBuilder({
+    historyReplayReader: createHistoryReplayReaderFromSources({ sessionId: fixture.sessionID, hostHistory, toolHistory: [
+      { sequence: 8, sourceMessageId: "prefix-mark-1", toolName: "compression_mark", input: { mode: "compact", from: ids[1]!.assignedVisibleId, to: ids[2]!.assignedVisibleId }, result: { ok: true, markId: "prefix-first" } },
+      { sequence: 9, sourceMessageId: "prefix-mark-2", toolName: "compression_mark", input: { mode: "compact", from: ids[4]!.assignedVisibleId, to: ids[5]!.assignedVisibleId }, result: { ok: true, markId: "prefix-later" } },
+    ] }),
+    policyEngine: createFlatPolicyEngine(), resultGroupRepository: resultGroups, canonicalIdentityService: identity,
+    reminderService: createConfiguredReminderService({ hsoft: 1, hhard: 5, hdelete: 60_000, softRepeatEveryTokens: 100_000, hardRepeatEveryTokens: 100_000, allowDelete: true, retirePromptText: "Retire summaries.", promptTextByKind: { "soft-compact": "Compact.", "soft-delete": "Compact.", "hard-compact": "Compact.", "hard-delete": "Compact." } }),
+  });
+  await resultGroups.upsertCompleteGroup({ markId: "prefix-first", mode: "compact", executionMode: "compact", sourceStartSeq: 2, sourceEndSeq: 3, createdAt: "t", committedAt: "t", fragments: [{ sourceStartSeq: 2, sourceEndSeq: 3, replacementText: "A".repeat(239_000) }] });
+  const before = await builder.build({ sessionId: fixture.sessionID, replacementGateOpen: true });
+  assert.ok(before.deletableTokenCount! < 60_000);
+  const beforeMessages = projectProjectionToEnvelopes(before);
+  const firstInspect = beforeMessages.findIndex((message) => message.parts.some((part) => part.type === "tool" && part.tool === "compression_inspect"));
+  assert.ok(firstInspect > 0);
+  const prefix = beforeMessages.slice(0, firstInspect + 1);
+  await resultGroups.upsertCompleteGroup({ markId: "prefix-later", mode: "compact", executionMode: "compact", sourceStartSeq: 5, sourceEndSeq: 6, createdAt: "t", committedAt: "t", fragments: [{ sourceStartSeq: 5, sourceEndSeq: 6, replacementText: "B".repeat(4_000) }] });
+  const after = await builder.build({ sessionId: fixture.sessionID, replacementGateOpen: true });
+  assert.ok(after.deletableTokenCount! > 60_000);
+  assert.deepEqual(projectProjectionToEnvelopes(after).slice(0, prefix.length), prefix);
+  assert.equal(after.reminders.find((item) => item.anchorCanonicalId === "prefix-3")?.inspectInput?.mode, "compact");
+  assert.equal(after.reminders.find((item) => item.anchorCanonicalId === "prefix-6")?.inspectInput?.mode, "delete");
+});
 
 function hostEntry(sequence: number, message: CanonicalHostMessage) {
   return {

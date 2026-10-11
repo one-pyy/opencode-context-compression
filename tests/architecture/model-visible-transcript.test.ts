@@ -124,6 +124,18 @@ test("token estimation shares the model-visible renderer with compaction input",
   assert.equal(estimate.tokenCount, Math.ceil(rendered.length / 4));
 });
 
+test("failed tool errors remain visible in rendering, estimation and compaction input", () => {
+  const error = "error-head-" + "E".repeat(4000) + "-error-tail";
+  const parts = [{ type: "tool", tool: "bash", callID: "failed-call", state: { status: "error", input: { command: "false" }, error, metadata: { diagnostics: "hidden diagnostics" } } }];
+  const rendered = renderModelVisiblePartsText(parts);
+  assert.ok(rendered.includes(error));
+  assert.doesNotMatch(rendered, /hidden diagnostics/u);
+  const estimate = estimateEnvelopeTokens({ envelope: { info: { id: "failed-message", role: "assistant" }, parts } as unknown as TransformEnvelope });
+  assert.equal(estimate.tokenCount, Math.ceil(rendered.length / 4));
+  const runInput = buildCompactionRunInputForMark({ sessionId: "session-1", state: createProjectionState(createMessage("failed-message", "assistant", parts)), markId: "mark-1", model: "provider/model", promptText: "compress", timeoutMs: 1000 });
+  assert.ok(runInput.build.transcript[0]?.contentText.includes(error));
+});
+
 test("model-visible transcript ignores reasoning patch and file parts", () => {
   const rendered = renderModelVisiblePartsText([
     { type: "reasoning", text: "hidden reasoning" },

@@ -8,6 +8,7 @@ import type { ResultGroupRepository } from "../state/result-group-repository.js"
 import type { PolicyEngine } from "./policy-engine.js";
 import { buildStableVisibleId, parseVisibleId } from "../identity/visible-sequence.js";
 import { renderProjectionMessages } from "./rendering.js";
+import { renderProjectedVisibleText } from "./visible-text.js";
 import { buildCompressionInspectOverrides } from "./compression-inspect.js";
 import { buildCompressionRecallOverrides } from "./compression-recall.js";
 import { CONTEXT_COMPRESSION_NOTICE_TOOL_NAME } from "../tools/context-compression-notice.js";
@@ -155,8 +156,8 @@ export function createProjectionBuilder(
       for (let index = 0; index < renderedBaseMessages.length; index += 16) {
         const counted = await Promise.all(
           renderedBaseMessages.slice(index, index + 16).map(async (message) => {
-            if (message.visibleId === undefined || message.role === "system") return message;
-            const visibleTokenCount = await estimateTextTokenCount(message.contentText);
+            if (message.visibleId === undefined) return message;
+            const visibleTokenCount = await estimateTextTokenCount(renderProjectedVisibleText(message));
             return Object.freeze({ ...message, visibleTokenCount });
           }),
         );

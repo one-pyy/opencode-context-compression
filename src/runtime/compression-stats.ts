@@ -2,6 +2,7 @@ import { rename, writeFile } from "node:fs/promises";
 
 import type { ProjectedMessageSet } from "../projection/types.js";
 import { estimateTextTokenCount } from "../token-estimation.js";
+import { renderProjectedVisibleText } from "../projection/visible-text.js";
 import {
   resolvePluginStateDirectory,
   resolveSessionStatsPath,
@@ -93,7 +94,7 @@ export async function computeCompressionStats(
           return { bucket: "compressible" as const, tokens: policy.tokenCount, reasoning };
         }
         if (policy?.visibleKind === "protected") {
-          return { bucket: "protected" as const, tokens: await estimate(message.contentText), reasoning: 0 };
+          return { bucket: "protected" as const, tokens: await estimate(renderProjectedVisibleText(message)), reasoning: 0 };
         }
         return undefined;
       }

@@ -32,7 +32,7 @@ Purpose: 记录本子项目中具有长期价值的决策、问题、规律与�
 [learnings/2026-04-22_send-entry-wait-must-join-lock-and-batch-status.md] — send-entry wait 必须联合 live lock 与 batch terminal status 判断结果 #send-gate #lock #batch-status #runtime #pattern
 [learnings/2026-04-22_transform-hook-role-surface-cannot-express-literal-system-artifacts.md] — 当前 transform hook 类型面不应被误当作可随意输出字面 system-role artifact #projection #types #hooks #artifact #pattern
 [learnings/2026-04-26_scheduler-must-use-sidecar-visible-id-truth.md] — 调度器消费 mark range 时必须使用 sidecar 持久 visible id，不能按当前 replay sequence 重算 #visible-id #scheduler #sidecar #runtime #trap
-[learnings/2026-04-26_runtime-state-must-not-rewrite-history-prefix.md] — 运行时生命周期状态不能动态回写历史前缀，否则破坏 exact-prefix cache #projection #cache #tool-result #runtime #trap
+[learnings/2026-04-26_runtime-state-must-not-rewrite-history-prefix.md] — 生命周期状态与全局摘要阈值不得反改历史前缀；提醒用锚点前缀累计量保护缓存 #projection #cache #tool-result #runtime #trap
 [learnings/2026-06-28_child-agent-task-sessions-are-plugin-visible.md] — `task(session_id=...)` 子 agent 会话会进入插件 seam，问答式执行需由主 agent 续轮编排 #subagent #task-session #runtime #projection #seams #pattern
 
 ## Tutorials

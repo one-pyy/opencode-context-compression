@@ -67,7 +67,7 @@
 - `kind=user`：范围内被分类为 protected 的用户消息，`from` 与 `to` 相同且为宿主消息 id，省略 `protected_` 前缀。compressible 的用户消息不重复列出，它们已进入 `kind=compressible` 条目
 - `kind=compressible`：范围内连续的 compressible 消息段，`from` 与 `to` 为宿主消息 id，省略 `compressible_` 前缀
 - system 消息不进入清单；已被 delete 结果接管的来源不再出现在投影中，因此也不会成为条目
-- delete 条目 token 估算当前实际可见文本：`fragment` 报当前摘要，`user` 报用户正文，`compressible` 报当前未压缩文本；`totalTokens` 是清单条目合计。投影预计算每条可见文本并复用同一估算器，短用户消息不因 protected 分类而记为零。compact 模式继续使用 `messagePolicies` 的策略计数。
+- delete 条目 token 估算基础投影中的完整可见正文：`fragment` 报当前摘要，`user` 报用户正文，`compressible` 报当前未压缩的正文及工具输入、输出和错误正文；`totalTokens` 是清单条目合计。投影预计算每条可见文本并复用共享渲染器与同一估算器，缺少预计算值时按相同完整文本做字符近似；短用户消息不因 protected 分类而记为零。compact 模式继续使用 `messagePolicies` 的原始消息策略计数。投影前缀与原始消息不同，因此两种模式的逐条计数不要求完全相等。
 - delete mode 只展示当前可选的条目，不做 `allowDelete` 准入判断；实际 delete 仍由 `compression_mark` 的 [Admission 规则](allow-delete.md#admission-规则) 拒绝
 - reminder 可附带 delete 模式清单供 compact 与摘要退役两项动作使用；调用输入明确携带相同 `mode` 与 `to`。满足所需跨度时直接复用清单，模式与范围不足时再请求 inspect。
 

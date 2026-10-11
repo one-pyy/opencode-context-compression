@@ -5,10 +5,11 @@ import { buildStableVisibleId } from "../../src/identity/visible-sequence.js";
 import { createConfiguredReminderService } from "../../src/projection/reminder-service.js";
 import type { ProjectedPromptMessage, ProjectionState } from "../../src/projection/types.js";
 
-function fixture(tokens: number) {
+function fixture(tokens: number, summaryTokens = 0) {
   const protectedId = buildStableVisibleId("protected", 1, "user");
   const compressibleId = buildStableVisibleId("compressible", 2, "assistant");
   const messages: readonly ProjectedPromptMessage[] = [
+    { source: "result-group", role: "assistant", visibleKind: "referable", contentText: "Earlier summary.", visibleTokenCount: summaryTokens },
     { source: "canonical", role: "user", canonicalId: "user", visibleKind: "protected", visibleId: protectedId, contentText: "Keep this requirement." },
     { source: "canonical", role: "assistant", canonicalId: "assistant", visibleKind: "compressible", visibleId: compressibleId, contentText: "Uncompressed work." },
   ];
@@ -49,7 +50,7 @@ function service(allowDelete = true, hdelete = 60_000) {
 for (const [tokens, severity] of [[10, "soft"], [20, "hard"]] as const) {
   for (const del of [59_999, 60_000, 60_001]) {
     test(`${severity} reminder changes inspect only when del is strictly above 60000: ${del}`, () => {
-      const reminders = service().compute({ ...fixture(tokens), deletableTokenCount: del });
+      const reminders = service().compute({ ...fixture(tokens, del), deletableTokenCount: del });
       const reminder = reminders.find((item) => item.kind.startsWith(severity));
       assert.ok(reminder);
       assert.match(reminder.contentText, severity === "soft" ? /Soft compact/u : /Hard compact/u);
@@ -71,19 +72,36 @@ for (const [tokens, severity] of [[10, "soft"], [20, "hard"]] as const) {
 }
 
 test("summary pressure alone does not create a reminder", () => {
-  assert.deepEqual(service().compute({ ...fixture(9), deletableTokenCount: 1_000_000 }), []);
+  assert.deepEqual(service().compute({ ...fixture(9, 1_000_000), deletableTokenCount: 1_000_000 }), []);
 });
 
 test("disabled delete capability preserves compact reminders", () => {
-  const reminders = service(false).compute({ ...fixture(10), deletableTokenCount: 60_001 });
+  const reminders = service(false).compute({ ...fixture(10, 60_001), deletableTokenCount: 60_001 });
   assert.equal(reminders[0]?.kind, "soft-compact");
   assert.equal(reminders[0]?.contentText, "Soft compact.");
   assert.equal(reminders[0]?.inspectInput?.mode, "compact");
 });
 
 test("hdelete is independent of soft/hard thresholds and reminders replay deterministically", () => {
-  const input = { ...fixture(20), deletableTokenCount: 6 };
+  const input = { ...fixture(20, 6), deletableTokenCount: 6 };
   const reminderService = service(true, 5);
   assert.deepEqual(reminderService.compute(input), reminderService.compute(input));
   assert.ok(reminderService.compute(input).every((item) => item.contentText.includes("Retire unused summaries")));
+});
+
+test("later summary growth changes only later reminders and preserves the earlier request prefix", () => {
+  const initial = fixture(10, 60_000);
+  const reminderService = service();
+  const before = reminderService.compute({ ...initial, deletableTokenCount: 60_000 });
+  const laterId = buildStableVisibleId("compressible", 4, "later");
+  const later: ProjectedPromptMessage = { source: "canonical", role: "assistant", canonicalId: "later", visibleKind: "compressible", visibleId: laterId, contentText: "Later work." };
+  const state: ProjectionState = { ...initial.state, messagePolicies: [...initial.state.messagePolicies, { canonicalId: "later", sequence: 4, role: "assistant", visibleKind: "compressible", tokenCount: 10, visibleId: laterId, visibleSeq: 4, visibleBase62: "4" }] };
+  for (const extra of [1, 100_000]) {
+    const messages = [...initial.messages, { source: "result-group" as const, role: "assistant" as const, visibleKind: "referable" as const, contentText: `Later summary ${extra}.`, visibleTokenCount: extra }, later];
+    const after = reminderService.compute({ state, messages, deletableTokenCount: 60_000 + extra });
+    assert.deepEqual(after.filter((item) => item.anchorCanonicalId === "assistant"), before);
+    const laterReminder = after.find((item) => item.anchorCanonicalId === "later");
+    assert.equal(laterReminder?.inspectInput?.mode, "delete");
+    assert.match(laterReminder?.contentText ?? "", /Retire unused summaries/u);
+  }
 });

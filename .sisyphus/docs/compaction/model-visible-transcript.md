@@ -28,7 +28,7 @@ renderer 的目标不是复原宿主内部对象，而是模拟上游模型在�
 
 如果某段不存在，则跳过该段；不能因为存在文本就跳过 tool，也不能因为没有文本就序列化完整 tool object。
 
-当前实现只把 `text` 和 `tool.state.input` / `tool.state.output` 作为文本来源。`patch` / `file` 内容若来自工具调用，会通过 tool input/output 计入；renderer 不再为 `patch` / `file` 设计额外展开入口。`reasoning` 不计入。
+当前实现把 `text`、`tool.state.input`、`tool.state.output` 和失败工具的 `tool.state.error` 作为文本来源。错误正文与正常输出一样完整保留。`patch` / `file` 内容若来自工具调用，会通过 tool input/output 计入；renderer 不再为 `patch` / `file` 设计额外展开入口。`reasoning` 不计入。
 
 ## 通用 tool 渲染格式（已实现）
 
@@ -42,6 +42,7 @@ input: <compact JSON or string>
 [tool result]
 status: <state.status>
 output: <compact JSON or string>
+error: <失败工具的 compact JSON or string，仅存在时输出>
 ```
 
 保留字段：
@@ -50,6 +51,7 @@ output: <compact JSON or string>
 - `state.status`
 - `state.input`
 - `state.output`
+- 失败工具的 `state.error`
 
 丢弃字段：
 
@@ -64,7 +66,7 @@ output: <compact JSON or string>
 
 非字符串 input / output 使用紧凑 JSON：不带缩进，不 pretty-print。中文等 Unicode 字符保持可读输出；不要主动转成 `\uXXXX`。
 
-input 和 output 按模型可见内容完整渲染，不做字符数截断。压缩输入必须等于模型可见内容，否则压缩模型看到的范围与主模型不一致。
+input、output 与失败工具的 error 按模型可见内容完整渲染，不做字符数截断。压缩输入必须等于模型可见内容，否则压缩模型看到的范围与主模型不一致。
 
 体积控制只靠字段白名单：`metadata` / diagnostics / diff 等宿主内部字段直接丢弃，不进入 transcript。历史上的百万 token 膨胀来自这些内部字段，不来自 input/output 本身，因此不需要对 input/output 设上限。
 
@@ -77,7 +79,9 @@ input 和 output 按模型可见内容完整渲染，不做字符数截断。压
 - `uncompressedMarkedTokenCount` 与相关 debug 统计
 - 用于判断压缩收益或上下文压力的任何 marked-range 体积统计
 
-最终 `messages.transform` 可以继续保留结构化 `parts` 供上游宿主序列化，但压缩输入与 token 估算不得再使用 text-only 口径或完整 tool object 口径；它们只共享“text + tool input/output”这条文本口径。
+最终 `messages.transform` 可以继续保留结构化 `parts` 供上游宿主序列化，但压缩输入与 token 估算不得再使用 text-only 口径或完整 tool object 口径；它们共享“正文 + 工具输入/输出/错误正文”这条文本口径。
+
+投影的可见词元预计算、delete inspect 的回退计数以及侧栏保护类正文计数复用 `src/projection/visible-text.ts`，保留显示正文、工具内容及宿主现有的文本顺序。canonical 策略计数仍统计原始消息；可见计数另包含投影添加的身份前缀，两者不要求逐条相等。清单计数在基础投影阶段计算，不代表包含后续注入提醒、工具结果覆盖及其他插件加工的最终 API 请求总量。
 
 ## 服务计数缓存
 
@@ -85,7 +89,7 @@ input 和 output 按模型可见内容完整渲染，不做字符数截断。压
 
 缓存最多 65536 条，命中更新使用顺序，超出容量淘汰最久未使用项。条目保留至容量淘汰或宿主重启，不按时间过期。空文本仍直接返回零，不占容量。
 
-键使用 SHA-256，覆盖完整计数文本、有效服务地址、实际 modelName、文本长度和内部键版本。文本以 UTF-16LE 进入摘要，保留孤立代理项的区别。消息身份不进入计数键；流式正文、tool input/output/status 变化重新计数，不参与 renderer 的 metadata 不影响 canonical 计数。reasoning 仍只在侧栏独立统计中计数。
+键使用 SHA-256，覆盖完整计数文本、有效服务地址、实际 modelName、文本长度和内部键版本。文本以 UTF-16LE 进入摘要，保留孤立代理项的区别。消息身份不进入计数键；流式正文、tool input/output/error/status 变化重新计数，不参与 renderer 的 metadata 不影响 canonical 计数。reasoning 仍只在侧栏独立统计中计数。
 
 热命中返回此前成功值及 `python-tiktoken` 来源，即使服务此时离线也可复用。未命中请求保持原超时；错误、异常返回和近似回退不缓存，各消费者继续使用自己的 fallback。并发首次未命中不合并，各请求有独立超时；缓存不会跳过每轮的消息分类、分桶、重复消息累加或统计更新时间。
 

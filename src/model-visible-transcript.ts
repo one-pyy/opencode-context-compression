@@ -62,6 +62,13 @@ function renderToolPart(part: Readonly<Record<string, unknown>>): string {
     }
   }
 
+  if (state.status === "error" && Object.hasOwn(state, "error")) {
+    const error = serializeModelVisibleField(state.error);
+    if (error.length > 0) {
+      resultLines.push(`error: ${error}`);
+    }
+  }
+
   blocks.push(resultLines.join("\n"));
   return blocks.join("\n");
 }

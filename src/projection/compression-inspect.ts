@@ -19,6 +19,8 @@ import type {
   ToolResultOverride,
 } from "./types.js";
 
+import { renderProjectedVisibleText } from "./visible-text.js";
+
 export interface CompressionInspectVisibleEntry {
   readonly id: string;
   readonly visibleKind: VisibleKind;
@@ -407,7 +409,7 @@ function collectProjectedEntries(
           visibleKind: message.visibleKind,
           role: message.role,
           tokens: countVisibleText
-            ? (message.visibleTokenCount ?? Math.ceil(message.contentText.length / 4))
+            ? (message.visibleTokenCount ?? Math.ceil(renderProjectedVisibleText(message).length / 4))
             : message.visibleKind === "compressible"
               ? (policy?.tokenCount ?? 0)
               : 0,

@@ -18,3 +18,11 @@ Date: 2026-04-26
 适用于 projection、tool result materialization、scheduler / executor 状态展示，以及任何可能改变已写入历史前缀的运行时派生信息。
 
 Tags: #projection #cache #tool-result #runtime #trap
+
+### Additional Observations
+
+**2026-10-11**：全局统计也可能造成同类前缀漂移。自动 reminder 每次重建时，如果以完整投影的摘要总量选择早期 inspect 的 compact/delete 模式，后续摘要跨过阈值会反改旧提醒正文、工具参数和清单，即使该位置之前的消息没有变化。
+
+局部 artifact 应只使用其锚点之前的累计数据。完整摘要总量仍用于面板；每条提醒用相同预计算摘要值的前缀合计判断。稳定标识本身不能保护缓存，还需比较实际 materialized 工具调用与结果对是否保持一致。
+
+回归入口：`tests/architecture/reminder-retirement.test.ts` 检查阈值严格比较与提醒对象稳定；`tests/e2e/interfaces/reminder-artifact-behavior.test.ts` 检查后段摘要应用前后的完整宿主消息前缀。摘要 replacement 本身改变该前缀仍是独立的预期变化。

@@ -95,9 +95,9 @@ reminder 锚定在实际跨过 milestone 的那条 compressible 消息之后。
 
 ## 摘要退役追加指令
 
-`reminder.hdelete` 默认 `60000`，只影响已产生的 soft/hard 提醒：本次投影的 `del > hdelete` 且 delete 能力开启时，追加 `prompts/reminder-retire.md`，附带 inspect 切换为 `mode="delete"`。摘要超过阈值但 soft/hard 尚未触发时，不生成提醒。阈值与 soft/hard 使用不同基数，不要求大小顺序。
+`reminder.hdelete` 默认 `60000`，只影响已产生的 soft/hard 提醒：按投影顺序累计该提醒锚点之前实际可见的 compact 摘要，累计量严格大于 `hdelete` 且 delete 能力开启时，追加 `prompts/reminder-retire.md`，附带 inspect 切换为 `mode="delete"`。阈值以下及恰好等于阈值的位置保留 compact 提醒；后段摘要新增或应用不会反改未变化前缀中的提醒正文、inspect 输入及清单。摘要替换自身改变前缀不属于此保证。摘要超过阈值但 soft/hard 尚未触发时，不生成提醒。阈值与 soft/hard 使用不同基数，不要求大小顺序。
 
-del 在基础投影完成后预先计算，只累计当前实际可见、已应用的 compact 摘要文本；未应用或被覆盖的结果、隐藏原文、system、protected 用户消息及 delete 替换文本不计入。计算使用现有文本估算器与服务缓存，本地计数服务不可用时回退字符估算。面板的 del 直接复用本次投影结果，不另算摘要，也不把异步落盘的旧统计用于提醒判断。
+基础投影为每条实际可见消息预计算完整正文词元量，包括结构化工具的输入、正常输出及错误正文；摘要累计只使用当前已应用的 compact 摘要文本，未应用或被覆盖的结果、隐藏原文、system、protected 用户消息及 delete 替换文本不计入。计算使用现有文本估算器与服务缓存，本地计数服务不可用时回退字符估算。面板的 del 是完整基础投影的摘要合计，直接复用本次投影结果；提醒判断使用同一批摘要计数的锚点前缀合计，不使用异步落盘的旧统计。
 
 追加指令保留两个动作：未压缩原文用 compact；已压缩摘要按后续是否有用检查并退役。此前未加载 `context-retire` 时再加载，已完整加载则复用。删除准则见 [退役执行准则](allow-delete.md#退役执行准则)。
 

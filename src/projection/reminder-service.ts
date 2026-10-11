@@ -58,18 +58,20 @@ export function createConfiguredReminderService(
   options: ConfiguredReminderServiceOptions,
 ): ReminderService {
   return {
-    compute({ state, messages, deletableTokenCount = 0 }) {
-      const retireSummaries = options.allowDelete && deletableTokenCount > (options.hdelete ?? 60_000);
-      const inspectMode = retireSummaries ? "delete" : "compact";
+    compute({ state, messages }) {
       const policiesByCanonicalId = new Map(
         state.messagePolicies.map((policy) => [policy.canonicalId, policy]),
       );
       const reminders: ReminderArtifact[] = [];
       let compressibleTokens = 0;
+      let summaryTokens = 0;
       let nextSoft = options.hsoft;
       let nextHard = options.hhard;
 
       messages.forEach((message) => {
+        if (message.source === "result-group" && message.visibleKind === "referable") {
+          summaryTokens += message.visibleTokenCount ?? Math.ceil(message.contentText.length / 4);
+        }
         if (message.source !== "canonical" || message.canonicalId === undefined) {
           return;
         }
@@ -80,6 +82,9 @@ export function createConfiguredReminderService(
         }
 
         compressibleTokens += policy.tokenCount;
+        // Later summaries must not rewrite the reminder or inspect pair in an unchanged prefix.
+        const retireSummaries = options.allowDelete && summaryTokens > (options.hdelete ?? 60_000);
+        const inspectMode = retireSummaries ? "delete" : "compact";
 
         let inspectListing: string | undefined;
         let hasInspectListing = false;
