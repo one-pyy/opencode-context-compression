@@ -82,7 +82,7 @@ atom id 省略 `compressible_` 前缀，因为 atom 按定义都是 compressible
 
 sections 按 `totalTokens` 从高到低排列。`tokens <= 0` 的 compressible 消息不会生成 atom；`atomCount=1` 时省略 `atoms` 字段，避免重复 outer `from/to`。
 
-sections / atoms 只说明当前投影中的结构和 token 数。模型仍需判断任务是否完成、细节是否已外化，以及哪些范围适合调用 `compression_mark`；不要默认逐 atom 标记。
+sections / atoms 只说明当前投影中的结构和 token 数。模型仍需判断结论是否明确、后续是否需要逐条细节，以及哪些范围适合调用 `compression_mark`；不要默认逐 atom 标记。
 
 建议按任务或主题跨 atom、section 以及 delete 清单条目选择符合条件的连续范围，减少调用往返。范围可以经过 protected 用户消息，compact 保留其原文；涉及已应用摘要时须完整覆盖片段。成功的待处理标记视为已处理，已应用 compact 可以完整纳入更大范围；合法包含与冲突边界见 [标记包含冲突](../compaction/mark-tool-contract.md#标记包含冲突)。通过 hint 指定整个范围必须保留的关键内容，活跃细节、区间冲突或输入预算需要时才拆段。
 
@@ -160,7 +160,7 @@ sections / atoms 只说明当前投影中的结构和 token 数。模型仍需�
 
 `hint` 是传给压缩引擎的最高优先级指令，来自调用者（通常是外层 AI）对任务上下文的判断。压缩引擎会把 hint 视为比默认压缩原则更高优先级。
 
-跨段选区时，hint 应明确指定关键事实、精确参数、用户约束、决定、证据限制、未决事项和完整资料路径，并说明已核对文件的用途。保留项必须进入最终 `compression_output`，仅出现在 `plan` 或 `explanation` 不算保留。hint 不能伪造事实或把助手建议升级为用户授权；delete 的有效信息保留与留存要求见 [目标与保留标准](../compaction/allow-delete.md#目标与保留标准)。
+跨段选区时，hint 应明确指定关键事实、精确参数、用户约束、决定、证据限制和未决事项；有独立资料时附完整路径和用途。普通 compact 可直接保留选区内明确结论，无须先复制到文件；需要完整原件、跨会话交付或独立恢复的材料按用途维护已有载体，临时工作文档就地更新当前内容。完整规则见[内容保留与持久化](../compaction/mark-tool-contract.md#内容保留与持久化)。保留项必须进入最终 `compression_output`，仅出现在 `plan` 或 `explanation` 不算保留。hint 不能代替事实核对、伪造事实或把助手建议升级为用户授权；delete 的有效信息保留与留存要求见 [目标与保留标准](../compaction/allow-delete.md#目标与保留标准)。
 
 ### 三类 hint 指令
 
