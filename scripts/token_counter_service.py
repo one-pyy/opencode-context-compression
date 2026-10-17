@@ -39,7 +39,8 @@ def health() -> dict[str, bool]:
 @app.post("/count", response_model=CountResponse)
 def count_tokens(request: CountRequest) -> CountResponse:
     encoding = encoding_for_model(request.model)
-    return CountResponse(tokens=len(encoding.encode(request.text)))
+    # Transcript markers are literal text, not tokenizer control tokens.
+    return CountResponse(tokens=len(encoding.encode_ordinary(request.text)))
 
 
 if __name__ == "__main__":

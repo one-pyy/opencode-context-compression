@@ -3,6 +3,8 @@ import type { Part } from "@opencode-ai/sdk";
 
 import type { CanonicalHostMessagePart } from "../history/history-replay-reader.js";
 import type { ProjectedMessageSet } from "../projection/types.js";
+import { createCompressionMarkTokenCounter, type CompressionMarkTokenCounter } from "../projection/compression-mark-tokens.js";
+import type { CompressionMarkInputV1 } from "../tools/compression-mark.js";
 import type { CompleteResultGroup } from "../state/result-group-repository.js";
 import {
   buildReplayToolMessageId,
@@ -31,6 +33,7 @@ export interface MessagesTransformProjector {
     | readonly MessagesTransformEnvelope[];
   getLastProjectionDebugState?(): MessagesTransformProjectionDebugState | undefined;
   getLastProjectionState?(): ProjectedMessageSet | undefined;
+  getCompressionMarkTokenCount?(sessionID: string, input: CompressionMarkInputV1): number | undefined;
 }
 
 export interface MessagesTransformProjectionDebugState {
@@ -147,12 +150,14 @@ export function createProjectionBackedMessagesTransformProjector(options: {
 }): MessagesTransformProjector {
   let lastProjectionDebugState: MessagesTransformProjectionDebugState | undefined;
   let lastProjectionState: ProjectedMessageSet | undefined;
+  const markTokenCounters = new Map<string, CompressionMarkTokenCounter>();
 
   return {
     async project(input) {
       const projection = await options.buildProjection(input);
       lastProjectionDebugState = summarizeProjectionDebugState(projection);
       lastProjectionState = projection;
+      markTokenCounters.set(projection.sessionId, createCompressionMarkTokenCounter(projection));
       return projectProjectionToEnvelopes(projection);
     },
     getLastProjectionDebugState() {
@@ -160,6 +165,9 @@ export function createProjectionBackedMessagesTransformProjector(options: {
     },
     getLastProjectionState() {
       return lastProjectionState;
+    },
+    getCompressionMarkTokenCount(sessionID, input) {
+      return markTokenCounters.get(sessionID)?.(input);
     },
   } satisfies MessagesTransformProjector;
 }

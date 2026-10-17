@@ -27,6 +27,8 @@ Purpose: 记录本子项目中具有长期价值的决策、问题、规律与�
 
 ## Learnings
 
+[learnings/2026-10-12_reminder-visibility-is-not-tool-availability.md] — 自动投影的检查结果不证明工具可调用；提醒与宿主角色权限须分开核查 #permissions #reminder #projection #subagent #trap #pattern
+[learnings/2026-10-11_referable-endpoints-must-share-persistent-visible-numbering.md] — 摘要端点混用重放位置与原文持久编号会造成清单假重叠；先按消息身份换算再判覆盖，零文本条目可计为 0 #visible-id #projection #inspect #sequence #trap
 [learnings/2026-04-22_hook-observation-and-session-prompt-transport-must-stay-separated.md] — seam observation 与默认 compaction transport 选择必须分开判断 #hooks #transport #seams #runtime #pattern
 [learnings/2026-04-22_batch-lock-must-not-outlive-undurable-freeze.md] — 先拿 lock 后写 batch 时，持久化失败必须立即清锁 #lock #batch #compaction #runtime #trap
 [learnings/2026-04-22_send-entry-wait-must-join-lock-and-batch-status.md] — send-entry wait 必须联合 live lock 与 batch terminal status 判断结果 #send-gate #lock #batch-status #runtime #pattern

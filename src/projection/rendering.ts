@@ -1,4 +1,5 @@
-import { buildReferableMarkerIds, prependVisibleId, prependVisibleIdRange } from "../identity/visible-sequence.js";
+import { parseVisibleId, prependVisibleId, prependVisibleIdRange } from "../identity/visible-sequence.js";
+import { buildProjectedReferableMarkers } from "./referable-markers.js";
 import type { ReplayedHistory, ReplayedHistoryMessage } from "../history/history-replay-reader.js";
 import type { CompleteResultGroup } from "../state/result-group-repository.js";
 import type {
@@ -165,7 +166,7 @@ function renderMarkNode(input: {
         replacementGateOpen: input.replacementGateOpen,
       }),
     );
-    rendered.push(renderResultGroupFragment(resultGroup, fragment));
+    rendered.push(renderResultGroupFragment(resultGroup, fragment, input.policiesBySequence));
     cursor = fragment.sourceEndSeq + 1;
   });
 
@@ -189,6 +190,7 @@ function renderMarkNode(input: {
 function renderResultGroupFragment(
   resultGroup: CompleteResultGroup,
   fragment: CompleteResultGroup["fragments"][number],
+  policiesBySequence: ReadonlyMap<number, MessageProjectionPolicy>,
 ): ProjectedPromptMessage {
   if (resultGroup.mode === "delete") {
     return Object.freeze({
@@ -200,16 +202,16 @@ function renderResultGroupFragment(
     } satisfies ProjectedPromptMessage);
   }
 
-  const markers = buildReferableMarkerIds({
-    markId: resultGroup.markId,
-    fragmentIndex: fragment.fragmentIndex,
-    sourceStartSeq: fragment.sourceStartSeq,
-    sourceEndSeq: fragment.sourceEndSeq,
-  });
+  const markers = buildProjectedReferableMarkers(
+    resultGroup, fragment, (sequence) => policiesBySequence.get(sequence)?.visibleId,
+  );
+  if (markers === undefined) {
+    throw new Error(`Cannot resolve persistent endpoints for result '${resultGroup.markId}'.`);
+  }
   const visibleId = markers.startId;
   const contentText = prependVisibleIdRange(
-    fragment.sourceStartSeq,
-    fragment.sourceEndSeq,
+    parseVisibleId(markers.startId).visibleSeq,
+    parseVisibleId(markers.endId).visibleSeq,
     markers.stableKey,
     fragment.replacementText,
   );

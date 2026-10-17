@@ -59,7 +59,7 @@ test(
       assert.equal(invalidBatchShape.result.errorCode, "INVALID_RANGE");
       assert.match(
         invalidBatchShape.result.message,
-        /compression_mark from and to must both be non-empty strings/u,
+        /compression_mark from and to must both be non-empty visible message IDs/u,
       );
     }
 
@@ -80,6 +80,7 @@ test(
     assert.deepEqual(result, {
       ok: true,
       markId: "mark-for-compressible_000001_a1",
+      tokenCount: null,
     });
     assert.equal(
       COMPRESSION_MARK_EXTERNAL_CONTRACT.relationToRuntime.resultGroups,
@@ -153,6 +154,11 @@ test("compression_mark tool serializes the external contract result", async () =
     createMarkID() {
       return "mark-serialized-001";
     },
+    countTokens(input) {
+      assert.equal(input.sessionID, "session-tool-contract");
+      assert.equal(input.mode, "compact");
+      return 1234;
+    },
   });
 
   const payload = await definition.execute(
@@ -176,7 +182,18 @@ test("compression_mark tool serializes the external contract result", async () =
   assert.deepEqual(deserializeCompressionMarkResult(payload), {
     ok: true,
     markId: "mark-serialized-001",
+    tokenCount: 1234,
   });
+});
+
+test("compression_mark replays old results and preserves zero or unavailable token counts", () => {
+  for (const result of [
+    { ok: true, markId: "old-mark" },
+    { ok: true, markId: "empty-mark", tokenCount: 0 },
+    { ok: true, markId: "unavailable-mark", tokenCount: null },
+  ]) {
+    assert.deepEqual(deserializeCompressionMarkResult(JSON.stringify(result)), result);
+  }
 });
 
 function createInvocationContext(

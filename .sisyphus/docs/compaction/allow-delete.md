@@ -59,7 +59,7 @@ compact → delete 允许二次提炼。普通 compact 保持已有 compact 结�
 
 选择范围必须完整覆盖要消费的摘要片段；若只覆盖片段的一部分，主 agent 应先调整为包含完整片段的合法范围，或回查原文后重新选区。不能按原始消息比例切割摘要，也不能把范围外的摘要事实当成范围内内容删除。选区端点可以是摘要片段自身的 `referable` 区间标记（须唯一匹配当前结果组的片段标记），也可以是包住片段的宿主消息；端点规则见 [mark 工具契约](mark-tool-contract.md#工具契约)。
 
-选区前可以用 `compression_inspect` 的 `mode="delete"` 取得范围内按位置排列的可选条目：`kind=fragment` 给出摘要片段的 `referable` 区间标记，`kind=user` 给出可删的 protected 用户消息，`kind=compressible` 给出其余连续范围。该清单只描述当前可选结构，不代表这些范围已经满足删除标准；准入仍由 `compression_mark` 判断。输入与返回结构见 [Inspect 工具契约](mark-tool-contract.md#inspect-工具契约)。
+选区前可以用 `compression_inspect` 的 `mode="delete"` 取得范围内按位置排列的 TSV 清单：referable 行给出摘要片段的完整区间标记，compressible 行给出其余连续原文范围。protected 用户消息不显示，但仍隔开连续原文区间；选区内的用户要求须从上下文核对。该清单只描述当前可选结构，不代表这些范围已经满足删除标准；准入仍由 `compression_mark` 判断。输入与返回结构见 [Inspect 工具契约](mark-tool-contract.md#inspect-工具契约)。
 
 输入大小按实际组装内容检查，不能用被摘要替代的整段原文体积代替。若仍超出模型可用输入预算，保留尚未处理的内容，由主 agent 拆成可独立处理的合法范围；不得静默截断整个输入或因超限恢复为更大的全量历史。工具字段的显式截断沿用 [文本渲染契约](model-visible-transcript.md#json-与截断规则已实现)，有省略的证据不能视为完整事实。
 

@@ -35,6 +35,7 @@ export type CompressionMarkAdmission = (
 export interface CompressionMarkToolOptions {
   readonly admission?: CompressionMarkAdmission;
   readonly createMarkID?: (input: CompressionMarkAdmissionInput) => string;
+  readonly countTokens?: (input: CompressionMarkAdmissionInput) => number | undefined;
 }
 
 export function createCompressionMarkAdmission(options: {
@@ -91,6 +92,7 @@ export async function executeCompressionMark(
   return {
     ok: true,
     markId: createMarkID(admissionInput),
+    tokenCount: options.countTokens?.(admissionInput) ?? null,
   };
 }
 
@@ -124,10 +126,11 @@ export function createCompressionMarkTool(
       "## If hard context pressure exists but all visible candidates are risky:\n" +
       "保留高风险范围并继续任务。确需独立恢复时，优先更新已有任务、运行记录、候选或证据载体；缺少落点才补按主题维护的短记录，保留约束、有效断点、必要原件和入口。临时工作材料也就地更新当前有效内容，替换失效状态，不追加操作流水账或覆盖链；原始日志和验证证据保留并引用。仅在选区满足保留标准后标记，随后立即继续原任务。\n\n" +
       "## How to identify message IDs:\n" +
-      "Look for visible message IDs in the conversation history. They use the format `<visible-type>_<seq6>_<check_sum>`, where `<check_sum>` is a 2-character checksum suffix. The `<visible-type>_` segment is display-only and may be omitted: a bare `<seq6>_<check_sum>` id such as `000002_m2` resolves to the same host message. Mark endpoints may be host message IDs (`protected` or `compressible`) or the `referable_...~referable_...` range markers you currently see for applied compression results; a referable marker must match a current result and resolves to the source messages it covers. Examples: `protected_000001_q7`, `compressible_000002_m2`, `referable_000015_ab`.\n" +
+      "Look for visible message IDs in the conversation history. They use the format `<visible-type>_<seq6>_<check_sum>`, where `<check_sum>` is a 2-character checksum suffix. Always include the visible-type prefix in `from` and `to`. Copy the sequence and checksum exactly; when an inspect entry omits the prefix, add `compressible_` for compact atoms or kind=compressible entries, and `protected_` for kind=user entries. Keep the `referable_` prefix on fragment endpoints. Mark endpoints may be host message IDs (`protected` or `compressible`) or the `referable_...~referable_...` range markers you currently see for applied compression results; a referable marker must match a current result and resolves to the source messages it covers. Examples: `protected_000001_q7`, `compressible_000002_m2`, `referable_000015_ab`.\n" +
       "The range is inclusive: both from and to messages are included. Example: To compress messages from compressible_000123_ab to compressible_000130_q7, use those as start/end IDs. If from and to are the same ID, that single visible message is targeted.\n\n" +
       "## Marking multiple segments:\n" +
-      "建议跨 `compression_inspect` 的 atom、section 和 delete 条目选取连续范围，按任务或主题判断内容，减少工具调用往返。这些分段只用于统计，不决定 mark 边界；可以跨 protected 用户消息，compact 会保留其原文。用 hint 指定整个范围必须保留的关键内容。活跃细节、区间冲突或模型输入预算需要时才拆段；第一轮批量标记所有符合条件的范围。若有标记被拒绝，按拒绝原因重新核验未处理内容与合法边界，可进行第二轮补标，最多两轮；第二轮不得重复已接受标记或盲目扩大冲突选区。\n" +
+      "压缩以完整任务、完整事件或多个已完成任务为单位。先确定任务或事件的语义边界，再整体标记其中符合条件的连续范围；不要逐条挑选消息，也不要把同一任务拆成多次小范围标记。跨 `compression_inspect` 的 atom、section 和 delete 条目选区，这些分段只用于统计，不决定 mark 边界；可以跨 protected 用户消息，compact 会保留其原文。仅为绕开仍需完整保留的 skill 正文或活跃上下文，或满足区间合法性与模型输入预算时，才拆成必要的少数几段。检查此前部分压缩任务的未处理残余，一并处理符合条件的内容。用 hint 指定整个范围必须保留的关键内容；第一轮批量标记所有符合条件的范围。若有标记被拒绝，按拒绝原因重新核验未处理内容与合法边界，可进行第二轮补标，最多两轮；第二轮不得重复已接受标记或盲目扩大冲突选区。\n" +
+      "当前任务仍需直接使用的完整 skill 正文、协议或其他参考内容，可以保留在上下文中。通过缩短选区或拆成前后两个合法范围绕开这些内容，不必为了合并标记而纳入压缩；调整的是消息范围，不截断消息正文。已有 compact 标记及摘要片段仍须遵守相应的完整覆盖和区间冲突规则，不能任意切割。\n" +
       "成功但尚未应用的标记视为已处理，避免重复覆盖；已应用 compact 可完整纳入更大范围，compact 保持已有摘要，delete 可进一步提炼。部分交叉会被拒绝。delete 必须完整覆盖涉及的已有 compact 标记及摘要片段，不能严格落在已有 mark 内部；选区避开已有 delete。\n\n" +
       "## Protected messages:\n" +
       "Compact preserves protected originals. Delete may remove user originals, including short messages, so first verify that their still-valid meaning and scope will survive in the result or in checked, discoverable local materials. System messages remain protected.\n\n" +
@@ -156,7 +159,7 @@ export function createCompressionMarkTool(
       "}\n" +
       "```\n\n" +
       "## What happens after:\n" +
-      "- Returns a markId for tracking\n" +
+      "- 成功返回 markId 和 tokenCount。tokenCount 是本次范围内可处理的词元估计：compact 仅计当前可见的可压缩原文，delete 计可见处理内容；不是实际净节省量。无法从当前会话投影确定时返回 null。按成功标记的非重叠覆盖量核对提醒建议，不把重复覆盖计为新增进度。\n" +
       "- Compression happens asynchronously in the background\n" +
       "- Compressed content replaces the original range in future context\n" +
       "- You can continue working immediately; compression doesn't block your workflow",

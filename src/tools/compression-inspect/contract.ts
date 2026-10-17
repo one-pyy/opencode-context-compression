@@ -99,8 +99,8 @@ export type CompressionInspectValidationResult =
 export interface CompressionInspectExternalContract {
   readonly toolName: "compression_inspect";
   readonly inputShape: "{ to, mode?, mergeAdjacent? }";
-  readonly outputShape: "placeholder first, then JSON-serialized message details, referable sections with protected-delimited atoms, or delete-mode position-ordered entries after projection";
-  readonly callTiming: "when the model needs to inspect compressible messages up to a visible-id endpoint, or to list the deletable compact fragments and protected user messages of a delete range";
+  readonly outputShape: "JSON placeholder first, then chronological TSV rows with type, endpoints and token counts after projection";
+  readonly callTiming: "when the model needs to inspect compressible ranges and compact fragments up to a visible-id endpoint";
   readonly visibleSideEffects: readonly [
     "returns an inspectId placeholder immediately",
     "messages.transform replaces the placeholder with message ids and token counts from the current projection state"
@@ -116,9 +116,9 @@ export const COMPRESSION_INSPECT_EXTERNAL_CONTRACT = Object.freeze({
   toolName: "compression_inspect",
   inputShape: "{ to, mode?, mergeAdjacent? }",
   outputShape:
-    "placeholder first, then JSON-serialized message details, referable sections with protected-delimited atoms, or delete-mode position-ordered entries after projection",
+    "JSON placeholder first, then chronological TSV rows with type, endpoints and token counts after projection",
   callTiming:
-    "when the model needs to inspect compressible messages up to a visible-id endpoint, or to list the deletable compact fragments and protected user messages of a delete range",
+    "when the model needs to inspect compressible ranges and compact fragments up to a visible-id endpoint",
   visibleSideEffects: [
     "returns an inspectId placeholder immediately",
     "messages.transform replaces the placeholder with message ids and token counts from the current projection state",

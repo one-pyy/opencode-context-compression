@@ -83,22 +83,22 @@ export function createCompressionInspectTool(
   return tool({
     description:
       "Inspect token counts for a visible message range before deciding whether to call compression_mark. " +
-      "Use this when you need to choose an exact range for compression. Provide the to visible message ID — the range always starts from the first compressible message, or from the first non-system entry in delete mode. " +
-      "By default, the result groups visible content into sections split by referable replacements; protected messages split each section into contiguous compressible atoms. In compact mode, applied compression results appear only as those section boundaries and never as entries, so a range missing from the result is not necessarily outside the window or undeletable. Sections and atoms contain token counts for semantic analysis and are not automatic mark recommendations. Set mergeAdjacent=false to receive per-message token counts. " +
-      "Set mode=delete when you need to choose a delete range: the result is a position-ordered entries list, where kind=fragment carries the referable range marker pair usable directly as endpoints, kind=user lists the protected user messages, and kind=compressible lists the remaining compressible ranges; mergeAdjacent does not apply in delete mode. " +
-      "A reminder may attach this delete-mode listing for both actions: use compressible entries for compact and inspect fragment entries for summary retirement. Delete-mode entry tokens estimate the currently visible text: summary text for fragments, user text for users, and current uncompressed text for compressible ranges. Reuse an attached listing when it covers the intended range. " +
+      "Provide the to visible message ID as an inclusive upper bound. 成功清单使用 TSV，列为类型、起点、终点、token数；行按消息先后排列。统计区间不决定 mark 边界。" +
+      "默认 compact 模式显示上界内首个至最后一个可压缩条目之间的 compressible 与 referable 区间，隐藏 protected 消息；protected 与 referable 均隔开连续原文区间。referable 行携带完整摘要端点，帮助检查已有覆盖。没有可压缩条目时返回空表。Set mergeAdjacent=false to receive per-message token counts. " +
+      "delete 模式显示上界内所有 compressible 与 referable 区间，包括边缘摘要；两种模式均隐藏 protected 行，保护消息仍隔开连续原文区间。mergeAdjacent 不改变 delete 清单。类型沿用 compressible、referable；端点保持原 inspect 格式：原文用裸编号，摘要保留 referable 标记对。" +
+      "提醒复用同一清单：compressible 用于 compact，referable 用于检查摘要退役。compact 原文使用策略 token 数，referable 和 delete 条目使用当前可见文本计数。表外总计为显示行之和，不等同于面板摘要计数；用户约束仍须从上下文核对。Reuse an attached listing when it covers the intended range. " +
       "After inspecting a range, either call compression_mark or leave the range unchanged. " +
       "Do not repeatedly inspect the same range unless new visible messages were added or the range boundaries changed. " +
       "compression_mark records a future compaction request; it does not immediately change the current visible context.",
     args: {
       to: tool.schema.string().min(1).describe(
-        "The last visible message ID in the range to inspect (the range starts from the first compressible message, or from the first non-system entry in delete mode)"
+        "Inclusive upper bound; compact shows first-to-last visible compressible span within it, delete shows all compressible and referable entries up to it"
       ),
       mode: tool.schema.enum(["compact", "delete"]).optional().default("compact").describe(
-        "compact (default) lists compressible ranges; delete returns position-ordered deletable entries including applied compact fragments and protected user messages"
+        "compact (default) shows compressible and intervening referable ranges; delete includes edge summaries. Both hide protected rows"
       ),
       mergeAdjacent: tool.schema.boolean().optional().default(true).describe(
-        "Group messages into referable sections and protected-delimited compressible atoms; defaults to true"
+        "Merge consecutive compressible messages; protected and referable entries break ranges. Defaults to true; delete ignores this flag"
       ),
     },
     async execute(args, context) {

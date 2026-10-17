@@ -25,10 +25,6 @@ import {
 import { createHermeticE2EFixture } from "../harness/fixture.js";
 import { parseVisibleId } from "../../../src/identity/visible-sequence.js";
 
-function bareId(visibleId: string): string {
-  return visibleId.replace(/^[a-z]+_/u, "");
-}
-
 test("bare seq6_base62 ids parse as host endpoints without becoming referable", () => {
   const prefixed = parseVisibleId("compressible_000123_ab");
   const bare = parseVisibleId("000123_ab");
@@ -126,18 +122,12 @@ test(
       `[${expectedIds.system.assignedVisibleId}] System guidance.`,
       `[${expectedIds.assistant.assignedVisibleId}] I can help with that.`,
       "Soft compact reminder.",
-      JSON.stringify({
-        ok: true,
-        sections: [
-          {
-            from: bareId(expectedIds.assistant.assignedVisibleId),
-            to: bareId(expectedIds.assistant.assignedVisibleId),
-            totalTokens: 6,
-            atomCount: 1,
-          },
-        ],
-        totalTokens: 6,
-      }),
+      [
+        "模式\tcompact",
+        "总计\t6",
+        "类型\t起点\t终点\ttoken数",
+        ["compressible", expectedIds.assistant.assignedVisibleId.replace(/^compressible_/u, ""), expectedIds.assistant.assignedVisibleId.replace(/^compressible_/u, ""), 6].join("\t"),
+      ].join("\n"),
       `[${expectedIds.tool.assignedVisibleId}] Search results arrive here.`,
     ]);
     assert.match(expectedIds.assistant.assignedVisibleId, /^compressible_000002_[0-9A-Za-z]{2}$/u);
@@ -182,7 +172,7 @@ test(
       secondProjection.messages[4]?.visibleId,
       secondProjection.reminders[0]?.visibleId,
     );
-    assert.match(secondProjection.messages[4]?.contentText ?? "", /"atomCount":1/u);
+    assert.match(secondProjection.messages[4]?.contentText ?? "", /类型\t起点\t终点\ttoken数/u);
 
     const evidencePath = await fixture.evidence.writeJson(
       "visible-sequence-rendering",

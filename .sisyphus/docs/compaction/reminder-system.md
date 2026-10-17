@@ -61,6 +61,16 @@ OpenCode materialization 层接受 projection 生成的工具调用/结果对，
 - 潜在可压 token 首次达到 `hsoft` → 触发 soft reminder
 - 潜在可压 token 首次达到 `hhard` → 触发 hard reminder，hard 覆盖 soft
 
+## 强提醒量化建议
+
+hard reminder 在基础正文后追加动态指标。例如，提醒锚点处有 150000 词元的可压缩原文时显示：
+
+> 当前可压缩原文共 150000 词元，建议本轮标记覆盖超过 100000 词元。按完整任务选区；符合条件的内容不足时说明原因，优先保留仍需使用的上下文。
+
+提醒正文自动填入实际统计值：原文量是提醒锚点及此前当前可见 compressible 原文的策略词元合计，与 hard 阈值使用同一口径；建议量按原文量的三分之二向下取整。两种 hard 提醒均使用该规则，soft 正文保持不变。计算只读取锚点前缀，后续消息增长不改写未变化前缀中的指标。
+
+建议量是本轮成功 compact 标记覆盖的可压缩原文去重词元量，不是每个标记的最低量，也不是预计净节省量；模型按标记结果的 [tokenCount](mark-tool-contract.md#标记范围词元数) 核对，不能将重叠范围重复累计。选区仍须满足内容保留规则；安全候选不足时说明限制，不强制扩大到活跃内容。
+
 ## 重复 cadence
 
 当前 reminder 设计保留：
@@ -75,6 +85,8 @@ OpenCode materialization 层接受 projection 生成的工具调用/结果对，
 ## Reminder 锚点
 
 reminder 锚定在实际跨过 milestone 的那条 compressible 消息之后。
+
+同一条消息同时跨过多个 milestone 时，只生成最高 token 阈值对应的一条 reminder，并附带一份 inspect 清单。软、硬阈值同时跨过时保留 hard reminder；所有已跨过的阈值仍推进，后续消息从下一个未跨过的阈值继续触发，不补发被合并的提醒。不同消息锚点的提醒保持独立。
 
 ## Reminder Prompt 文件
 
@@ -101,7 +113,7 @@ reminder 锚定在实际跨过 milestone 的那条 compressible 消息之后。
 
 追加指令保留两个动作：未压缩原文用 compact；已压缩摘要按后续是否有用检查并退役。此前未加载 `context-retire` 时再加载，已完整加载则复用。删除准则见 [退役执行准则](allow-delete.md#退役执行准则)。
 
-delete inspect 的 `compressible` 条目可用于 compact 选区，`fragment` 用于摘要退役候选，`user` 用于核对用户要求及范围边界。它只覆盖 reminder 锚点及此前的可选跨度；所需候选超出跨度或清单缺失时，主 agent 再请求 inspect。条目按当前可见文本计数，具体口径见 [Inspect 工具契约](mark-tool-contract.md#inspect-工具契约)；fragment 使用与面板 del 相同的预计算摘要计数。清单总量还包含用户与原文，不能作为摘要 del。
+delete inspect 的 compressible 行可用于 compact 选区，referable 行用于摘要退役候选；protected 行不显示，用户要求与范围边界仍须从上下文核对。它只覆盖 reminder 锚点及此前的可选跨度；所需候选超出跨度或清单缺失时，主 agent 再请求 inspect。条目按当前可见文本计数，具体口径见 [Inspect 工具契约](mark-tool-contract.md#inspect-工具契约)；referable 使用与面板 del 相同的预计算摘要计数。清单总量还包含原文，不能作为摘要 del。
 
 ## 压缩完成后的 reminder 清理
 

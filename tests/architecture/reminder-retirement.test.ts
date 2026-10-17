@@ -55,15 +55,16 @@ for (const [tokens, severity] of [[10, "soft"], [20, "hard"]] as const) {
       assert.ok(reminder);
       assert.match(reminder.contentText, severity === "soft" ? /Soft compact/u : /Hard compact/u);
       assert.ok(reminder.inspectListing);
-      const listing = JSON.parse(reminder.inspectListing);
+      const listing = reminder.inspectListing;
       if (del > 60_000) {
         assert.match(reminder.contentText, /Retire unused summaries/u);
-        assert.equal(listing.mode, "delete");
-        assert.deepEqual(listing.entries.map((entry: { kind: string }) => entry.kind), ["user", "compressible"]);
+        assert.ok(listing.startsWith("模式\tdelete\n"));
+        assert.deepEqual(listing.split("\n").slice(3).map((line) => line.split("\t")[0]), ["compressible"]);
         assert.equal(reminder.inspectInput?.mode, "delete");
       } else {
         assert.doesNotMatch(reminder.contentText, /Retire unused summaries/u);
-        assert.ok(listing.sections);
+        assert.ok(listing.startsWith("模式\tcompact\n"));
+        assert.deepEqual(listing.split("\n").slice(3).map((line) => line.split("\t")[0]), ["compressible"]);
         assert.equal(reminder.inspectInput?.mode, "compact");
       }
       assert.equal(reminder.inspectInput?.to, reminder.anchorVisibleId);

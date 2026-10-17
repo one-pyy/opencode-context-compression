@@ -108,6 +108,12 @@ test("compression_inspect groups referable sections with protected-delimited ato
   const sections = groupCompressionInspectEntries(entries);
   assert.deepEqual(sections, [
     {
+      from: "000002_b2",
+      to: "000002_b2",
+      totalTokens: 7,
+      atomCount: 1,
+    },
+    {
       from: "000005_e5",
       to: "000008_h8",
       totalTokens: 10,
@@ -124,12 +130,6 @@ test("compression_inspect groups referable sections with protected-delimited ato
           tokens: 5,
         },
       ],
-    },
-    {
-      from: "000002_b2",
-      to: "000002_b2",
-      totalTokens: 7,
-      atomCount: 1,
     },
   ]);
 });

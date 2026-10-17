@@ -72,21 +72,23 @@ for (const mode of ["compact", "delete"] as const) {
     const applied = await builder.build({ sessionId: fixture.sessionID, replacementGateOpen: true });
     assert.equal(applied.reminders.length, 1);
     assert.equal(applied.reminders[0]?.anchorVisibleId, current.assignedVisibleId);
-    const listing = JSON.parse(applied.reminders[0]?.inspectListing ?? "{}");
+    const listing = applied.reminders[0]?.inspectListing;
+    assert.ok(listing);
+    const rows = listing.split("\n").slice(3).map((line) => line.split("\t"));
     if (mode === "compact") {
       assert.ok((applied.deletableTokenCount ?? 0) > 1);
       assert.match(applied.reminders[0]?.contentText ?? "", /Retire unused summaries/u);
-      assert.equal(listing.mode, "delete");
-      assert.equal(listing.entries[0]?.kind, "fragment");
-      assert.equal(listing.entries[0]?.tokens, applied.deletableTokenCount);
-      assert.equal(listing.totalTokens, listing.entries.reduce((total: number, entry: { tokens: number }) => total + entry.tokens, 0));
-      assert.equal(listing.entries.at(-1)?.kind, "compressible");
+      assert.ok(listing.startsWith("模式\tdelete\n"));
+      assert.equal(rows[0]?.[0], "referable");
+      assert.equal(Number(rows[0]?.[3]), applied.deletableTokenCount);
+      assert.equal(Number(listing.split("\n")[1]?.split("\t")[1]), rows.reduce((total, row) => total + Number(row[3]), 0));
+      assert.equal(rows.at(-1)?.[0], "compressible");
       const actualInspect = applied.toolResultOverrides.find((override) => override.sourceMessageId === "inspect-tool");
       assert.ok(actualInspect);
-      assert.deepEqual(JSON.parse(actualInspect.output), listing);
+      assert.equal(actualInspect.output, listing);
     } else {
       assert.equal(applied.deletableTokenCount, 0);
-      assert.ok(listing.sections);
+      assert.ok(listing.startsWith("模式\tcompact\n"));
     }
     const inspectPair = projectProjectionToEnvelopes(applied).flatMap((item) => item.parts)
       .find((part) => part.type === "tool" && part.tool === "compression_inspect");
@@ -232,7 +234,11 @@ test(
 
 test("applying summaries after an early reminder preserves its materialized request prefix", async (t) => {
   const repoRoot = await mkdtemp("/tmp/opencode/compression-prefix-");
-  const fixture = await createHermeticE2EFixture(t, { suite: "interfaces", caseName: "prefix-summary-growth", repoRoot });
+  const fixture = await createHermeticE2EFixture(t, { suite: "interfaces", caseName: `prefix-summary-growth-${repoRoot.split("/").at(-1)}`, repoRoot });
+  t.mock.method(globalThis, "fetch", async (_request: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const { text } = JSON.parse(String(init?.body)) as { text: string };
+    return Response.json({ tokens: Math.ceil(text.length / 4) });
+  });
   const databasePath = resolveSessionDatabasePath(resolvePluginStateDirectory(repoRoot), fixture.sessionID);
   await bootstrapSessionSidecar({ databasePath });
   const sidecar = await openSessionSidecarRepository({ databasePath });
@@ -252,7 +258,7 @@ test("applying summaries after an early reminder preserves its materialized requ
   });
   await resultGroups.upsertCompleteGroup({ markId: "prefix-first", mode: "compact", executionMode: "compact", sourceStartSeq: 2, sourceEndSeq: 3, createdAt: "t", committedAt: "t", fragments: [{ sourceStartSeq: 2, sourceEndSeq: 3, replacementText: "A".repeat(239_000) }] });
   const before = await builder.build({ sessionId: fixture.sessionID, replacementGateOpen: true });
-  assert.ok(before.deletableTokenCount! < 60_000);
+  assert.ok(before.deletableTokenCount! < 60_000, `summary tokens=${before.deletableTokenCount}; visible lengths=${before.messages.filter((message) => message.source === "result-group").map((message) => message.contentText.length)}`);
   const beforeMessages = projectProjectionToEnvelopes(before);
   const firstInspect = beforeMessages.findIndex((message) => message.parts.some((part) => part.type === "tool" && part.tool === "compression_inspect"));
   assert.ok(firstInspect > 0);

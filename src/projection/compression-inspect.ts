@@ -1,6 +1,5 @@
 import type { VisibleKind } from "../identity/visible-id.js";
 import {
-  buildReferableMarkerIds,
   parseVisibleId,
 } from "../identity/visible-sequence.js";
 import type { CompleteResultGroup } from "../state/result-group-repository.js";
@@ -9,9 +8,10 @@ import {
   serializeCompressionInspectResult,
   type CompressionInspectAtom,
   type CompressionInspectEntry,
-  type CompressionInspectMessageTokenInfo,
   type CompressionInspectSection,
 } from "../tools/compression-inspect.js";
+import { renderCompressionInspectTable } from "./compression-inspect-table.js";
+import { buildProjectedReferableMarkers } from "./referable-markers.js";
 import type {
   MessageProjectionPolicy,
   ProjectedPromptMessage,
@@ -43,50 +43,14 @@ export function buildCompressionInspectOverrides(
 
       let output: string;
       try {
-        if (call.mode === "delete") {
-          const entries = buildCompressionInspectDeleteEntries({
-            messages: projectedMessages,
-            policies: state.messagePolicies,
-            resultGroups: state.resultGroups,
-            to: call.endVisibleMessageId,
-          });
-          output = serializeCompressionInspectResult({
-            ok: true,
-            mode: "delete",
-            entries,
-            totalTokens: entries.reduce((sum, entry) => sum + entry.tokens, 0),
-          });
-        } else {
-          const entries = inspectVisibleEntriesInRange({
-            projectedMessages,
-            policies: state.messagePolicies,
-            from: call.startVisibleMessageId,
-            to: call.endVisibleMessageId,
-          });
-          if (call.mergeAdjacent !== false) {
-            const sections = groupCompressionInspectEntries(entries);
-            output = serializeCompressionInspectResult({
-              ok: true,
-              sections,
-              totalTokens: sections.reduce(
-                (sum, section) => sum + section.totalTokens,
-                0,
-              ),
-            });
-          } else {
-            const messages = Object.freeze(
-              entries
-                .filter((entry) => entry.visibleKind === "compressible")
-                .map((entry) =>
-                  Object.freeze({
-                    id: toVisibleIdLookupKey(entry.id),
-                    tokens: entry.tokens,
-                  } satisfies CompressionInspectMessageTokenInfo),
-                ),
-            );
-            output = serializeCompressionInspectResult({ ok: true, messages });
-          }
-        }
+        output = renderCompressionInspectListing({
+          messages: projectedMessages,
+          policies: state.messagePolicies,
+          resultGroups: state.resultGroups,
+          to: call.endVisibleMessageId,
+          mode: call.mode,
+          mergeAdjacent: call.mergeAdjacent,
+        });
       } catch (error) {
         output = serializeCompressionInspectResult(
           createCompressionInspectFailure(
@@ -118,37 +82,37 @@ export function buildCompressionInspectListing(input: {
   readonly to: string;
   readonly mode?: "compact" | "delete";
   readonly resultGroups?: readonly CompleteResultGroup[];
+  readonly mergeAdjacent?: boolean;
 }): string | undefined {
   try {
-    if (input.mode === "delete") {
-      const entries = buildCompressionInspectDeleteEntries({
-        messages: input.messages,
-        policies: input.policies,
-        resultGroups: input.resultGroups ?? [],
-        to: input.to,
-      });
-      return serializeCompressionInspectResult({
-        ok: true,
-        mode: "delete",
-        entries,
-        totalTokens: entries.reduce((sum, entry) => sum + entry.tokens, 0),
-      });
-    }
-    const entries = inspectVisibleEntriesInRange({
-      projectedMessages: input.messages,
-      policies: input.policies,
-      to: input.to,
-    });
-    const sections = groupCompressionInspectEntries(entries);
-    return serializeCompressionInspectResult({
-      ok: true,
-      sections,
-      totalTokens: sections.reduce((sum, section) => sum + section.totalTokens, 0),
-    });
+    return renderCompressionInspectListing(input);
   } catch {
     // A stale anchor must never block projection; the reminder just ships without a listing.
     return undefined;
   }
+}
+
+function renderCompressionInspectListing(input: {
+  readonly messages: readonly ProjectedPromptMessage[];
+  readonly policies: readonly MessageProjectionPolicy[];
+  readonly to: string;
+  readonly mode?: "compact" | "delete";
+  readonly resultGroups?: readonly CompleteResultGroup[];
+  readonly mergeAdjacent?: boolean;
+}): string {
+  const mode = input.mode ?? "compact";
+  const entries = buildCompressionInspectDeleteEntries({
+    ...input,
+    mode,
+    resultGroups: input.resultGroups ?? [],
+  });
+  if (mode === "delete") return renderCompressionInspectTable(entries, mode);
+  const first = entries.findIndex((entry) => entry.kind === "compressible");
+  const last = entries.findLastIndex((entry) => entry.kind === "compressible");
+  const visible = first < 0
+    ? []
+    : entries.slice(first, last + 1).filter((entry) => entry.kind !== "user");
+  return renderCompressionInspectTable(visible, mode);
 }
 
 export function buildCompressionInspectDeleteEntries(input: {
@@ -156,8 +120,15 @@ export function buildCompressionInspectDeleteEntries(input: {
   readonly policies: readonly MessageProjectionPolicy[];
   readonly resultGroups: readonly CompleteResultGroup[];
   readonly to: string;
+  readonly mode?: "compact" | "delete";
+  readonly mergeAdjacent?: boolean;
 }): readonly CompressionInspectEntry[] {
-  const entries = collectProjectedEntries(input.messages, input.policies, true);
+  const policyTokens = new Map(input.policies.map((policy) => [toVisibleIdLookupKey(policy.visibleId), policy.tokenCount]));
+  const entries = collectProjectedEntries(input.messages, input.policies, true).map((entry) =>
+    input.mode === "compact" && entry.visibleKind === "compressible"
+      ? { ...entry, tokens: policyTokens.get(toVisibleIdLookupKey(entry.id)) ?? 0 }
+      : entry,
+  );
   const range = parseInclusiveVisibleRange({
     policies: input.policies,
     entries,
@@ -168,6 +139,7 @@ export function buildCompressionInspectDeleteEntries(input: {
   });
   const fragments = buildCompressionInspectFragmentEntries({
     resultGroups: input.resultGroups,
+    policies: input.policies,
   });
   const result: CompressionInspectEntry[] = [];
   let currentCompressible:
@@ -225,6 +197,8 @@ export function buildCompressionInspectDeleteEntries(input: {
       continue;
     }
 
+    if (input.mode === "compact" && entry.tokens <= 0) continue;
+    if (input.mode === "compact" && input.mergeAdjacent === false) flushCompressible();
     const atomId = toVisibleIdLookupKey(entry.id);
     currentCompressible =
       currentCompressible === undefined
@@ -242,6 +216,7 @@ export function buildCompressionInspectDeleteEntries(input: {
 
 function buildCompressionInspectFragmentEntries(input: {
   readonly resultGroups: readonly CompleteResultGroup[];
+  readonly policies: readonly MessageProjectionPolicy[];
 }): ReadonlyMap<
   string,
   { readonly from: string; readonly to: string }
@@ -250,6 +225,7 @@ function buildCompressionInspectFragmentEntries(input: {
     string,
     { readonly from: string; readonly to: string }
   >();
+  const visibleIdsBySequence = new Map(input.policies.map((policy) => [policy.sequence, policy.visibleId]));
 
   input.resultGroups.forEach((group) => {
     if (group.mode !== "compact") {
@@ -257,12 +233,8 @@ function buildCompressionInspectFragmentEntries(input: {
     }
 
     group.fragments.forEach((fragment) => {
-      const markers = buildReferableMarkerIds({
-        markId: group.markId,
-        fragmentIndex: fragment.fragmentIndex,
-        sourceStartSeq: fragment.sourceStartSeq,
-        sourceEndSeq: fragment.sourceEndSeq,
-      });
+      const markers = buildProjectedReferableMarkers(group, fragment, (sequence) => visibleIdsBySequence.get(sequence));
+      if (markers === undefined) return;
       fragments.set(toVisibleIdLookupKey(markers.startId), {
         from: markers.startId,
         to: markers.endId,
@@ -347,34 +319,7 @@ export function groupCompressionInspectEntries(
   }
 
   flushSection();
-  return Object.freeze(
-    sections.sort((left, right) => right.totalTokens - left.totalTokens),
-  );
-}
-
-function inspectVisibleEntriesInRange(input: {
-  readonly projectedMessages: readonly ProjectedPromptMessage[];
-  readonly policies: readonly MessageProjectionPolicy[];
-  readonly from?: string;
-  readonly to: string;
-}): readonly CompressionInspectVisibleEntry[] {
-  const entries = collectProjectedEntries(input.projectedMessages, input.policies);
-  const range = parseInclusiveVisibleRange({
-    policies: input.policies,
-    entries,
-    from: input.from,
-    to: input.to,
-  });
-
-  return Object.freeze(
-    entries.filter((entry) => {
-      const visibleSeq = parseVisibleId(entry.id).visibleSeq;
-      return (
-        visibleSeq >= range.startVisibleSeq &&
-        visibleSeq <= range.endVisibleSeq
-      );
-    }),
-  );
+  return Object.freeze(sections);
 }
 
 function collectProjectedEntries(

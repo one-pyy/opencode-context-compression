@@ -1,6 +1,5 @@
 import { defineInternalModuleContract } from "../internal/module-contract.js";
 import {
-  buildReferableMarkerIds,
   parseVisibleId,
   type ParsedVisibleId,
 } from "../identity/visible-sequence.js";
@@ -8,6 +7,7 @@ import type { ReplayedHistory } from "../history/history-replay-reader.js";
 import type { CompleteResultGroup } from "../state/result-group-repository.js";
 import type { TransformEnvelope } from "../seams/noop-observation.js";
 import { estimateEnvelopeTokensWithService } from "../token-estimation.js";
+import { buildProjectedReferableMarkers } from "./referable-markers.js";
 import type {
   ConflictRecord,
   MarkTree,
@@ -132,12 +132,8 @@ export function createFlatPolicyEngine(
         }
 
         group.fragments.forEach((fragment) => {
-          const markers = buildReferableMarkerIds({
-            markId: group.markId,
-            fragmentIndex: fragment.fragmentIndex,
-            sourceStartSeq: fragment.sourceStartSeq,
-            sourceEndSeq: fragment.sourceEndSeq,
-          });
+          const markers = buildProjectedReferableMarkers(group, fragment, (sequence) => visibleIdBySequence.get(sequence));
+          if (markers === undefined) return;
           registerReferableMarker(markers.startId, fragment.sourceStartSeq);
           registerReferableMarker(markers.endId, fragment.sourceEndSeq);
         });

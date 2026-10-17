@@ -86,8 +86,8 @@ export function createConfiguredReminderService(
         const retireSummaries = options.allowDelete && summaryTokens > (options.hdelete ?? 60_000);
         const inspectMode = retireSummaries ? "delete" : "compact";
 
-        let inspectListing: string | undefined;
-        let hasInspectListing = false;
+        let selectedMilestone: number | undefined;
+        let selectedKind: ReminderKind | undefined;
 
         while (true) {
           const softMilestone = nextSoft < options.hhard ? nextSoft : Number.POSITIVE_INFINITY;
@@ -97,38 +97,11 @@ export function createConfiguredReminderService(
             break;
           }
 
-          if (!hasInspectListing) {
-            inspectListing = buildCompressionInspectListing({
-              messages,
-              policies: state.messagePolicies,
-              to: policy.visibleId,
-              mode: inspectMode,
-              resultGroups: state.resultGroups,
-            });
-            hasInspectListing = true;
-          }
-
-          const kind =
+          selectedMilestone = nextMilestone;
+          selectedKind =
             hardMilestone <= softMilestone
               ? resolveReminderKind("hard", options.allowDelete)
               : resolveReminderKind("soft", options.allowDelete);
-          reminders.push(
-            Object.freeze({
-              kind,
-              anchorCanonicalId: policy.canonicalId,
-              anchorVisibleId: policy.visibleId,
-              visibleId: buildStableVisibleId(
-                "reminder",
-                policy.visibleSeq,
-                `${kind}:${policy.canonicalId}:${nextMilestone}`,
-              ),
-              contentText: retireSummaries && options.retirePromptText
-                ? `${options.promptTextByKind[kind]}\n\n${options.retirePromptText}`
-                : options.promptTextByKind[kind],
-              ...(inspectListing === undefined ? {} : { inspectListing }),
-              inspectInput: { mode: inspectMode, to: policy.visibleId },
-            } satisfies ReminderArtifact),
-          );
 
           if (hardMilestone <= softMilestone) {
             nextHard += options.hardRepeatEveryTokens;
@@ -136,6 +109,42 @@ export function createConfiguredReminderService(
             nextSoft += options.softRepeatEveryTokens;
           }
         }
+
+        if (selectedKind === undefined || selectedMilestone === undefined) {
+          return;
+        }
+
+        // Consume every crossed milestone, but emit only the highest one at this anchor.
+        const inspectListing = buildCompressionInspectListing({
+          messages,
+          policies: state.messagePolicies,
+          to: policy.visibleId,
+          mode: inspectMode,
+          resultGroups: state.resultGroups,
+        });
+        const guidance = selectedKind.startsWith("hard")
+          ? `当前可压缩原文共 ${compressibleTokens} 词元，建议本轮标记覆盖超过 ${Math.floor(compressibleTokens * 2 / 3)} 词元。按完整任务选区；符合条件的内容不足时说明原因，优先保留仍需使用的上下文。按成功 compact 标记返回的 tokenCount 合计，重叠覆盖只计一次；这是建议覆盖量，不是预计净节省量。`
+          : undefined;
+        const contentText = [
+          options.promptTextByKind[selectedKind],
+          guidance,
+          retireSummaries ? options.retirePromptText : undefined,
+        ].filter(Boolean).join("\n\n");
+        reminders.push(
+          Object.freeze({
+            kind: selectedKind,
+            anchorCanonicalId: policy.canonicalId,
+            anchorVisibleId: policy.visibleId,
+            visibleId: buildStableVisibleId(
+              "reminder",
+              policy.visibleSeq,
+              `${selectedKind}:${policy.canonicalId}:${selectedMilestone}`,
+            ),
+            contentText,
+            ...(inspectListing === undefined ? {} : { inspectListing }),
+            inspectInput: { mode: inspectMode, to: policy.visibleId },
+          } satisfies ReminderArtifact),
+        );
       });
 
       return Object.freeze(reminders);

@@ -172,7 +172,11 @@ export function createContextCompressionHooks(
 
   return {
     tool: {
-      compression_mark: createCompressionMarkTool(options.compressionMark),
+      compression_mark: createCompressionMarkTool({
+        ...options.compressionMark,
+        countTokens: options.compressionMark?.countTokens ?? ((input) =>
+          messagesTransformProjector?.getCompressionMarkTokenCount?.(input.sessionID, input)),
+      }),
       compression_inspect: createCompressionInspectTool(options.compressionInspect),
       compression_recall: createCompressionRecallTool(options.compressionRecall),
       opencode_context_compression_notice: createContextCompressionNoticeTool(),

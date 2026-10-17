@@ -66,18 +66,18 @@ tool 调用当下只返回 `recallId` 占位符。真实内容由 `messages.tran
 
 1. 遍历 `state.history` 中已 replay 的 `compressionRecallToolCalls`
 2. 对每个 accepted call，解析 `from` / `to` 的 `visibleSeq`
-3. 检查范围顺序和删除边界，通过后从 `state.history.messages` 读 `[fromSeq, toSeq]` 范围内的原始消息
+3. 检查范围顺序，将生效删除来源范围转换为永久可见编号并检查相交；通过后从 `state.history.messages` 读取永久编号落入 `[fromSeq, toSeq]` 的原始消息
 4. 用 `renderModelVisiblePartsText` 渲染每条消息（同 compaction input builder 口径）
 5. 格式化为 transcript blocks
 6. 产出 `ToolResultOverride { sourceMessageId, toolName: "compression_recall", output }`
 
 ### 定位逻辑
 
-先根据 result group 与实际渲染结果检查删除边界，再将 `visibleSeq` 范围直接映射到 host history sequence range；不匹配 fragment 或校验 referable 类型。
+通过 `messagePolicies` 按宿主消息身份建立永久编号到原始消息的映射。先根据 result group 与实际渲染结果确认生效删除，将删除范围内来源消息的首尾永久编号作为删除边界，再按输入的永久编号范围读取原文；不匹配 fragment 或校验 referable 类型。错误详情中的 `retiredRanges` 也使用永久编号。
 
-对 referable 编号：`visibleSeq` 就是 fragment 的 `sourceStartSeq` / `sourceEndSeq`，seq range 自然等于原始 source range。
+对 referable 编号：显示端点采用来源消息的永久编号，内部 `sourceStartSeq/sourceEndSeq` 仍为历史重放位置；两者通过来源消息身份转换，不能直接混用。
 
-对 compressible / protected 编号：seq range 映射到当前已可见的原始 host history 内容，recall 返回的是去掉投影包装的原文。
+对 compressible / protected 编号：按永久编号映射到原始 host history 内容，recall 返回的是去掉投影包装的原文。编号空洞跳过，不重排；输出段落编号也使用永久编号。
 
 ## 填充内容格式
 
@@ -133,7 +133,7 @@ tool 调用当下只返回 `recallId` 占位符。真实内容由 `messages.tran
 
 ### 为什么不限制只对 referable 编号 recall
 
-- referable 的 seq range 天然等于原始 source range，不需要特殊处理
+- referable 与原文端点共享永久编号，按同一身份映射回查
 - 允许任意编号让 tool 语义更通用：召回指定 seq 范围的原始 host history
 - 编号类型不影响定位；删除边界统一由结果组的生效覆盖判断
 - 模型不需要记住"这个 tool 只能对 referable 用"

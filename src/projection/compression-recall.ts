@@ -15,9 +15,22 @@ export function buildCompressionRecallOverrides(
   const retiredGroups = state.resultGroups.filter(
     (group) => group.mode === "delete" && (group.applied || visibleResultIds.has(group.markId)),
   );
-  const messagesBySequence = new Map(
-    state.history.messages.map((message) => [message.sequence, message]),
-  );
+  const policiesByCanonicalId = new Map(state.messagePolicies.map((policy) => [policy.canonicalId, policy]));
+  const messagesBySequence = new Map<number, ReplayedHistoryMessage>();
+  for (const message of state.history.messages) {
+    const policy = policiesByCanonicalId.get(message.canonicalId);
+    if (policy !== undefined) messagesBySequence.set(policy.visibleSeq, message);
+  }
+  const retiredRanges = retiredGroups.flatMap((group) => {
+    const policies = state.messagePolicies.filter((policy) =>
+      policy.sequence >= group.sourceStartSeq && policy.sequence <= group.sourceEndSeq,
+    );
+    if (policies.length === 0) return [];
+    return [{
+      fromSeq: Math.min(...policies.map((policy) => policy.visibleSeq)),
+      toSeq: Math.max(...policies.map((policy) => policy.visibleSeq)),
+    }];
+  });
 
   return Object.freeze(
     (state.history.compressionRecallToolCalls ?? []).flatMap((call) => {
@@ -36,8 +49,8 @@ export function buildCompressionRecallOverrides(
         if (fromSeq > toSeq) {
           throw new Error("compression_recall from/to range is reversed.");
         }
-        const overlaps = retiredGroups.filter(
-          (group) => group.sourceStartSeq <= toSeq && group.sourceEndSeq >= fromSeq,
+        const overlaps = retiredRanges.filter(
+          (range) => range.fromSeq <= toSeq && range.toSeq >= fromSeq,
         );
         if (overlaps.length > 0) {
           return [Object.freeze({
@@ -46,10 +59,7 @@ export function buildCompressionRecallOverrides(
             output: serializeCompressionRecallResult(createCompressionRecallFailure(
               "RANGE_RETIRED",
               "The requested range overlaps history retired by delete. Read the preserved project-local files instead.",
-              { retiredRanges: overlaps.map((group) => ({
-                fromSeq: group.sourceStartSeq,
-                toSeq: group.sourceEndSeq,
-              })) },
+              { retiredRanges: overlaps },
             )),
           } satisfies ToolResultOverride)];
         }

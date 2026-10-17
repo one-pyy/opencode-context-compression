@@ -20,6 +20,7 @@ export interface CompressionMarkInputV1 {
 export interface CompressionMarkSuccess {
   readonly ok: true;
   readonly markId: string;
+  readonly tokenCount?: number | null;
 }
 
 export interface CompressionMarkFailure {
@@ -158,6 +159,9 @@ export function deserializeCompressionMarkResult(
     return {
       ok: true,
       markId: record.markId,
+      ...(record.tokenCount === null || (typeof record.tokenCount === "number" && Number.isInteger(record.tokenCount) && record.tokenCount >= 0)
+        ? { tokenCount: record.tokenCount }
+        : {}),
     };
   }
 
