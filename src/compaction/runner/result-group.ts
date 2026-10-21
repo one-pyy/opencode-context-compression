@@ -4,6 +4,19 @@ import type { CompleteResultGroupInput } from "../../state/result-group-reposito
 
 type PersistedFragment = CompleteResultGroupInput["fragments"][number];
 
+const OPAQUE_ONLY_WINDOW_HAN_LIMIT = 50;
+const OPAQUE_ONLY_WINDOW_WORD_LIMIT = 30;
+
+function isShortOpaqueOnlyWindowText(text: string): boolean {
+  const hanCount = (text.match(/\p{Script=Han}/gu) ?? []).length;
+  if (hanCount > 0) {
+    return hanCount < OPAQUE_ONLY_WINDOW_HAN_LIMIT;
+  }
+
+  const wordCount = text.trim().split(/\s+/u).filter(Boolean).length;
+  return wordCount < OPAQUE_ONLY_WINDOW_WORD_LIMIT;
+}
+
 export interface BuildCompactionResultGroupInput {
   readonly request: CompactionRequest;
   readonly validatedOutput: ValidatedCompactionOutput;
@@ -176,6 +189,13 @@ function appendFragmentForWindow(input: {
   }
 
   if (sourceEntries.length === 0) {
+    // Models often emit a short transition sentence between adjacent opaque
+    // slots. Dropping such text keeps the window mapping valid; longer text
+    // still means a real window's content was misplaced.
+    if (isShortOpaqueOnlyWindowText(input.replacementText)) {
+      return;
+    }
+
     throw new InvalidCompactionOutputError({
       markId: input.request.markID,
       model: input.request.model,

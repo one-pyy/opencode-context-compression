@@ -49,6 +49,108 @@ test("ResultGroup Builder - Multiple Fragments on Incompressible Gap (15.18 & 15
   assert.equal(resultGroup.fragments[1].replacementText.trim(), "Summary part 2");
 });
 
+test("ResultGroup Builder - Drops Short Text In Opaque-Only Window", () => {
+  const transcript = [
+    { sourceStartSeq: 1, sourceEndSeq: 1, contentText: "U1", role: "user" as const },
+    { sourceStartSeq: 2, sourceEndSeq: 2, contentText: "<opaque slot=\"S1\">C1</opaque>", role: "assistant" as const, opaquePlaceholderSlot: "S1" },
+    { sourceStartSeq: 3, sourceEndSeq: 3, contentText: "<opaque slot=\"S2\">C2</opaque>", role: "assistant" as const, opaquePlaceholderSlot: "S2" },
+    { sourceStartSeq: 4, sourceEndSeq: 4, contentText: "U2", role: "user" as const }
+  ];
+
+  const request = {
+    markID: "m1",
+    model: "test-model",
+    executionMode: "compact" as const,
+    mode: "compact" as const,
+    allowDelete: true,
+    transcript
+  };
+
+  const validatedOutput = {
+    contentText: "Summary 1\n<opaque slot=\"S1\"/>\n确认目标保持 active。\n<opaque slot=\"S2\"/>\nSummary 2"
+  };
+
+  const resultGroup = buildCompactionResultGroup({
+    request: request as any,
+    validatedOutput: validatedOutput as any,
+    runInput: {} as any,
+    now: () => new Date().toISOString()
+  });
+
+  assert.equal(resultGroup.fragments.length, 2);
+  assert.equal(resultGroup.fragments[0].sourceStartSeq, 1);
+  assert.equal(resultGroup.fragments[0].replacementText, "Summary 1");
+  assert.equal(resultGroup.fragments[1].sourceStartSeq, 4);
+  assert.equal(resultGroup.fragments[1].replacementText, "Summary 2");
+});
+
+test("ResultGroup Builder - Rejects Long Text In Opaque-Only Window", () => {
+  const transcript = [
+    { sourceStartSeq: 1, sourceEndSeq: 1, contentText: "U1", role: "user" as const },
+    { sourceStartSeq: 2, sourceEndSeq: 2, contentText: "<opaque slot=\"S1\">C1</opaque>", role: "assistant" as const, opaquePlaceholderSlot: "S1" },
+    { sourceStartSeq: 3, sourceEndSeq: 3, contentText: "<opaque slot=\"S2\">C2</opaque>", role: "assistant" as const, opaquePlaceholderSlot: "S2" },
+    { sourceStartSeq: 4, sourceEndSeq: 4, contentText: "U2", role: "user" as const }
+  ];
+
+  const request = {
+    markID: "m1",
+    model: "test-model",
+    executionMode: "compact" as const,
+    mode: "compact" as const,
+    allowDelete: true,
+    transcript
+  };
+
+  const validatedOutput = {
+    contentText: `Summary 1\n<opaque slot="S1"/>\n${"这是一段明显超过五十个汉字、本应属于其他窗口的正文内容，不应出现在相邻 opaque 标签之间，否则会破坏窗口映射并导致整条压缩结果无法提交。"}\n<opaque slot="S2"/>\nSummary 2`
+  };
+
+  assert.throws(
+    () => buildCompactionResultGroup({
+      request: request as any,
+      validatedOutput: validatedOutput as any,
+      runInput: {} as any,
+      now: () => new Date().toISOString()
+    }),
+    /opaque-only window/
+  );
+});
+
+test("ResultGroup Builder - Rejects Long English Text In Opaque-Only Window", () => {
+  const transcript = [
+    { sourceStartSeq: 1, sourceEndSeq: 1, contentText: "U1", role: "user" as const },
+    { sourceStartSeq: 2, sourceEndSeq: 2, contentText: "<opaque slot=\"S1\">C1</opaque>", role: "assistant" as const, opaquePlaceholderSlot: "S1" },
+    { sourceStartSeq: 3, sourceEndSeq: 3, contentText: "<opaque slot=\"S2\">C2</opaque>", role: "assistant" as const, opaquePlaceholderSlot: "S2" },
+    { sourceStartSeq: 4, sourceEndSeq: 4, contentText: "U2", role: "user" as const }
+  ];
+
+  const request = {
+    markID: "m1",
+    model: "test-model",
+    executionMode: "compact" as const,
+    mode: "compact" as const,
+    allowDelete: true,
+    transcript
+  };
+
+  const longEnglishText =
+    "This misplaced paragraph clearly belongs to a different window and should never appear between two adjacent opaque slots because it would corrupt the mapping of source ranges and fail the entire compaction result for this mark and also discard otherwise valid work.";
+
+  const validatedOutput = {
+    contentText: `Summary 1\n<opaque slot="S1"/>\n${longEnglishText}\n<opaque slot="S2"/>\nSummary 2`
+  };
+
+  assert.throws(
+    () => buildCompactionResultGroup({
+      request: request as any,
+      validatedOutput: validatedOutput as any,
+      runInput: {} as any,
+      now: () => new Date().toISOString()
+    }),
+    /opaque-only window/
+  );
+});
+
 test("Output Validator - Missing Placeholder Throws Error (15.34 & 15.35)", async () => {
   const validator = createOutputValidator();
   
