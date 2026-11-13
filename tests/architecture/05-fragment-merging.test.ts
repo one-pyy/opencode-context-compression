@@ -151,6 +151,74 @@ test("ResultGroup Builder - Rejects Long English Text In Opaque-Only Window", ()
   );
 });
 
+const retainedScratchpad = "<scratchpad>\n<ephemeral>\n### 排查结论\n连接失败来自端口配置错误，修正端口后已恢复；重启没有改变结果。只验证了本地连接，远端网络尚未验证。\n</ephemeral>\n<durable>\n### 契约\n统计范围保持单个会话。\n</durable>\n</scratchpad>";
+
+test("ResultGroup Builder - Persists One Trailing Scratchpad Without Moving Protected Fragments", () => {
+  for (const trailingOpaque of [false, true]) {
+    for (const earlierExample of [false, true]) {
+      const lead = earlierExample ? `Summary 1\n\`\`\`text\n${retainedScratchpad}\n\`\`\`` : "Summary 1";
+      const preserved = { sourceStartSeq: 4, sourceEndSeq: 4, replacementText: "Existing protected summary" };
+      const transcript = [
+        { sourceStartSeq: 1, sourceEndSeq: 1, role: "assistant", contentText: "A1" },
+        { sourceStartSeq: 2, sourceEndSeq: 2, role: "user", opaquePlaceholderSlot: "S1" },
+        { sourceStartSeq: 3, sourceEndSeq: 3, role: "assistant", contentText: "A2" },
+        ...(trailingOpaque ? [{ sourceStartSeq: 4, sourceEndSeq: 4, role: "assistant", opaquePlaceholderSlot: "S2" }] : []),
+      ];
+      const output = `${lead}\n<opaque slot="S1"/>\nSummary 2${trailingOpaque ? '\n<opaque slot="S2"/>' : ""}\n\n${retainedScratchpad}`;
+      const group = buildCompactionResultGroup({
+        request: { markID: "footer", model: "test", executionMode: "compact", mode: "compact", transcript } as any,
+        validatedOutput: { contentText: output } as any,
+        runInput: { resultGroup: { preservedFragments: trailingOpaque ? [preserved] : [] } } as any,
+        now: () => "2026-11-03T10:00:00.000Z",
+      });
+      assert.deepEqual(group.fragments, [
+        { sourceStartSeq: 1, sourceEndSeq: 1, replacementText: lead },
+        { sourceStartSeq: 3, sourceEndSeq: 3, replacementText: `Summary 2\n\n${retainedScratchpad}` },
+        ...(trailingOpaque ? [preserved] : []),
+      ]);
+    }
+  }
+});
+
+test("ResultGroup Builder - Preserves Scratchpads Without Opaque Windows In Both Modes", () => {
+  for (const executionMode of ["compact", "delete"]) {
+    const contentText = `Summary\n\n${retainedScratchpad}`;
+    const group = buildCompactionResultGroup({
+      request: { markID: "footer", model: "test", executionMode, mode: executionMode,
+        transcript: [{ sourceStartSeq: 1, sourceEndSeq: 1, role: "assistant", contentText: "A1" }] } as any,
+      validatedOutput: { contentText } as any,
+      runInput: {} as any,
+      now: () => "2026-11-03T10:00:00.000Z",
+    });
+    assert.deepEqual(group.fragments, [{ sourceStartSeq: 1, sourceEndSeq: 1, replacementText: contentText }]);
+  }
+});
+
+test("ResultGroup Builder - A Scratchpad Does Not Replace Missing Window Text", () => {
+  assert.throws(() => buildCompactionResultGroup({
+    request: { markID: "footer", model: "test", executionMode: "compact", mode: "compact", transcript: [
+      { sourceStartSeq: 1, sourceEndSeq: 1, role: "assistant", contentText: "A1" },
+      { sourceStartSeq: 2, sourceEndSeq: 2, role: "user", opaquePlaceholderSlot: "S1" },
+      { sourceStartSeq: 3, sourceEndSeq: 3, role: "assistant", contentText: "A2" },
+    ] } as any,
+    validatedOutput: { contentText: `Summary 1\n<opaque slot="S1"/>\n${retainedScratchpad}` } as any,
+    runInput: {} as any,
+    now: () => "2026-11-03T10:00:00.000Z",
+  }), /no replacement text for a compressible window/);
+});
+
+test("ResultGroup Builder - Still Rejects Unmapped Prose Before A Scratchpad", () => {
+  assert.throws(() => buildCompactionResultGroup({
+    request: { markID: "footer", model: "test", executionMode: "compact", mode: "compact", transcript: [
+      { sourceStartSeq: 1, sourceEndSeq: 1, role: "assistant", contentText: "A1" },
+      { sourceStartSeq: 2, sourceEndSeq: 2, role: "user", opaquePlaceholderSlot: "S1" },
+    ] } as any,
+    validatedOutput: { contentText: `Summary 1\n<opaque slot="S1"/>\n${"中".repeat(60)}\n${retainedScratchpad}` } as any,
+    runInput: {} as any,
+    now: () => "2026-11-03T10:00:00.000Z",
+  }), /opaque-only window/);
+});
+
 test("Output Validator - Missing Placeholder Throws Error (15.34 & 15.35)", async () => {
   const validator = createOutputValidator();
   

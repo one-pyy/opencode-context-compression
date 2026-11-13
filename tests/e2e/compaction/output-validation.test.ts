@@ -99,13 +99,14 @@ test(
       "Existing replacement that must survive later failures.",
     );
 
+    const scratchpad = "<scratchpad>\n<ephemeral>\n已完成检查：失败来自错误端口，修正后本地连接恢复；重启未改变结果。\n</ephemeral>\n<durable>\n单会话范围。\n</durable>\n</scratchpad>";
     const explanationTransport = createScriptedCompactionTransport([
       {
         kind: "success",
         rawPayload: {
           contentText: JSON.stringify({
             plan: "Keep the lead summary and the opaque slot.",
-            compression_output: 'Lead summary.\n<opaque slot="S1">Model-added text is ignored.</opaque>',
+            compression_output: `Lead summary.\n<opaque slot="S1">Model-added text is ignored.</opaque>\n\n${scratchpad}`,
             explanation: "This optional prose is not persisted.",
           }),
         },
@@ -133,11 +134,11 @@ test(
     explanationTransport.assertConsumed();
     assert.equal(
       explanationResult.validatedOutput.contentText,
-      'Lead summary.\n<opaque slot="S1"/>',
+      `Lead summary.\n<opaque slot="S1"/>\n\n${scratchpad}`,
     );
     assert.equal(
       (await resultGroups.getCompleteGroup("mark-explanation"))?.fragments[0]?.replacementText,
-      "Lead summary.",
+      `Lead summary.\n\n${scratchpad}`,
     );
 
     const nullExplanationTransport = createScriptedCompactionTransport([

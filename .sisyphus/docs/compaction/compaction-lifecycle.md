@@ -142,6 +142,8 @@ SQLite 只需保存：
 
 若输出缺失应保留的占位符，则该次输出非法，进入 retry / fallback 流程。
 
+文末草稿纸按 [提示词资产约定](../config/prompt-assets.md#scratchpad-处理硬约束) 作为独立附录处理。`buildCompactionResultGroup` 在按 opaque 标签切分普通正文之前，分离末尾完整的 `<scratchpad>`（依次含 `<ephemeral>` 与 `<durable>`），普通正文继续按原窗口校验并映射；随后把附录接到本次最后一个新摘要片段的末尾。输入末尾是受保护消息时，附录仍能保存，受保护消息及已有摘要保持原样。没有可归属的新摘要片段时按输出非法处理，普通空窗口与占位符顺序校验保持有效。
+
 ## 模型链与跨发送 retry 规则（已实现）
 
 每次发送按 `compactionModels` 顺序让全部模型各尝试一次。任意模型成功后立即停止并清除已有失败计数；整条模型链耗尽后累计一次失败，不在当前发送中立即重跑。累计失败达到 `compressing.maxFailureCount` 后，该 mark 进入 terminal，后续自动调度跳过。默认值为 `99999`，可按运维需要调整。

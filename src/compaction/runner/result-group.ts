@@ -7,6 +7,9 @@ type PersistedFragment = CompleteResultGroupInput["fragments"][number];
 const OPAQUE_ONLY_WINDOW_HAN_LIMIT = 50;
 const OPAQUE_ONLY_WINDOW_WORD_LIMIT = 30;
 
+// Stop at each section's first closing tag so earlier examples stay in their window.
+const TRAILING_SCRATCHPAD_PATTERN = /(?:^|\n)(<scratchpad>\s*<ephemeral>(?:(?!<\/ephemeral>)[\s\S])*<\/ephemeral>\s*<durable>(?:(?!<\/durable>)[\s\S])*<\/durable>\s*<\/scratchpad>)\s*$/u;
+
 function isShortOpaqueOnlyWindowText(text: string): boolean {
   const hanCount = (text.match(/\p{Script=Han}/gu) ?? []).length;
   if (hanCount > 0) {
@@ -69,6 +72,10 @@ function buildFragments(
   }
 
   const fragments: PersistedFragment[] = [];
+  const scratchpad = TRAILING_SCRATCHPAD_PATTERN.exec(input.validatedOutput.contentText);
+  const contentText = scratchpad
+    ? input.validatedOutput.contentText.slice(0, scratchpad.index).trimEnd()
+    : input.validatedOutput.contentText;
   let transcriptCursor = 0;
   let contentCursor = 0;
 
@@ -80,14 +87,14 @@ function buildFragments(
     const selfClosingTagWithSpace = `<opaque slot="${placeholderEntry.opaquePlaceholderSlot}" />`;
     const openTag = `<opaque slot="${placeholderEntry.opaquePlaceholderSlot}">`;
     
-    let placeholderContentIndex = input.validatedOutput.contentText.indexOf(
+    let placeholderContentIndex = contentText.indexOf(
       selfClosingTag,
       contentCursor,
     );
     let matchLength = selfClosingTag.length;
 
     if (placeholderContentIndex < 0) {
-      placeholderContentIndex = input.validatedOutput.contentText.indexOf(
+      placeholderContentIndex = contentText.indexOf(
         selfClosingTagWithSpace,
         contentCursor,
       );
@@ -97,7 +104,7 @@ function buildFragments(
     }
 
     if (placeholderContentIndex < 0) {
-      placeholderContentIndex = input.validatedOutput.contentText.indexOf(
+      placeholderContentIndex = contentText.indexOf(
         openTag,
         contentCursor,
       );
@@ -105,7 +112,7 @@ function buildFragments(
       if (placeholderContentIndex >= 0) {
         // Find closing tag
         const closeTag = "</opaque>";
-        const closeIndex = input.validatedOutput.contentText.indexOf(
+        const closeIndex = contentText.indexOf(
           closeTag,
           placeholderContentIndex + openTag.length
         );
@@ -127,7 +134,7 @@ function buildFragments(
       });
     }
 
-    const replacementText = input.validatedOutput.contentText
+    const replacementText = contentText
       .slice(contentCursor, placeholderContentIndex)
       .trim();
     appendFragmentForWindow({
@@ -147,11 +154,11 @@ function buildFragments(
   appendFragmentForWindow({
     fragments,
     transcriptWindow: input.request.transcript.slice(transcriptCursor),
-    replacementText: input.validatedOutput.contentText.slice(contentCursor).trim(),
+    replacementText: contentText.slice(contentCursor).trim(),
     request: input.request,
   });
 
-  if (fragments.length === 0 && !input.runInput.resultGroup?.preservedFragments?.length) {
+  if (fragments.length === 0 && (scratchpad || !input.runInput.resultGroup?.preservedFragments?.length)) {
     throw new InvalidCompactionOutputError({
       markId: input.request.markID,
       model: input.request.model,
@@ -159,6 +166,12 @@ function buildFragments(
       detail:
         "compact output preserved opaque placeholders but produced no persistable replacement text.",
     });
+  }
+
+  if (scratchpad) {
+    const index = fragments.length - 1;
+    const last = fragments[index]!;
+    fragments[index] = { ...last, replacementText: `${last.replacementText}\n\n${scratchpad[1]}` };
   }
 
   return fragments;

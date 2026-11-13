@@ -17,12 +17,9 @@
 
 ### scratchpad 处理（硬约束）
 
-assistant 输出中的 `<scratchpad>` 区块按生命周期分两段：
+保留标准与输出格式以 [compaction.md 的 scratchpad 规则](../../../prompts/compaction.md#scratchpad生命周期分区) 为唯一维护源：提炼 `<ephemeral>` 中仍有效的信息，默认保留 `<durable>`，合并去重后作为 `compression_output` 文末的一个草稿纸块。已完成事项的结论与负结果同样按有效性承接。
 
-- `<ephemeral>`：本轮思考结论，只服务当前窗口，压缩时**全部丢弃**。
-- `<durable>`：长期有效的规则和中间结论，压缩时**全部保留**；跨多个 `<scratchpad>` 块合并去重后合成一份。
-
-默认全留 `<durable>`，只有 Compression hint 明确授权时才丢弃某条 `<durable>`。scratchpad 是独立通道：`<ephemeral>` 不属于「结论」正文，「结论保留（硬约束）」不适用于 `<ephemeral>`。
+普通正文继续遵守 opaque 窗口规则；文末附录的来源映射由 [压缩生命周期](../compaction/compaction-lifecycle.md#不可压缩占位块) 规定。模型保留质量需按真实输出评价，结构校验和片段映射测试只证明内容可被保存。
 
 ## Delete Prompt 契约
 
