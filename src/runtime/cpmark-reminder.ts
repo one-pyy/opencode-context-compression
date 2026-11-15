@@ -4,7 +4,9 @@ import type { CompressionStatsSnapshot } from "./compression-stats.js";
 
 const STATE_KEY = "cpmark_reminder_armed";
 const REARM_DELTA = 30_000;
-export const CPMARK_REMINDER_TEXT = "别忘了cpmark，这次不用调用inspect，用之前的就好。cpmark完继续之前的任务。如果之前的任务已结束，同样结束。如果上一轮已经完成cpmark，且成功标记的token总数已达到预期，则忽略本次压缩提醒。";
+export const CPMARK_REMINDER_TEXT = `<system-reminder>
+别忘了cpmark，这次不用调用inspect，用之前的就好。cpmark完继续之前的任务。如果之前的任务已结束，同样结束。如果上一轮已经完成cpmark，且成功标记的token总数已达到预期，则忽略本次压缩提醒。
+</system-reminder>`;
 
 // 调用方使用统计调度器按会话串行执行，避免同一会话并发发送。
 export async function sendCpmarkReminder(input: {
@@ -48,7 +50,7 @@ export async function sendCpmarkReminder(input: {
           model: context.model,
           ...(context.variant !== undefined ? { variant: context.variant } : {}),
           ...(context.tools !== undefined ? { tools: context.tools } : {}),
-          parts: [{ type: "text", text: CPMARK_REMINDER_TEXT }],
+          parts: [{ type: "text", text: CPMARK_REMINDER_TEXT, synthetic: true }],
         },
         throwOnError: true,
       });

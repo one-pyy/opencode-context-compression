@@ -48,9 +48,11 @@ test("cpmark reminder uses strict upper bound, hysteresis and persisted session 
   await check(stats(200_000));
   assert.equal(sent.length, 0);
   await check(stats(200_001));
+  assert.match(CPMARK_REMINDER_TEXT, /^<system-reminder>\n别忘了cpmark/);
+  assert.match(CPMARK_REMINDER_TEXT, /\n<\/system-reminder>$/);
   assert.deepEqual(sent[0], {
     path: { id: "session-a" }, query: { directory: "/host-project" },
-    body: { noReply: true, ...promptContext, parts: [{ type: "text", text: CPMARK_REMINDER_TEXT }] },
+    body: { noReply: true, ...promptContext, parts: [{ type: "text", text: CPMARK_REMINDER_TEXT, synthetic: true }] },
     throwOnError: true,
   });
   await check(stats(230_000));
@@ -122,7 +124,7 @@ test("cpmark reminder preserves pending delivery when session context is unavail
   assert.equal(sent.length, 1);
   assert.deepEqual(sent[0]?.body, {
     noReply: true, agent: promptContext.agent, model: promptContext.model,
-    parts: [{ type: "text", text: CPMARK_REMINDER_TEXT }],
+    parts: [{ type: "text", text: CPMARK_REMINDER_TEXT, synthetic: true }],
   });
 });
 
