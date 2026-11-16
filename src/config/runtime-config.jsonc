@@ -22,6 +22,7 @@
   // runtimeLogPath / seamLogPath / debugSnapshotPath 三者设为 null 均可关闭对应写入。
   // "debugSnapshotPath": "logs/debug-snapshots",
   "markedTokenAutoCompactionThreshold": 50000,
+  // 用户消息按加权长度保护：中文表意字符计 1，连续 ASCII 字母/数字串计 2，其余字符计 1。
   "smallUserMessageThreshold": 1536,
   "reminder": {
     // Reminder prompt assets are plain-text files selected by severity × allowDelete.

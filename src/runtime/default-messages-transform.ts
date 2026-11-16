@@ -28,6 +28,7 @@ export interface DefaultMessagesTransformProjectorOptions {
   readonly pluginDirectory: string;
   readonly runtimeConfig: LoadedRuntimeConfig;
   readonly readSessionMessages: SessionHistoryReader["readSessionMessages"];
+  readonly isSubagentSession: (sessionId: string) => Promise<boolean>;
   readonly onProjectionInputRead?: (input: {
     readonly sessionId: string;
     readonly messages: readonly MessagesTransformEnvelope[];
@@ -66,6 +67,7 @@ export function createDefaultMessagesTransformProjector(
           policyEngine: createFlatPolicyEngine({
             smallUserMessageThreshold:
               options.runtimeConfig.smallUserMessageThreshold,
+            protectAllUserMessages: await options.isSubagentSession(sessionId),
           }),
           resultGroupRepository: resultGroups,
           canonicalIdentityService: createCanonicalIdentityService({

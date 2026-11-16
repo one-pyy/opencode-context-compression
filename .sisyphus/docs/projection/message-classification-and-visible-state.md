@@ -11,10 +11,14 @@
 | 消息类型 | visibleState | 说明 |
 |---|---|---|
 | `system` | `protected` | 系统消息永远受保护，不可压缩 |
-| `user` 且文本长度 ≤ `smallUserMessageThreshold` | `protected` | compact 保留短用户消息原文 |
-| `user` 且文本长度 > `smallUserMessageThreshold` | `compressible` | 长用户消息可被压缩 |
+| `user` 且加权文本长度 ≤ `smallUserMessageThreshold` | `protected` | compact 保留短用户消息原文 |
+| `user` 且加权文本长度 > `smallUserMessageThreshold` | `compressible` | 长用户消息可被压缩 |
 | `assistant` | `compressible` | 助手消息可被压缩 |
 | `tool` | `compressible` | 工具结果可被压缩 |
+
+主会话的用户消息采用中英文加权长度：中文表意字符每个计 1，连续 ASCII 字母或数字串每段计 2，空白、标点及其他字符每个计 1。阈值数值表示加权后的总量，不是原始字符数；例如 `1536` 可容纳约 768 个英文单词。分类与 `tokenCount` 是否计算共用同一度量。
+
+子 agent 会话通过宿主 `Session.parentID` 检测。此类会话的所有用户消息都为 `protected`，不应用上述阈值，也不计入 compact 可压缩 token；查询成功的父子关系按 sessionId 缓存，查询失败不按主会话降级处理。这里的保护只约束 compact 原文替换，delete 仍可按照 delete 准入与输入契约处理这些用户消息。
 
 ## 关键含义
 

@@ -47,7 +47,7 @@ Common fields:
 - `leadingUserPromptPath`: prompt used for leading user projection behavior.
 - `compactionModels`: ordered model fallback list used by compaction transport.
 - `markedTokenAutoCompactionThreshold`: token threshold for marked-token readiness.
-- `smallUserMessageThreshold`: threshold used by projection policy for small user messages.
+- `smallUserMessageThreshold`: weighted-length threshold used by projection policy for small user messages. Han characters count as 1, contiguous ASCII alphanumeric words as 2, and other characters as 1.
 - `reminder.hsoft` / `reminder.hhard`: soft and hard reminder thresholds.
 - `reminder.hdelete`: defaults to `60000`; an existing soft/hard reminder additionally requests retirement of unused compact summaries when their visible token total strictly exceeds this threshold and `allowDelete` is enabled.
 - `reminder.cpmarkThreshold`: defaults to `190000`; controls a saved user reminder sent with `noReply: true`. See [cpmark reminder rules](.sisyphus/docs/compaction/reminder-system.md#cpmark-用户提醒).

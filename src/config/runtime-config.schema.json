@@ -53,7 +53,7 @@
     },
     "smallUserMessageThreshold": {
       "$ref": "#/$defs/positiveInteger",
-      "description": "Protection threshold for short user messages in projection."
+      "description": "Weighted-length protection threshold for short user messages: Han characters count as 1, contiguous ASCII alphanumeric words as 2, and other characters as 1."
     },
     "schedulerMarkThreshold": {
       "$ref": "#/$defs/positiveInteger",

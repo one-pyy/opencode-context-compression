@@ -56,8 +56,8 @@ test("Policy Engine - Small User Message Protection", async () => {
 
 test("Policy Engine - Long User Message is Compressible", async () => {
   const engine = createFlatPolicyEngine({ smallUserMessageThreshold: 50 });
-  // length > 50 chars -> tokenCount = length / 4
-  const content = "A".repeat(100);
+  // 100 ASCII words have a weighted length of 200, above the threshold of 50.
+  const content = Array.from({ length: 100 }, () => "A").join(" ");
   const messages = [createMsg(1, content, 100)];
   const history: ReplayedHistory = { sessionId: "ses_1", messages, marks: [], compressionMarkToolCalls: [] };
   
@@ -65,6 +65,48 @@ test("Policy Engine - Long User Message is Compressible", async () => {
   assert.equal(policies.length, 1);
   assert.equal(policies[0].visibleKind, "compressible");
   assert.ok(policies[0].tokenCount > 0); // Design does not mandate tokenCount = length / 4, just that it counts.
+});
+
+test("Policy Engine - User Message Protection Uses Weighted Chinese And English Length", async () => {
+  const engine = createFlatPolicyEngine({ smallUserMessageThreshold: 8 });
+  const messages = [
+    createMsg(1, "汉".repeat(6), 6),
+    createMsg(2, "one two three", 13),
+    createMsg(3, "汉".repeat(9), 9),
+    createMsg(4, "one two three four", 18),
+    createMsg(5, "中文 word 中文字", 11),
+  ];
+  const history: ReplayedHistory = { sessionId: "ses_1", messages, marks: [], compressionMarkToolCalls: [] };
+
+  const policies = await engine.classifyMessages(history);
+  assert.deepEqual(
+    policies.map((policy) => policy.visibleKind),
+    ["protected", "protected", "compressible", "compressible", "compressible"],
+  );
+  assert.equal(policies[0].tokenCount, 0);
+  assert.equal(policies[1].tokenCount, 0);
+  assert.ok(policies.slice(2).every((policy) => policy.tokenCount > 0));
+});
+
+test("Policy Engine - Subagent Sessions Protect All User Messages Without Changing Root Sessions", async () => {
+  const content = "one two three four";
+  const createHistory = (): ReplayedHistory => ({
+    sessionId: "ses_1",
+    messages: [createMsg(1, content, content.length)],
+    marks: [],
+    compressionMarkToolCalls: [],
+  });
+
+  const rootPolicies = await createFlatPolicyEngine({ smallUserMessageThreshold: 8 }).classifyMessages(createHistory());
+  const subagentPolicies = await createFlatPolicyEngine({
+    smallUserMessageThreshold: 8,
+    protectAllUserMessages: true,
+  }).classifyMessages(createHistory());
+
+  assert.equal(rootPolicies[0].visibleKind, "compressible");
+  assert.ok(rootPolicies[0].tokenCount > 0);
+  assert.equal(subagentPolicies[0].visibleKind, "protected");
+  assert.equal(subagentPolicies[0].tokenCount, 0);
 });
 
 test("Policy Engine - Build Mark Tree (Intersection Rejection)", () => {

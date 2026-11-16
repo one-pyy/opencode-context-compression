@@ -42,6 +42,8 @@
 - `seamLogPath`
 - `debugSnapshotPath`
 
+`smallUserMessageThreshold` 使用用户消息的中英文加权长度，不是原始字符数：中文表意字符每个计 1，连续 ASCII 字母或数字串每段计 2，空白、标点及其他字符每个计 1。分类与可压缩 token 计数共用这一度量。
+
 ## 日志与快照开关
 
 `runtimeLogPath`、`seamLogPath`、`debugSnapshotPath` 都可关闭：

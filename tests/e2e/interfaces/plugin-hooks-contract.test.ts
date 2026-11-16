@@ -21,6 +21,7 @@ import {
 import {
   MESSAGES_TRANSFORM_EXTERNAL_CONTRACT,
   createMessagesTransformHook,
+  type MessagesTransformProjectionInput,
 } from "../../../src/runtime/messages-transform.js";
 import { stripLeadingVisibleMessageId } from "../../../src/runtime/text-complete.js";
 import {
@@ -92,6 +93,62 @@ test("plugin entry exports a server function for host plugin loading", async () 
   assert.equal(typeof entry.default?.server, "function");
   assert.equal(typeof entry.server, "function");
   assert.equal(entry.server, entry.default?.server);
+});
+
+test("default projection protects subagent user messages and caches session metadata", async (t) => {
+  const fixture = await createHermeticE2EFixture(t, {
+    suite: "interfaces",
+    caseName: "subagent user message protection",
+  });
+  const sessionID = "session-subagent-protection";
+  const messageID = "msg-subagent-long-user";
+  let sessionGetCount = 0;
+  const message = {
+    info: { ...createUserMessage({ id: messageID }), sessionID },
+    parts: [{
+      ...createTextPart({
+        id: "part-subagent-long-user",
+        messageID,
+        text: "word ".repeat(800),
+      }),
+      sessionID,
+    }],
+  };
+  const pluginInput: PluginInput = {
+    ...createPluginInput(fixture.repoRoot),
+    client: {
+      session: {
+        async get(options: { path: { id: string }; query?: { directory?: string } }) {
+          sessionGetCount += 1;
+          assert.equal(options.path.id, sessionID);
+          assert.equal(options.query?.directory, fixture.repoRoot);
+          return { data: { parentID: "session-parent" } };
+        },
+        async messages() {
+          return { data: [message] };
+        },
+      },
+    } as unknown as PluginInput["client"],
+  };
+  const runtimeConfig = await loadRuntimeConfig({
+    OPENCODE_CONTEXT_COMPRESSION_RUNTIME_CONFIG_PATH:
+      join(resolveRuntimeConfigRepoRoot(), "src/config/runtime-config.jsonc"),
+  });
+  const projector = createDefaultRuntimePluginSeamServices(pluginInput, runtimeConfig).messagesTransformProjector;
+  const projectionInput: MessagesTransformProjectionInput = {
+    input: { sessionID } as MessagesTransformProjectionInput["input"],
+    currentMessages: [message],
+    replacementGateOpen: false,
+  };
+
+  await projector.project(projectionInput);
+  const debug = projector.getLastProjectionDebugState?.();
+  assert.equal(debug?.visibleKindCounts.protected, 1);
+  assert.equal(debug?.visibleKindCounts.compressible, 0);
+  assert.equal(debug?.totalCompressibleTokenCount, 0);
+
+  await projector.project(projectionInput);
+  assert.equal(sessionGetCount, 1);
 });
 
 test("messages.transform mutates the provided output array in place", async () => {

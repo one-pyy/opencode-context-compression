@@ -18,6 +18,7 @@ export function createDefaultRuntimePluginSeamServices(
   runtimeConfig: LoadedRuntimeConfig,
 ): RuntimePluginSeamServices {
   const lockDirectory = resolvePluginLockDirectory(input.directory);
+  const subagentSessionCache = new Map<string, boolean>();
 
   return {
     runtimeArtifacts: createFileBackedRuntimeArtifactRecorder({
@@ -32,6 +33,21 @@ export function createDefaultRuntimePluginSeamServices(
       runtimeConfig,
       readSessionMessages: (sessionId) =>
         readSessionMessagesFromHost(input, sessionId),
+      isSubagentSession: async (sessionId) => {
+        const cached = subagentSessionCache.get(sessionId);
+        if (cached !== undefined) {
+          return cached;
+        }
+
+        const response = await input.client.session.get({
+          path: { id: sessionId },
+          query: { directory: input.directory },
+          throwOnError: true,
+        });
+        const isSubagent = typeof response.data.parentID === "string" && response.data.parentID.length > 0;
+        subagentSessionCache.set(sessionId, isSubagent);
+        return isSubagent;
+      },
       onProjectionInputRead: async ({ sessionId, messages }) => {
         await createFileBackedRuntimeArtifactRecorder({
           pluginDirectory: runtimeConfig.repoRoot,

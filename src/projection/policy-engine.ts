@@ -57,6 +57,7 @@ export const POLICY_ENGINE_INTERNAL_CONTRACT = defineInternalModuleContract({
 
 export interface DesignPolicyEngineOptions {
   readonly smallUserMessageThreshold?: number;
+  readonly protectAllUserMessages?: boolean;
   readonly modelName?: string;
 }
 
@@ -64,32 +65,32 @@ export function createFlatPolicyEngine(
   options: DesignPolicyEngineOptions = {},
 ): PolicyEngine {
   const smallUserMessageThreshold = options.smallUserMessageThreshold ?? 1_024;
+  const protectAllUserMessages = options.protectAllUserMessages ?? false;
 
   return {
     async classifyMessages(history) {
       const policies = await Promise.all(
-        history.messages.map(async (message) =>
-          Object.freeze({
+        history.messages.map(async (message) => {
+          const visibleKind = classifyVisibleKind(
+            message.role,
+            message.contentText,
+            smallUserMessageThreshold,
+            protectAllUserMessages,
+          );
+
+          return Object.freeze({
             canonicalId: message.canonicalId,
             sequence: message.sequence,
             role: message.role,
-            visibleKind: classifyVisibleKind(
-              message.role,
-              message.contentText,
-              smallUserMessageThreshold,
-            ),
-            tokenCount:
-              message.role === "assistant" ||
-              message.role === "tool" ||
-              (message.role === "user" &&
-                message.contentText.length > smallUserMessageThreshold)
-                ? (await estimateEnvelopeTokensWithService({
-                    envelope: message.hostMessage as TransformEnvelope,
-                    modelName: options.modelName,
-                  })).tokenCount
-                : 0,
-          } satisfies MessageProjectionPolicySeed),
-        ),
+            visibleKind,
+            tokenCount: visibleKind === "compressible"
+              ? (await estimateEnvelopeTokensWithService({
+                  envelope: message.hostMessage as TransformEnvelope,
+                  modelName: options.modelName,
+                })).tokenCount
+              : 0,
+          } satisfies MessageProjectionPolicySeed);
+        }),
       );
 
       return Object.freeze(policies);
@@ -218,16 +219,43 @@ export function createFlatPolicyEngine(
   } satisfies PolicyEngine;
 }
 
+// Count Han characters individually and each contiguous ASCII alphanumeric
+// word as two units, so comparable Chinese and English instructions receive
+// similar protection. Other characters retain their original one-unit weight.
+function measureUserMessageLength(contentText: string): number {
+  let length = 0;
+  let inAsciiWord = false;
+
+  for (const character of contentText) {
+    if (/^[A-Za-z0-9]$/.test(character)) {
+      if (!inAsciiWord) {
+        length += 2;
+        inAsciiWord = true;
+      }
+      continue;
+    }
+
+    inAsciiWord = false;
+    length += 1;
+  }
+
+  return length;
+}
+
 function classifyVisibleKind(
   role: "system" | "user" | "assistant" | "tool",
   contentText: string,
   smallUserMessageThreshold: number,
+  protectAllUserMessages: boolean,
 ): "protected" | "compressible" {
   if (role === "system") {
     return "protected";
   }
 
-  if (role === "user" && contentText.length <= smallUserMessageThreshold) {
+  if (
+    role === "user" &&
+    (protectAllUserMessages || measureUserMessageLength(contentText) <= smallUserMessageThreshold)
+  ) {
     return "protected";
   }
 
