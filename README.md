@@ -4,6 +4,10 @@ Experimental OpenCode plugin for context compression. It reduces the prompt-visi
 
 This repository is intended to be public as source code and design reference. It is not an npm-published package yet; `package.json` is still marked `private`.
 
+<img width="1731" height="82" alt="ScreenShot_2026-11-17_23-48-59" src="https://github.com/user-attachments/assets/22867401-8bfb-49ac-b81b-c975c2e6ede4" />
+
+It can run for over 1,400 turns within a 300K-token context window at an extremely high compression rate, while retaining the vast majority of critical information required by the model.
+
 ## What it does
 
 - Adds a `compression_mark` tool for marking message ranges that should be compacted or deleted.
